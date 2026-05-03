@@ -424,8 +424,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 					Expanded(
 						child: _downloads.isEmpty
 							? const Center(child: Text('No downloaded threads'))
-							: ListView.builder(
-								itemCount: _downloads.length,
+							: ListView.builder(							padding: EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom),								itemCount: _downloads.length,
 								itemBuilder: (context, i) {
 						final d = _sortedDownloads[i];
 						return _DownloadedThreadRow(
