@@ -39,7 +39,8 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')" >> $GITHUB_OUTPUT
+        run: |
+          echo "version=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
