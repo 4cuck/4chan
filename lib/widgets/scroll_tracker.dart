@@ -54,22 +54,28 @@ class ScrollTracker {
 					// But it's still appropriate to show stuff now.
 					slowScrollDirection.value = VerticalDirection.up;
 				}
-				slowScrollDirection.value = null;
 			}
 			else if (notification is ScrollUpdateNotification) {
 				_thisScrollHasDragDetails |= notification.dragDetails != null;
 				if (notification.metrics.axis == Axis.vertical && _thisScrollHasDragDetails && isMeaningfullyScrollable) {
 					final delta = notification.scrollDelta ?? 0;
-					if ((notification.metrics.pixels > notification.metrics.minScrollExtent || delta < 0) &&
-							(notification.metrics.pixels < notification.metrics.maxScrollExtent || delta > 0)) {
-						_accumulatedScrollDelta += delta;
+					final isOverscrollBottom = notification.metrics.pixels > notification.metrics.minScrollExtent;
+					if (notification.metrics.extentAfter >= 100) {
+						if ((isOverscrollBottom || delta < 0) &&
+								(notification.metrics.pixels < notification.metrics.maxScrollExtent || delta > 0)) {
+							_accumulatedScrollDelta += delta;
+						}
+						_accumulatedScrollDelta = _accumulatedScrollDelta.clamp(-51, 51);
+						if (_accumulatedScrollDelta > 50 && slowScrollDirection.value != VerticalDirection.down) {
+							_accumulatedScrollDelta = 0;
+							slowScrollDirection.value = VerticalDirection.down;
+						}
+						else if (_accumulatedScrollDelta < -50 && slowScrollDirection.value != VerticalDirection.up) {
+							_accumulatedScrollDelta = 0;
+							slowScrollDirection.value = VerticalDirection.up;
+						}
 					}
-					_accumulatedScrollDelta = _accumulatedScrollDelta.clamp(-51, 51);
-					if (_accumulatedScrollDelta > 50 && slowScrollDirection.value != VerticalDirection.down) {
-						_accumulatedScrollDelta = 0;
-						slowScrollDirection.value = VerticalDirection.down;
-					}
-					else if (_accumulatedScrollDelta < -50 && slowScrollDirection.value != VerticalDirection.up) {
+					else if (delta > 0 && isOverscrollBottom && slowScrollDirection.value != VerticalDirection.up) {
 						_accumulatedScrollDelta = 0;
 						slowScrollDirection.value = VerticalDirection.up;
 					}
@@ -81,7 +87,6 @@ class ScrollTracker {
 			if (!isMeaningfullyScrollable) {
 				// Scrollable size has shrunk, show the bars
 				slowScrollDirection.value = VerticalDirection.up;
-				slowScrollDirection.value = null;
 			}
 		}
 		return false;

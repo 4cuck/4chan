@@ -224,7 +224,7 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       lastSyncedAt: fields[11] as DateTime?,
       errorMessage: fields[12] as String?,
       localThumbnailFilename: fields[13] as String?,
-      isArchivedOnServer: fields[14] as bool? ?? false,
+      isArchivedOnServer: fields[14] as bool,
     );
   }
 

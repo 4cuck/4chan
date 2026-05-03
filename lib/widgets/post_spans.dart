@@ -22,6 +22,7 @@ import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/media.dart';
 import 'package:chan/services/network_image_provider.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/report_bug.dart';
 import 'package:chan/services/screen_size_hacks.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/theme.dart';
@@ -221,6 +222,15 @@ class _HeightEstimatorImpl extends _HeightEstimator {
 			lineHeight = math.max(lineHeight, size.height);
 			currentWidth += width;
 		}
+		else if (size.width >= maxWidth) {
+			if (currentWidth > 0) {
+				addHardLineBreak();
+			}
+			currentHeight += (size.height * count);
+			lineHeight = characterSize.height;
+			_longestLineWidth = maxWidth;
+			currentWidth = 0;
+		}
 		else {
 			while (count > 0) {
 				lineHeight = math.max(lineHeight, size.height);
@@ -243,7 +253,9 @@ class _HeightEstimatorImpl extends _HeightEstimator {
 	@override
 	void addRect(Size size) {
 		if (size.width >= maxWidth) {
-			addHardLineBreak();
+			if (currentWidth > 0) {
+				addHardLineBreak();
+			}
 			lineHeight = size.height;
 			_longestLineWidth = maxWidth;
 			addHardLineBreak();
@@ -2204,21 +2216,41 @@ class PostLinkSpan extends PostTerminalSpan {
 			else {
 				imageSize = const Size(16, 16);
 			}
-			final otherWidth = 32 + imageSize.width;
-			final estimator2 = _HeightEstimatorImpl(estimator.post, estimator.zone, estimator.characterSize, estimator.maxWidth - otherWidth);
-			if (name case final name? when !url.contains(name) && (data.title?.contains(name) != true)) {
-				estimator2.addPlaintext(name);
-				estimator2.addHardLineBreak();
+			if (estimator.maxWidth < 250) {
+				// Vertical layout
+				final estimator2 = _HeightEstimatorImpl(estimator.post, estimator.zone, estimator.characterSize, estimator.maxWidth - 32);
+				if (name case final name? when !url.contains(name) && (data.title?.contains(name) != true)) {
+					estimator2.addPlaintext(name);
+					estimator2.addHardLineBreak();
+				}
+				if (data.title case final title? when title.isNotEmpty) {
+					estimator2.addPlaintext(title);
+					estimator2.addHardLineBreak();
+				}
+				else if (name == null || url.contains(name!)) {
+					estimator2.addCharacters(url.length);
+					estimator2.addHardLineBreak();
+				}
+				estimator.addRect(Size(32 + estimator2.width, 32 + imageSize.height + estimator2.height));
 			}
-			if (data.title case final title? when title.isNotEmpty) {
-				estimator2.addPlaintext(title);
-				estimator2.addHardLineBreak();
+			else {
+				// Horizontal layout
+				final otherWidth = 32 + imageSize.width;
+				final estimator2 = _HeightEstimatorImpl(estimator.post, estimator.zone, estimator.characterSize, estimator.maxWidth - otherWidth);
+				if (name case final name? when !url.contains(name) && (data.title?.contains(name) != true)) {
+					estimator2.addPlaintext(name);
+					estimator2.addHardLineBreak();
+				}
+				if (data.title case final title? when title.isNotEmpty) {
+					estimator2.addPlaintext(title);
+					estimator2.addHardLineBreak();
+				}
+				else if (name == null || url.contains(name!)) {
+					estimator2.addCharacters(url.length);
+					estimator2.addHardLineBreak();
+				}
+				estimator.addRect(Size(otherWidth + estimator2.width, 32 + math.max(imageSize.height, estimator2.height)));
 			}
-			else if (name == null || url.contains(name!)) {
-				estimator2.addCharacters(url.length);
-				estimator2.addHardLineBreak();
-			}
-			estimator.addRect(Size(otherWidth + estimator2.width, 32 + math.max(imageSize.height, estimator2.height)));
 		}
 		else {
 			if (name != null && !url.endsWith(name!)) {
@@ -3070,6 +3102,53 @@ class PostBigTextSpan extends PostSpanWithChild {
 			baseTextStyle: options.baseTextStyle.copyWith(fontSize: 23)
 		));
 	}
+}
+
+class PostFailedSpan extends PostTerminalSpan {
+	final Object error;
+	final StackTrace stackTrace;
+	const PostFailedSpan(this.error, this.stackTrace);
+	
+	@override
+	void _estimateHeight(_HeightEstimator estimator) {
+		estimator.addPlaintext(estimator.post.text.replaceAll('<br>', '\n'));
+		estimator.addRect(const Size(300, 150)); // errormessagecard ish
+	}
+
+	@override
+	InlineSpan build(BuildContext context, Post post, PostSpanZoneData zone, Settings settings, SavedTheme theme, PostSpanRenderOptions options) {
+		final error2 = UnsafeParseException(error: error, stackTrace: stackTrace, object: post);
+		return TextSpan(
+			children: [
+				TextSpan(text: post.text.replaceAll('<br>', '\n')),
+				const TextSpan(text: '\n'),
+				WidgetSpan(
+					child: Center(
+						child: ErrorMessageCard(
+							'Failed to display post',
+							remedies: generateBugRemedies(error2, StackTrace.current, context)
+						)
+					)
+				)
+			]
+		);
+	}
+
+	@override
+	void buildText(StringBuffer buffer, Post? post, {bool forQuoteComparison = false, bool includeMarkup = true}) {
+		buffer.writeln(error);
+		buffer.writeln();
+		buffer.writeln(stackTrace.toString().trim());
+		buffer.writeln();
+		buffer.writeln('Raw post data:');
+		buffer.writeln(post?.text.replaceAll('<br>', '\n'));
+	}
+
+	@override
+	void dump(BytesBuilder builder, {bool writeTypeId = true}) {
+		throw PostSpanDumpException('No caching failed posts');
+	}
+
 }
 
 class PostSpanZone extends StatelessWidget {
@@ -4129,7 +4208,7 @@ TextSpan buildPostInfoRow({
 	}
 	if (site.supportsPostUpvotes || post.upvotes != null) {
 		final hot = settings.showHotPostsInScrollbar && switch((post.upvotes, zone.findPost(post.parentId)?.upvotes)) {
-			(int upv, int parentUpv) => parentUpv > 0 && upv > (parentUpv + math.min(parentUpv * 1.4, 15)),
+			(int upv, int parentUpv) => post.parentId != post.threadId && parentUpv > 0 && upv > (parentUpv + math.min(parentUpv * 1.4, 15)),
 			_ => false
 		};
 		children.addAll([

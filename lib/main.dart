@@ -715,6 +715,7 @@ class ChanTabs extends ChangeNotifier {
 	late StreamSubscription<SharedMedia> _sharedFilesSubscription;
 	// Sometimes duplicate links are received due to use of multiple link handling packages
 	({DateTime time, String link})? _lastLink;
+	late (String?, String) _lastHomeBoard;
 
 	ChanTabs._(this._homePageState) {
 		Persistence.globalTabMutator.addListener(_onGlobalTabMutatorUpdate);
@@ -725,6 +726,8 @@ class ChanTabs extends ChangeNotifier {
 		for (final tab in Persistence.tabs) {
 			tab.addListener(_onTabUpdate);
 		}
+		_lastHomeBoard = (Settings.instance.homeImageboardKey, Settings.instance.homeBoardName);
+		Settings.instance.addListener(_onSettingsUpdate);
 		_settingsSubscription = SelectListenable(Settings.instance, (s) => (
 			s.alwaysUseWideDrawerGesture,
 			s.openBoardSwitcherSlideGesture,
@@ -761,6 +764,51 @@ class ChanTabs extends ChangeNotifier {
 					_onNotificationTapped(board, notification.target.boardThreadOrPostIdentifier, showAnimationsForward: !notification.isLaunch);
 				}));
 			}
+		}
+	}
+
+	void _onSettingsUpdate() async {
+		final newHomeBoard = (Settings.instance.homeImageboardKey, Settings.instance.homeBoardName);
+		if (newHomeBoard != _lastHomeBoard) {
+			if (Persistence.tabs.first.imageboardKey == _lastHomeBoard.$1
+			 		&& Persistence.tabs.first.board == _lastHomeBoard.$2
+			) {
+				if (newHomeBoard.$1 != null) {
+					// Edit existing tab
+					final tab = Persistence.tabs.first;
+					tab.board = newHomeBoard.$2;
+					final didChangeSite = tab.imageboardKey != newHomeBoard.$1;
+					tab.imageboardKey = newHomeBoard.$1;
+					tab.initialSearch = null;
+					if (didChangeSite) {
+						tab.masterDetailKey.currentState?.setValue(null, showAnimationsForward: false);
+					}
+					else {
+						Future.delayed(const Duration(seconds: 1), Persistence.saveTabs);
+						tab.didUpdate();
+					}
+				}
+				else if (Persistence.tabs.first.thread == null) {
+					// Close existing tab
+					closeBrowseTab(0);
+				}
+			}
+			else if (
+				newHomeBoard.$1 != null
+				&& !(Persistence.tabs.first.imageboardKey == newHomeBoard.$1
+							&& Persistence.tabs.first.board == newHomeBoard.$2
+							&& Persistence.tabs.first.thread == null
+				)
+			) {
+				// Insert new tab
+				final tab = PersistentBrowserTab(
+					imageboardKey: newHomeBoard.$1,
+					board: newHomeBoard.$2
+				);
+				await tab.initialize();
+				insertInitializedTab(0, tab, keepTabPopupOpen: true, activate: false);
+			}
+			_lastHomeBoard = newHomeBoard;
 		}
 	}
 
@@ -866,6 +914,7 @@ class ChanTabs extends ChangeNotifier {
 		for (final tab in Persistence.tabs) {
 			tab.removeListener(_onTabUpdate);
 		}
+		Settings.instance.removeListener(_onSettingsUpdate);
 		_settingsSubscription.dispose();
 		_linkSubscription.cancel();
 		_fakeLinkSubscription.cancel();
@@ -876,7 +925,7 @@ class ChanTabs extends ChangeNotifier {
 		}
 	}
 
-	PersistentBrowserTab addNewTab({
+	Future<PersistentBrowserTab> addNewTab({
 		String? withImageboardKey,
 		int? atPosition,
 		String? withBoard,
@@ -888,7 +937,7 @@ class ChanTabs extends ChangeNotifier {
 		String? withInitialSearch,
 		bool keepTabPopupOpen = false,
 		String? initiallyUseArchive
-	}) {
+	}) async {
 		final pos = atPosition ?? Persistence.tabs.length;
 		final thread = withThread ?? (withThreadId == null ? null : ThreadIdentifier(withBoard!, withThreadId));
 		final tab = PersistentBrowserTab(
@@ -898,7 +947,7 @@ class ChanTabs extends ChangeNotifier {
 			incognito: incognito,
 			initialSearch: withInitialSearch
 		);
-		tab.initialize();
+		await tab.initialize();
 		if (thread != null && withInitialPostId != null) {
 			tab.initialPostId[thread] = withInitialPostId;
 		}
@@ -941,6 +990,10 @@ class ChanTabs extends ChangeNotifier {
 		final currentTab = Persistence.tabs[activeBrowserTab.value];
 		if (oldIndex < newIndex) {
 			newIndex -= 1;
+		}
+		if (Settings.instance.usingHomeBoard) {
+			newIndex += 1;
+			oldIndex += 1;
 		}
 		final tab = Persistence.tabs.removeAt(oldIndex);
 		Persistence.tabs.insert(newIndex, tab);
@@ -1165,7 +1218,7 @@ class ChanTabs extends ChangeNotifier {
 					catalogTab.didUpdate();
 				}
 			}
-			tab ??= addNewTab(
+			tab ??= await addNewTab(
 				activate: false,
 				withImageboardKey: imageboardKey,
 				withBoard: board,
@@ -1628,7 +1681,6 @@ class _ChanHomePageState extends State<ChanHomePage> {
 	final _keys = <int, GlobalKey>{};
 	late final ValueNotifier<bool> _showTabPopup;
 	Imageboard? get devImageboard => ImageboardRegistry.instance.dev;
-	bool _hideTabPopupAutomatically = false;
 	_AuthenticationStatus _authenticationStatus = _AuthenticationStatus.ok;
 	final _drawerScaffoldKey = GlobalKey<AdaptiveScaffoldState>(debugLabel: '_ChanHomePageState._drawerScaffoldKey');
 
@@ -1642,11 +1694,11 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		await SchedulerBinding.instance.endOfFrame;
 		_setAdditionalSafeAreaInsets();
 		if (ScrollTracker.instance.slowScrollDirection.value == VerticalDirection.down && _showTabPopup.value) {
-			_hideTabPopupAutomatically = true;
+			Persistence.settings.didHideTabPopupAutomatically = true;
 			_showTabPopup.value = false;
 		}
-		else if (ScrollTracker.instance.slowScrollDirection.value == VerticalDirection.up && _hideTabPopupAutomatically) {
-			_hideTabPopupAutomatically = false;
+		else if (ScrollTracker.instance.slowScrollDirection.value == VerticalDirection.up && Persistence.settings.didHideTabPopupAutomatically) {
+			Persistence.settings.didHideTabPopupAutomatically = false;
 			_showTabPopup.value = true;
 		}
 	}
@@ -1676,9 +1728,11 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		super.initState();
 		_tabs = ChanTabs._(this);
 		_tabs.addListener(_tabsListener);
-		_showTabPopup = ValueNotifier(false)
+		_showTabPopup = ValueNotifier(Persistence.settings.showTabPopup)
 			..addListener(_setAdditionalSafeAreaInsets)
 			..addListener(() {
+				Persistence.settings.showTabPopup = _showTabPopup.value;
+				Persistence.settings.save();
 				if (_showTabPopup.value) {
 					Future.microtask(() => _tabs._animateTabList(duration: Duration.zero));
 				}
@@ -2154,6 +2208,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		);
 		return Flex(
 			direction: axis,
+			crossAxisAlignment: CrossAxisAlignment.stretch,
 			children: [
 				if (usingHomeBoard) buildTabIcon(0),
 				Expanded(
@@ -2165,7 +2220,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 						itemBuilder: (context, index) {
 							final i = usingHomeBoard ? index + 1 : index;
 							return ReorderableDelayedDragStartListener(
-								index: i,
+								index: index,
 								key: _tabs._tabButtonKeys.putIfAbsent(i, () => GlobalKey(debugLabel: '_tabs._tabButtonKeys[$i]')),
 								child: buildTabIcon(i)
 							);
@@ -2346,7 +2401,10 @@ class _ChanHomePageState extends State<ChanHomePage> {
 																Expanded(
 																	child: AnimatedBuilder(
 																		animation: _tabs.activeBrowserTab,
-																		builder: (context, _) => _buildTabList(Axis.vertical, const ConstantValueListenable(true))
+																		builder: (context, _) => Selector<Settings, bool>(
+																			selector: (context, settings) => settings.usingHomeBoard,
+																			builder: (context, _, __) => _buildTabList(Axis.vertical, const ConstantValueListenable(true))
+																		)
 																	)
 																),
 																_buildNewTabIcon(
@@ -2638,7 +2696,10 @@ class _ChanHomePageState extends State<ChanHomePage> {
 																Expanded(
 																	child: AnimatedBuilder(
 																		animation: _tabs.activeBrowserTab,
-																		builder: (context, _) => _buildTabList(Axis.horizontal, _showTabPopup)
+																		builder: (context, _) => Selector<Settings, bool>(
+																			selector: (context, settings) => settings.usingHomeBoard,
+																			builder: (context, _, __) => _buildTabList(Axis.horizontal, _showTabPopup)
+																		)
 																	)
 																),
 																_buildNewTabIcon(axis: Axis.horizontal)

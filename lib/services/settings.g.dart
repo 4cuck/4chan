@@ -2787,10 +2787,33 @@ class SavedSettingsFields {
     fieldName: 'cachedWebViewHeaders',
     merger: NullableMerger(MapMerger(PrimitiveMerger())),
   );
+  static bool getShowTabPopup(SavedSettings x) => x.showTabPopup;
+  static void setShowTabPopup(SavedSettings x, bool v) => x.showTabPopup = v;
+  static const int kShowTabPopup = 215;
+  static const showTabPopup = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getShowTabPopup,
+    setter: setShowTabPopup,
+    fieldNumber: kShowTabPopup,
+    fieldName: 'showTabPopup',
+    merger: PrimitiveMerger(),
+  );
+  static bool getDidHideTabPopupAutomatically(SavedSettings x) =>
+      x.didHideTabPopupAutomatically;
+  static void setDidHideTabPopupAutomatically(SavedSettings x, bool v) =>
+      x.didHideTabPopupAutomatically = v;
+  static const int kDidHideTabPopupAutomatically = 216;
+  static const didHideTabPopupAutomatically =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getDidHideTabPopupAutomatically,
+    setter: setDidHideTabPopupAutomatically,
+    fieldNumber: kDidHideTabPopupAutomatically,
+    fieldName: 'didHideTabPopupAutomatically',
+    merger: PrimitiveMerger(),
+  );
   static bool getCopypartyEnabled(SavedSettings x) => x.copypartyEnabled;
   static void setCopypartyEnabled(SavedSettings x, bool v) =>
       x.copypartyEnabled = v;
-  static const int kCopypartyEnabled = 215;
+  static const int kCopypartyEnabled = 217;
   static const copypartyEnabled = HiveFieldAdapter<SavedSettings, bool>(
     getter: getCopypartyEnabled,
     setter: setCopypartyEnabled,
@@ -2801,7 +2824,7 @@ class SavedSettingsFields {
   static String getCopypartyServerUrl(SavedSettings x) => x.copypartyServerUrl;
   static void setCopypartyServerUrl(SavedSettings x, String v) =>
       x.copypartyServerUrl = v;
-  static const int kCopypartyServerUrl = 216;
+  static const int kCopypartyServerUrl = 218;
   static const copypartyServerUrl = HiveFieldAdapter<SavedSettings, String>(
     getter: getCopypartyServerUrl,
     setter: setCopypartyServerUrl,
@@ -2812,7 +2835,7 @@ class SavedSettingsFields {
   static String getCopypartyDestRoot(SavedSettings x) => x.copypartyDestRoot;
   static void setCopypartyDestRoot(SavedSettings x, String v) =>
       x.copypartyDestRoot = v;
-  static const int kCopypartyDestRoot = 217;
+  static const int kCopypartyDestRoot = 219;
   static const copypartyDestRoot = HiveFieldAdapter<SavedSettings, String>(
     getter: getCopypartyDestRoot,
     setter: setCopypartyDestRoot,
@@ -3035,15 +3058,17 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     212: SavedSettingsFields.lastDefaultUserAgent,
     213: SavedSettingsFields.cachedWebViewTlsHello,
     214: SavedSettingsFields.cachedWebViewHeaders,
-    215: SavedSettingsFields.copypartyEnabled,
-    216: SavedSettingsFields.copypartyServerUrl,
-    217: SavedSettingsFields.copypartyDestRoot
+    215: SavedSettingsFields.showTabPopup,
+    216: SavedSettingsFields.didHideTabPopupAutomatically,
+    217: SavedSettingsFields.copypartyEnabled,
+    218: SavedSettingsFields.copypartyServerUrl,
+    219: SavedSettingsFields.copypartyDestRoot
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(218, null);
+    final List<dynamic> fields = List.filled(220, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3271,16 +3296,18 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       lastDefaultUserAgent: fields[212] as String?,
       cachedWebViewTlsHello: fields[213] as TlsClientHello?,
       cachedWebViewHeaders: (fields[214] as Map?)?.cast<String, String>(),
-      copypartyEnabled: fields[215] as bool?,
-      copypartyServerUrl: fields[216] as String?,
-      copypartyDestRoot: fields[217] as String?,
+      showTabPopup: fields[215] as bool?,
+      didHideTabPopupAutomatically: fields[216] as bool?,
+      copypartyEnabled: fields[217] as bool?,
+      copypartyServerUrl: fields[218] as String?,
+      copypartyDestRoot: fields[219] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(205)
+      ..writeByte(207)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3686,10 +3713,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(214)
       ..write(obj.cachedWebViewHeaders)
       ..writeByte(215)
-      ..write(obj.copypartyEnabled)
+      ..write(obj.showTabPopup)
       ..writeByte(216)
-      ..write(obj.copypartyServerUrl)
+      ..write(obj.didHideTabPopupAutomatically)
       ..writeByte(217)
+      ..write(obj.copypartyEnabled)
+      ..writeByte(218)
+      ..write(obj.copypartyServerUrl)
+      ..writeByte(219)
       ..write(obj.copypartyDestRoot);
   }
 

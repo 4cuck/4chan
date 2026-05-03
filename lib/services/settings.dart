@@ -1265,10 +1265,14 @@ class SavedSettings extends HiveObject {
 	@HiveField(214)
 	Map<String, String>? cachedWebViewHeaders;
 	@HiveField(215)
-	bool copypartyEnabled;
+	bool showTabPopup;
 	@HiveField(216)
-	String copypartyServerUrl;
+	bool didHideTabPopupAutomatically;
 	@HiveField(217)
+	bool copypartyEnabled;
+	@HiveField(218)
+	String copypartyServerUrl;
+	@HiveField(219)
 	String copypartyDestRoot;
 
 	SavedSettings({
@@ -1486,6 +1490,8 @@ class SavedSettings extends HiveObject {
 		this.lastDefaultUserAgent,
 		this.cachedWebViewTlsHello,
 		this.cachedWebViewHeaders,
+		bool? showTabPopup,
+		bool? didHideTabPopupAutomatically,
 		bool? copypartyEnabled,
 		String? copypartyServerUrl,
 		String? copypartyDestRoot,
@@ -1722,6 +1728,8 @@ class SavedSettings extends HiveObject {
 		videoContextMenuInGallery = videoContextMenuInGallery ?? false,
 		doubleTapToSeekVideo = doubleTapToSeekVideo ?? false,
 		showHotPostsInScrollbar = showHotPostsInScrollbar ?? false,
+		showTabPopup = showTabPopup ?? false,
+		didHideTabPopupAutomatically = didHideTabPopupAutomatically ?? false,
 		copypartyEnabled = copypartyEnabled ?? false,
 		copypartyServerUrl = copypartyServerUrl ?? '',
 		copypartyDestRoot = copypartyDestRoot ?? '/chan/' {
@@ -2189,6 +2197,42 @@ class CombinedMutableSetting<T1, T2> extends MutableSetting<(T1, T2)> {
 	bool operator == (Object other) =>
 		identical(this, other) ||
 		other is CombinedMutableSetting &&
+		other.setting1 == setting1 &&
+		other.setting2 == setting2;
+	
+	@override
+	int get hashCode => Object.hash(setting1, setting2);
+}
+
+/// To notify both simultaneously
+class CombinedSavedSetting<T1, T2> extends ImmutableSetting<(T1, T2)> {
+	final SavedSetting<T1> setting1;
+	final SavedSetting<T2> setting2;
+	const CombinedSavedSetting(this.setting1, this.setting2);
+
+	@override
+	(T1, T2) read(BuildContext context) => (setting1.read(context), setting2.read(context));
+
+	@override
+	(T1, T2) watch(BuildContext context) => (setting1.watch(context), setting2.watch(context));
+
+	@override
+	Future<void> write(BuildContext context, (T1, T2) value) async {
+		setting1.setting.setter(Settings.instance.settings, value.$1);
+		setting2.setting.setter(Settings.instance.settings, value.$2);
+		await Settings.instance.didEdit();
+	}
+
+	@override
+	List<String> get syncPaths => [
+		...setting1.syncPaths,
+		...setting2.syncPaths
+	];
+
+	@override
+	bool operator == (Object other) =>
+		identical(this, other) ||
+		other is CombinedSavedSetting &&
 		other.setting1 == setting1 &&
 		other.setting2 == setting2;
 	
