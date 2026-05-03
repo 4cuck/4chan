@@ -75,6 +75,13 @@ class _CachingFile extends EasyListenable {
 	final RequestPriority? priority;
 	({int fromByte, Uint8List buffer, Map<String, List<String>> headers})? endRange;
 	String Function(String)? patchFileAsString;
+	bool _isDisposed = false;
+
+	@override
+	void dispose() {
+		_isDisposed = true;
+		super.dispose();
+	}
 
 	_CachingFile({
 		required this.client,
@@ -287,6 +294,15 @@ class VideoServer {
 					completer.complete();
 				}
 			});
+		}
+		if (file._isDisposed) {
+			try {
+				await request.response.close();
+			}
+			on HttpException {
+				// Already closed
+			}
+			return;
 		}
 		file.addListener(listener);
 		listener();
@@ -544,7 +560,9 @@ class VideoServer {
 						await handle.writeFrom(chunk);
 						await handle.flush();
 						cachingFile.currentBytes += chunk.length;
+					if (!cachingFile._isDisposed) {
 						cachingFile.didUpdate();
+					}
 					});
 					await for (final chunk in (response.data as ResponseBody).stream) {
 						buffer.add(chunk);

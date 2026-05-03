@@ -8,6 +8,7 @@ import 'package:chan/models/attachment.dart';
 import 'package:chan/models/board.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/services/attachment_cache.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/http_429_backoff.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/launch_url_externally.dart';
@@ -309,6 +310,7 @@ class AttachmentViewerController extends ChangeNotifier {
 	bool _hideVideoPlayerController = false;
 	List<RecognizedTextBlock> _textBlocks = [];
 	bool _soundSourceFailed = false;
+	String? _copypartyPassword;
 	final _playerErrorStream = StreamController<String>.broadcast();
 	({
 		ValueNotifier<int> currentBytes,
@@ -530,9 +532,17 @@ class AttachmentViewerController extends ChangeNotifier {
 	}
 
 	Map<String, String> getHeaders(Uri url) {
+		final serverUrl = Persistence.settings.copypartyServerUrl;
+		final copypartyHost = serverUrl.isNotEmpty ? Uri.tryParse(serverUrl)?.host : null;
+		final cp = _copypartyPassword;
 		return {
 			...site.getHeaders(url),
 			if (_useRandomUserAgent ?? attachment.useRandomUseragent) 'user-agent': makeRandomUserAgent(),
+			// Inject Pw: header only when CopyParty is enabled, host matches, and password is non-empty
+			if (Persistence.settings.copypartyEnabled &&
+			    copypartyHost != null && url.host == copypartyHost &&
+			    cp != null && cp.isNotEmpty)
+				'Pw': cp,
 		};
 	}
 
@@ -543,6 +553,11 @@ class AttachmentViewerController extends ChangeNotifier {
 		final alreadyCached = await AttachmentCache.optimisticallyFindFile(attachment);
 		if (!force && alreadyCached != null) {
 			return alreadyCached.uri;
+		}
+		final copypartyUri = await ThreadDownloadService.instance.copypartySourceUri(attachment);
+		if (!force && copypartyUri != null) {
+			_copypartyPassword = await ThreadDownloadService.instance.getCopypartyPassword();
+			return copypartyUri;
 		}
 		final attachmentUrl = Uri.parse(attachment.url);
 		if ((!_checkArchives && attachmentUrl.host == site.imageUrl) || site.archives.isEmpty) {
@@ -924,7 +939,7 @@ class AttachmentViewerController extends ChangeNotifier {
 						..then((_) async {
 							if (await waitForPlaying.future) {
 								// Wait until it actually starts
-								await controller.player.stream.position.first;
+								await controller.player.stream.position.firstOrNull;
 							}
 							_recordUrlTime(url, attachment.type, DateTime.now().difference(startTime));
 							_scheduleHidingOfLoadingProgress();

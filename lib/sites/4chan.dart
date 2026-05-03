@@ -369,12 +369,24 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 							// href looks like '/tv/thread/123456#p123457'
 							final parts = node.attributes['href']!.split('/');
 							final threadIndex = parts.indexOf('thread');
-							final ids = parts[threadIndex + 1].split('#p');
-							elements.add(PostQuoteLinkSpan(
-								board: parts[threadIndex - 1],
-								threadId: int.parse(ids[0]),
-								postId: int.parse(ids[1])
-							));
+							final ids = threadIndex != -1 ? parts[threadIndex + 1].split('#p') : const <String>[];
+							if (threadIndex != -1 && ids.length >= 2) {
+								elements.add(PostQuoteLinkSpan(
+									board: parts[threadIndex - 1],
+									threadId: int.parse(ids[0]),
+									postId: int.parse(ids[1])
+								));
+							}
+							else {
+								// Fallback: malformed quotelink, treat as board/catalog link
+								final catalogSearchMatch = _catalogSearchPattern.firstMatch(parts.last);
+								if (catalogSearchMatch != null) {
+									elements.add(PostCatalogSearchSpan(board: parts[parts.length - 2], query: Uri.decodeFull(catalogSearchMatch.group(1)!)));
+								}
+								else if (parts.length >= 2) {
+									elements.add(PostBoardLinkSpan(parts[parts.length - 2]));
+								}
+							}
 						}
 						else {
 							// href looks like '//boards.4chan.org/pol/'

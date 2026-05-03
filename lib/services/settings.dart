@@ -1264,6 +1264,12 @@ class SavedSettings extends HiveObject {
 	TlsClientHello? cachedWebViewTlsHello;
 	@HiveField(214)
 	Map<String, String>? cachedWebViewHeaders;
+	@HiveField(215)
+	bool copypartyEnabled;
+	@HiveField(216)
+	String copypartyServerUrl;
+	@HiveField(217)
+	String copypartyDestRoot;
 
 	SavedSettings({
 		AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1480,6 +1486,9 @@ class SavedSettings extends HiveObject {
 		this.lastDefaultUserAgent,
 		this.cachedWebViewTlsHello,
 		this.cachedWebViewHeaders,
+		bool? copypartyEnabled,
+		String? copypartyServerUrl,
+		String? copypartyDestRoot,
 	}): autoloadAttachments = autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
 		theme = theme ?? TristateSystemSetting.system,
 		hideOldStickiedThreads = hideOldStickiedThreads ?? false,
@@ -1712,7 +1721,10 @@ class SavedSettings extends HiveObject {
 		replyButtonAtBottom = replyButtonAtBottom ?? false,
 		videoContextMenuInGallery = videoContextMenuInGallery ?? false,
 		doubleTapToSeekVideo = doubleTapToSeekVideo ?? false,
-		showHotPostsInScrollbar = showHotPostsInScrollbar ?? false {
+		showHotPostsInScrollbar = showHotPostsInScrollbar ?? false,
+		copypartyEnabled = copypartyEnabled ?? false,
+		copypartyServerUrl = copypartyServerUrl ?? '',
+		copypartyDestRoot = copypartyDestRoot ?? '/chan/' {
 		if (!this.appliedMigrations.contains('filters')) {
 			this.filterConfiguration = this.filterConfiguration.replaceAllMapped(RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
 				return '${m.group(1)};save;highlight${m.group(3)}';
@@ -3054,6 +3066,15 @@ class Settings extends ChangeNotifier {
 
 	static const showHotPostsInScrollbarSetting = SavedSetting(SavedSettingsFields.showHotPostsInScrollbar);
 	bool get showHotPostsInScrollbar => showHotPostsInScrollbarSetting(this);
+
+	static const copypartyEnabledSetting = SavedSetting(SavedSettingsFields.copypartyEnabled);
+	bool get copypartyEnabled => copypartyEnabledSetting(this);
+
+	static const copypartyServerUrlSetting = SavedSetting(SavedSettingsFields.copypartyServerUrl);
+	String get copypartyServerUrl => copypartyServerUrlSetting(this);
+
+	static const copypartyDestRootSetting = SavedSetting(SavedSettingsFields.copypartyDestRoot);
+	String get copypartyDestRoot => copypartyDestRootSetting(this);
 
 	final List<VoidCallback> _appResumeCallbacks = [];
 	void addAppResumeCallback(VoidCallback task) {

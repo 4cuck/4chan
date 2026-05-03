@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:chan/models/attachment.dart';
 import 'package:chan/services/apple.dart';
 import 'package:chan/services/attachment_cache.dart';
 import 'package:chan/services/imageboard.dart';
+import 'package:chan/services/persistence.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/network_image_provider.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/theme.dart';
@@ -123,7 +126,7 @@ _KeyedAfterPaint? _makeKeyedAfterPaint({
 	);
 }
 
-class AttachmentThumbnail extends StatelessWidget {
+class AttachmentThumbnail extends StatefulWidget {
 	final Attachment attachment;
 	final double? width;
 	final double? height;
@@ -164,25 +167,70 @@ class AttachmentThumbnail extends StatelessWidget {
 		Key? key
 	}) : super(key: key);
 
+	@override
+	State<AttachmentThumbnail> createState() => _AttachmentThumbnailState();
+}
+
+class _AttachmentThumbnailState extends State<AttachmentThumbnail> {
+	Uri? _copypartyFullUri;
+	Uri? _copypartyThumbUri;
+	Map<String, String>? _copypartyHeaders;
+
+	@override
+	void initState() {
+		super.initState();
+		_loadCopypartySource();
+	}
+
+	@override
+	void didUpdateWidget(AttachmentThumbnail oldWidget) {
+		super.didUpdateWidget(oldWidget);
+		if (oldWidget.attachment != widget.attachment) {
+			_copypartyFullUri = null;
+			_copypartyThumbUri = null;
+			_copypartyHeaders = null;
+			_loadCopypartySource();
+		}
+	}
+
+	Future<void> _loadCopypartySource() async {
+		if (!Persistence.settings.copypartyEnabled) return;
+		final attachment = widget.attachment;
+		final fullUri = await ThreadDownloadService.instance.copypartySourceUri(attachment);
+		final thumbUri = await ThreadDownloadService.instance.copypartySourceUri(
+			attachment,
+			urlForFilename: attachment.thumbnailUrl,
+		);
+		if (fullUri == null && thumbUri == null) return;
+		if (!mounted || widget.attachment != attachment) return;
+		final pw = await ThreadDownloadService.instance.getCopypartyPassword();
+		if (!mounted || widget.attachment != attachment) return;
+		setState(() {
+			_copypartyFullUri = fullUri;
+			_copypartyThumbUri = thumbUri;
+			_copypartyHeaders = pw?.isNotEmpty == true ? {'Pw': pw!} : const <String, String>{};
+		});
+	}
+
 	Widget _maybeHero(BuildContext context, Widget child) {
-		return (hero != null) ? Hero(
-			tag: hero!,
+		return (widget.hero != null) ? Hero(
+			tag: widget.hero!,
 			child: child,
 			flightShuttleBuilder: (context, animation, direction, fromContext, toContext) {
 				return (direction == HeroFlightDirection.push ? fromContext.widget as Hero : toContext.widget as Hero).child;
 			},
 			createRectTween: (startRect, endRect) {
 				if (startRect != null && endRect != null) {
-					if (attachment.type == AttachmentType.image || attachment.type.isVideo) {
+					if (widget.attachment.type == AttachmentType.image || widget.attachment.type.isVideo) {
 						// Need to deflate the original startRect because it has inbuilt layoutInsets
 						// This AttachmentThumbnail will always fill its size
 						final rootPadding = MediaQueryData.fromView(View.of(context)).padding - sumAdditionalSafeAreaInsets();
 						startRect = rootPadding.deflateRect(startRect);
 					}
-					if (fit == BoxFit.cover && attachment.width != null && attachment.height != null) {
+					if (widget.fit == BoxFit.cover && widget.attachment.width != null && widget.attachment.height != null) {
 						// This is AttachmentViewer -> AttachmentThumbnail (cover)
 						// Need to shrink the startRect, so it only contains the image
-						final fittedStartSize = applyBoxFit(BoxFit.contain, Size(attachment.width!.toDouble(), attachment.height!.toDouble()), startRect.size).destination;
+						final fittedStartSize = applyBoxFit(BoxFit.contain, Size(widget.attachment.width!.toDouble(), widget.attachment.height!.toDouble()), startRect.size).destination;
 						startRect = Alignment.center.inscribe(fittedStartSize, startRect);
 					}
 				}
@@ -198,8 +246,8 @@ class AttachmentThumbnail extends StatelessWidget {
 		required double effectiveHeight,
 		required bool forceFullQuality
 	}) {
-		final spoiler = attachment.spoiler && !revealSpoilers;
-		final s = site ?? context.watch<ImageboardSite?>();
+		final spoiler = widget.attachment.spoiler && !widget.revealSpoilers;
+		final s = widget.site ?? context.watch<ImageboardSite?>();
 		if (s == null) {
 			return SizedBox(
 				width: effectiveWidth,
@@ -210,34 +258,34 @@ class AttachmentThumbnail extends StatelessWidget {
 			);
 		}
 		bool resize = false;
-		String url = attachment.thumbnailUrl;
+		String url = widget.attachment.thumbnailUrl;
 		if ((
 			forceFullQuality ||
-			(overrideFullQuality ?? (settings.fullQualityThumbnails && !attachment.isRateLimited))
-		) && attachment.type == AttachmentType.image) {
+			(widget.overrideFullQuality ?? (settings.fullQualityThumbnails && !widget.attachment.isRateLimited))
+		) && widget.attachment.type == AttachmentType.image) {
 			resize = true;
-			url = attachment.url;
+			url = widget.attachment.url;
 		}
 		if (spoiler && !settings.alwaysShowSpoilers) {
 			url = s.getSpoilerImageUrl(
-				attachment,
+				widget.attachment,
 				thread: context.read<PostSpanZoneData?>()?.primaryThreadState?.thread
 			)?.toString() ?? '';
 		}
 		if (url.isEmpty) {
-			final icon = spoiler ? CupertinoIcons.eye_slash : (attachment.icon ?? CupertinoIcons.exclamationmark_triangle_fill);
+			final icon = spoiler ? CupertinoIcons.eye_slash : (widget.attachment.icon ?? CupertinoIcons.exclamationmark_triangle_fill);
 			final theme = context.watch<SavedTheme>();
 			return _maybeHero(context, SizedBox(
 				width: effectiveWidth,
-				height: shrinkHeight || expand ? null : effectiveHeight,
+				height: widget.shrinkHeight || widget.expand ? null : effectiveHeight,
 				child: _AttachmentThumbnailPlaceholder(
 					child: null,
 					icon: icon,
 					effectiveWidth: effectiveWidth,
 					effectiveHeight: effectiveHeight,
-					attachment: attachment,
+					attachment: widget.attachment,
 					afterPaint: _makeKeyedAfterPaint(
-						attachment: attachment,
+						attachment: widget.attachment,
 						cornerIcon: AttachmentThumbnailCornerIcon(
 							backgroundColor: theme.backgroundColor,
 							borderColor: theme.primaryColorWithBrightness(0.2),
@@ -246,41 +294,65 @@ class AttachmentThumbnail extends StatelessWidget {
 						alreadyShowingBigIcon: icon,
 						primaryColor: ChanceTheme.primaryColorOf(context)
 					),
-					fit: fit
+					fit: widget.fit
 				)
 			));
 		}
+		// Prefer a locally-downloaded file over a network fetch.
+		// For the full-quality path (url == attachment.url) use findDownloadedFile;
+		// for the thumbnail path use findDownloadedThumbnailFile.
+		final File? localFile = url == widget.attachment.url
+			? ThreadDownloadService.instance.findDownloadedFile(widget.attachment)
+			: ThreadDownloadService.instance.findDownloadedThumbnailFile(widget.attachment);
 		final uri = Uri.parse(url);
-		ImageProvider image = CNetworkImageProvider(
-			url,
-			client: s.client,
-			cache: true,
-			headers: {
-				...s.getHeaders(uri),
-				if (attachment.useRandomUseragent) 'user-agent': makeRandomUserAgent()
-			},
-			afterFirstLoad: () {
-				if (url == attachment.url) {
-					// Thie a is a full-quality thumbnail
-					if (!forceFullQuality) {
-						// Forced thumbnails are already known to be cached, don't report it
-						AttachmentCache.onCached(attachment, this);
+		ImageProvider image;
+		if (localFile != null) {
+			image = FileImage(localFile);
+		} else {
+			final copypartyUri = url == widget.attachment.url ? _copypartyFullUri : _copypartyThumbUri;
+			if (copypartyUri != null) {
+				image = CNetworkImageProvider(
+					copypartyUri.toString(),
+					client: s.client,
+					cache: true,
+					headers: _copypartyHeaders ?? const <String, String>{},
+					afterFirstLoad: url == widget.attachment.url && !forceFullQuality
+						? () { AttachmentCache.onCached(widget.attachment, this); }
+						: null,
+				);
+			} else {
+				image = CNetworkImageProvider(
+					url,
+					client: s.client,
+					cache: true,
+					headers: {
+						...s.getHeaders(uri),
+						if (widget.attachment.useRandomUseragent) 'user-agent': makeRandomUserAgent()
+					},
+					afterFirstLoad: () {
+						if (url == widget.attachment.url) {
+							// This is a full-quality thumbnail
+							if (!forceFullQuality) {
+								// Forced thumbnails are already known to be cached, don't report it
+								AttachmentCache.onCached(widget.attachment, this);
+							}
+						}
 					}
-				}
+				);
 			}
-		);
+		}
 		if (url.endsWith('.gif') || url.endsWith('.webp') /* might be animated WebP */) {
 			image = OneFrameImageProvider(image);
 		}
 		final pixelation = settings.thumbnailPixelation;
 		final FilterQuality filterQuality;
-		if (pixelation > 0 && mayObscure) {
+		if (pixelation > 0 && widget.mayObscure) {
 			filterQuality = FilterQuality.none;
 			// In BoxFit.cover we see the shortest side
-			final targetLongestSide = fit != BoxFit.cover;
+			final targetLongestSide = widget.fit != BoxFit.cover;
 			// maintain minimum pixels on shortest side
-			final targetHeight = (targetLongestSide && (attachment.aspectRatio < 1)) || 
-													(!targetLongestSide && (attachment.aspectRatio > 1));
+			final targetHeight = (targetLongestSide && (widget.attachment.aspectRatio < 1)) || 
+													(!targetLongestSide && (widget.attachment.aspectRatio > 1));
 			image = ExtendedResizeImage(
 				image,
 				maxBytes: null,
@@ -293,34 +365,34 @@ class AttachmentThumbnail extends StatelessWidget {
 			image = ExtendedResizeImage(
 				image,
 				maxBytes: 800 << 10,
-				width: overrideFullQuality == true ? null : (effectiveWidth * MediaQuery.devicePixelRatioOf(context)).ceil()
+				width: widget.overrideFullQuality == true ? null : (effectiveWidth * MediaQuery.devicePixelRatioOf(context)).ceil()
 			);
 		}
 		else {
 			filterQuality = FilterQuality.low;
 		}
 		final primaryColor = ChanceTheme.primaryColorOf(context);
-		final cornerIcon = this.cornerIcon;
+		final cornerIcon = widget.cornerIcon;
 		_KeyedAfterPaint? makeAfterPaint({IconData? alreadyShowingBigIcon}) =>
-			_makeKeyedAfterPaint(attachment: attachment, cornerIcon: cornerIcon, alreadyShowingBigIcon: alreadyShowingBigIcon, primaryColor: primaryColor);
+			_makeKeyedAfterPaint(attachment: widget.attachment, cornerIcon: cornerIcon, alreadyShowingBigIcon: alreadyShowingBigIcon, primaryColor: primaryColor);
 		Widget child;
-		if (settings.loadThumbnails && !hide) {
+		if (settings.loadThumbnails && !widget.hide) {
 			final afterPaint = makeAfterPaint();
 			child = ExtendedImage(
 				image: image,
-				constraints: expand ? null : BoxConstraints(
+				constraints: widget.expand ? null : BoxConstraints(
 					maxWidth: effectiveWidth,
 					maxHeight: effectiveHeight
 				),
 				width: effectiveWidth,
-				height: shrinkHeight || expand ? null : effectiveHeight,
+				height: widget.shrinkHeight || widget.expand ? null : effectiveHeight,
 				color: const Color.fromRGBO(238, 242, 255, 1),
 				colorBlendMode: BlendMode.dstOver,
-				fit: fit,
-				alignment: alignment,
-				key: gaplessPlayback ? null : ValueKey(url),
+				fit: widget.fit,
+				alignment: widget.alignment,
+				key: widget.gaplessPlayback ? null : ValueKey(url),
 				gaplessPlayback: true,
-				rotate90DegreesClockwise: rotate90DegreesClockwise,
+				rotate90DegreesClockwise: widget.rotate90DegreesClockwise,
 				afterPaintImage: afterPaint == null ? null : (
 					key: afterPaint.key,
 					fn: (canvas, rect, image, paint) {
@@ -333,8 +405,8 @@ class AttachmentThumbnail extends StatelessWidget {
 						return _AttachmentThumbnailPlaceholder(
 							effectiveWidth: effectiveWidth,
 							effectiveHeight: effectiveHeight,
-							attachment: attachment,
-							fit: fit,
+							attachment: widget.attachment,
+							fit: widget.fit,
 							afterPaint: makeAfterPaint(),
 							child: const CircularProgressIndicator.adaptive()
 						);
@@ -350,27 +422,27 @@ class AttachmentThumbnail extends StatelessWidget {
 						) {
 						if (loadstate.extendedImageLoadState == LoadState.failed) {
 							// Don't break the Widget tree
-							Future.microtask(() => onLoadError?.call(loadstate.lastException, loadstate.lastStack));
+							Future.microtask(() => widget.onLoadError?.call(loadstate.lastException, loadstate.lastStack));
 						}
-						final icon = loadstate.extendedImageLoadState == LoadState.failed && url.isNotEmpty ? CupertinoIcons.exclamationmark_triangle_fill : (attachment.icon ?? Adaptive.icons.photo);
+						final icon = loadstate.extendedImageLoadState == LoadState.failed && url.isNotEmpty ? CupertinoIcons.exclamationmark_triangle_fill : (widget.attachment.icon ?? Adaptive.icons.photo);
 						return _AttachmentThumbnailPlaceholder(
 							child: null,
 							icon: icon,
 							effectiveWidth: effectiveWidth,
 							effectiveHeight: effectiveHeight,
-							attachment: attachment,
+							attachment: widget.attachment,
 							afterPaint: makeAfterPaint(alreadyShowingBigIcon: icon),
-							fit: fit
+							fit: widget.fit
 						);
 					}
 					else if (loadstate.extendedImageLoadState == LoadState.completed) {
-						attachment.width ??= loadstate.extendedImageInfo?.image.width;
-						attachment.height ??= loadstate.extendedImageInfo?.image.height;
+						widget.attachment.width ??= loadstate.extendedImageInfo?.image.width;
+						widget.attachment.height ??= loadstate.extendedImageInfo?.image.height;
 					}
 					return null;
 				}
 			);
-			if (settings.blurThumbnails && mayObscure) {
+			if (settings.blurThumbnails && widget.mayObscure) {
 				child = ClipRect(
 					child: ImageFiltered(
 						imageFilter: ImageFilter.blur(
@@ -382,7 +454,7 @@ class AttachmentThumbnail extends StatelessWidget {
 					)
 				);
 			}
-			if (!settings.thumbnailOpacity.isNegative && mayObscure) {
+			if (!settings.thumbnailOpacity.isNegative && widget.mayObscure) {
 				child = Opacity(
 					opacity: settings.thumbnailOpacity,
 					child: child
@@ -390,15 +462,15 @@ class AttachmentThumbnail extends StatelessWidget {
 			}
 		}
 		else {
-			final icon = attachment.icon ?? Adaptive.icons.photo;
+			final icon = widget.attachment.icon ?? Adaptive.icons.photo;
 			child = _AttachmentThumbnailPlaceholder(
 				child: null,
 				icon: icon,
 				effectiveWidth: effectiveWidth,
 				effectiveHeight: effectiveHeight,
-				attachment: attachment,
+				attachment: widget.attachment,
 				afterPaint: makeAfterPaint(alreadyShowingBigIcon: icon),
-				fit: fit
+				fit: widget.fit
 			);
 		}
 		return _maybeHero(context, child);
@@ -407,19 +479,19 @@ class AttachmentThumbnail extends StatelessWidget {
 	@override
 	Widget build(BuildContext context) {
 		final settings = context.watch<Settings>();
-		double effectiveWidth = width ?? settings.thumbnailSize;
-		double effectiveHeight = height ?? settings.thumbnailSize;
-		if (shrinkHeight && fit == BoxFit.contain && attachment.width != null && attachment.height != null) {
-			if (attachment.aspectRatio > 1) {
-				effectiveHeight = effectiveWidth / attachment.aspectRatio;
+		double effectiveWidth = widget.width ?? settings.thumbnailSize;
+		double effectiveHeight = widget.height ?? settings.thumbnailSize;
+		if (widget.shrinkHeight && widget.fit == BoxFit.contain && widget.attachment.width != null && widget.attachment.height != null) {
+			if (widget.attachment.aspectRatio > 1) {
+				effectiveHeight = effectiveWidth / widget.attachment.aspectRatio;
 			}
 		}
-		if (rotate90DegreesClockwise) {
+		if (widget.rotate90DegreesClockwise) {
 			final tmp = effectiveWidth;
 			effectiveWidth = effectiveHeight;
 			effectiveHeight = tmp;
 		}
-		if (effectiveWidth <= 125 && effectiveHeight <= 125 && !attachment.thumbnailUrl.startsWith(thumbsApiPrefix)) {
+		if (effectiveWidth <= 125 && effectiveHeight <= 125 && !widget.attachment.thumbnailUrl.startsWith(thumbsApiPrefix)) {
 			// Don't even try to monitor for HQ caching
 			return _build(
 				context: context,
@@ -430,9 +502,9 @@ class AttachmentThumbnail extends StatelessWidget {
 			);
 		}
 		return StreamBuilder(
-			stream: AttachmentCache.stream.where((e) => e.$1.url == attachment.url && e.$2 != this),
+			stream: AttachmentCache.stream.where((e) => e.$1.url == widget.attachment.url && e.$2 != this),
 			builder: (context, _) => FutureBuilder(
-				future: AttachmentCache.optimisticallyFindFile(attachment),
+				future: AttachmentCache.optimisticallyFindFile(widget.attachment),
 				builder: (context, snapshot) {
 					return _build(
 						context: context,

@@ -8,6 +8,7 @@ import 'package:chan/models/thread.dart';
 import 'package:chan/pages/gallery.dart';
 import 'package:chan/pages/history_search.dart';
 import 'package:chan/pages/master_detail.dart';
+import 'package:chan/pages/saved_threads.dart';
 import 'package:chan/pages/thread.dart';
 import 'package:chan/services/apple.dart';
 import 'package:chan/services/imageboard.dart';
@@ -574,6 +575,15 @@ class _SavedPageState extends State<SavedPage> {
 					navigationBar: AdaptiveBar(
 						title: const Text('Watched Threads'),
 						actions: [
+							Builder(
+								builder: (context) => CupertinoButton(
+									padding: EdgeInsets.zero,
+									child: const Icon(CupertinoIcons.arrow_down_circle),
+									onPressed: () => Navigator.of(context).push(adaptivePageRoute(
+										builder: (_) => const DownloadedThreadsPage()
+									))
+								)
+							),
 							Builder(
 								builder: (context) => CupertinoButton(
 									padding: EdgeInsets.zero,

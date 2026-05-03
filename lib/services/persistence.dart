@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:chan/main.dart';
 import 'package:chan/models/attachment.dart';
+import 'package:chan/models/downloaded_thread.dart';
 import 'package:chan/models/board.dart';
 import 'package:chan/models/flag.dart';
 import 'package:chan/models/post.dart';
@@ -230,6 +231,7 @@ class Persistence extends ChangeNotifier {
 	static late final Directory shareCacheDirectory;
 	static late final Directory spanCacheDirectory;
 	static late final Directory savedAttachmentsDirectory;
+	static late final Directory downloadsDirectory;
 	static late final CookieJar wifiCookies;
 	static late final CookieJar cellularCookies;
 	static CookieJar get currentCookies {
@@ -540,6 +542,8 @@ class Persistence extends ChangeNotifier {
 		Hive.registerAdapter(const ImageboardPollRowAdapter());
 		Hive.registerAdapter(const ImageboardPollAdapter());
 		Hive.registerAdapter(const TlsClientHelloAdapter());
+		Hive.registerAdapter(DownloadStatusAdapter());
+		Hive.registerAdapter(DownloadedThreadAdapter());
 	}
 
 	static Future<void> initializeForTesting() async {
@@ -591,6 +595,15 @@ class Persistence extends ChangeNotifier {
 			}
 		}
 		savedAttachmentsDirectory = documentsDirectory.dir(savedAttachmentsDir);
+		if (Platform.isAndroid) {
+			final extDir = await getExternalStorageDirectory();
+			downloadsDirectory = extDir != null
+				? Directory('${extDir.path}/chan_downloads')
+				: Directory('${documentsDirectory.path}/chan_downloads');
+		} else {
+			downloadsDirectory = Directory('${documentsDirectory.path}/chan_downloads');
+		}
+		await downloadsDirectory.create(recursive: true);
 	}
 
 	static Future<void> initializeStatic() async {
@@ -662,6 +675,7 @@ class Persistence extends ChangeNotifier {
 			sharedBoardsFuture,
 			sharedThreadsFuture
 		]);
+		await Hive.openBox<DownloadedThread>('downloadedThreads');
 		// Don't need to manage subscription, this is static
 		sharedThreadStateBox.watch().listen((e) {
 			_sharedThreadStateListenable.didUpdate();

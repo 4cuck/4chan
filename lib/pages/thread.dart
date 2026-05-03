@@ -24,6 +24,8 @@ import 'package:chan/services/posts_image.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/share.dart';
 import 'package:chan/services/theme.dart';
+import 'package:chan/models/downloaded_thread.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/thread_watcher.dart';
 import 'package:chan/services/translation.dart';
 import 'package:chan/services/util.dart';
@@ -1738,6 +1740,39 @@ class ThreadPageState extends State<ThreadPage> {
 																			Adaptive.icons.bookmarkFilled)
 										)
 									),
+									StreamBuilder<DownloadedThread?>(
+										stream: ThreadDownloadService.instance.watchThread(widget.thread, imageboard.key),
+										initialData: ThreadDownloadService.instance.getStatus(widget.thread, imageboard.key),
+										builder: (context, snapshot) {
+											final dl = snapshot.data;
+											final status = dl?.status;
+											IconData icon;
+											VoidCallback? onPressed;
+											if (status == null || status == DownloadStatus.cancelled || status == DownloadStatus.failed) {
+												icon = CupertinoIcons.arrow_down_circle;
+												onPressed = () {
+													lightHapticFeedback();
+													_cachingQueue.clear();
+													ThreadDownloadService.instance.downloadThread(widget.thread, imageboard.site, imageboard.key);
+												};
+											} else if (status == DownloadStatus.downloading || status == DownloadStatus.updating || status == DownloadStatus.pending) {
+												icon = CupertinoIcons.xmark_circle;
+												onPressed = () {
+													lightHapticFeedback();
+													ThreadDownloadService.instance.cancelDownload(widget.thread, imageboard.key);
+												};
+											} else {
+												// complete
+												icon = CupertinoIcons.arrow_down_circle_fill;
+												onPressed = null;
+											}
+											return AdaptiveIconButton(
+												padding: EdgeInsets.zero,
+												icon: Icon(icon),
+												onPressed: onPressed,
+											);
+										},
+									),
 									if (site.threadVariants.isNotEmpty) AdaptiveIconButton(
 										padding: EdgeInsets.zero,
 										icon: (variant != null && variant != site.threadVariants.tryFirst) ? FittedBox(
@@ -2149,15 +2184,28 @@ class ThreadPageState extends State<ThreadPage> {
 																		})
 																	},
 																	listUpdater: (options) async {
-																		if (persistentState.disableUpdates && _listController.state?.originalList != null) {
-																			if (options.source.manual) {
-																				await Future.delayed(const Duration(milliseconds: 650));
-																				// This is just to clear highlighted posts / resort tree on archived threads
-																				_highlightPosts.clear();
-																				_listController.state?.forceRebuildId++; // To force widgets to re-build and re-compute [highlight]
-																				Future.microtask(() => setState(() {}));
+																		// An imported/archived thread should never hit the network.
+																		// Check disableUpdates (thread already loaded in memory) OR the
+																		// DownloadedThread record's isArchivedOnServer flag (thread not yet
+																		// loaded from cache). This handles both timing scenarios.
+																		final isOffline = persistentState.disableUpdates ||
+																			(ThreadDownloadService.instance.getStatus(widget.thread, imageboard.key)?.isArchivedOnServer == true);
+																		if (isOffline) {
+																			if (_listController.state?.originalList != null) {
+																				if (options.source.manual) {
+																					await Future.delayed(const Duration(milliseconds: 650));
+																					// This is just to clear highlighted posts / resort tree on archived threads
+																					_highlightPosts.clear();
+																					_listController.state?.forceRebuildId++; // To force widgets to re-build and re-compute [highlight]
+																					Future.microtask(() => setState(() {}));
+																				}
+																				return null;
 																			}
-																			return null;
+																			// First load: serve from cache without a network request.
+																			final cachedPosts = persistentState.thread?.posts;
+																			if (cachedPosts != null) return cachedPosts;
+																			final loaded = await persistentState.ensureThreadLoaded();
+																			return loaded?.posts;
 																		}
 																		return (await _getUpdatedThread(options.cancelToken)).posts;
 																	},

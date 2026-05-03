@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:chan/pages/settings/common.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/default_user_agent.dart';
 import 'package:chan/services/edit_site_board_map.dart';
 import 'package:chan/services/imageboard.dart';
@@ -482,6 +484,82 @@ class _ImportLogConflictWidgetState<Ancestor, T> extends State<ImportLogConflict
 	}
 }
 
+class _CopyPartyMigrationDialog extends StatefulWidget {
+	const _CopyPartyMigrationDialog();
+	@override
+	State<_CopyPartyMigrationDialog> createState() => _CopyPartyMigrationDialogState();
+}
+
+class _CopyPartyMigrationDialogState extends State<_CopyPartyMigrationDialog> {
+	late final StreamSubscription<MigrationProgress> _sub;
+	MigrationProgress? _progress;
+
+	@override
+	void initState() {
+		super.initState();
+		_sub = ThreadDownloadService.instance.migrateLocalFilesToCopyparty().listen(
+			(p) { if (mounted) setState(() => _progress = p); },
+			onError: (e) {
+				if (mounted) setState(() => _progress = MigrationProgress(totalFiles: _progress?.totalFiles ?? 0, processedFiles: _progress?.processedFiles ?? 0, uploadedFiles: _progress?.uploadedFiles ?? 0, error: e.toString(), isDone: true));
+			},
+		);
+	}
+
+	@override
+	void dispose() {
+		_sub.cancel();
+		super.dispose();
+	}
+
+	@override
+	Widget build(BuildContext context) {
+		final p = _progress;
+		final isDone = p?.isDone ?? false;
+		final error = p?.error;
+		final frac = (p == null || p.totalFiles == 0) ? null : p.processedFiles / p.totalFiles;
+
+		return AdaptiveAlertDialog(
+			title: const Text('Migrate to CopyParty'),
+			content: Padding(
+				padding: const EdgeInsets.only(top: 12),
+				child: Column(
+					mainAxisSize: MainAxisSize.min,
+					crossAxisAlignment: CrossAxisAlignment.start,
+					children: [
+						if (p == null)
+							const Center(child: CircularProgressIndicator.adaptive())
+						else if (error != null)
+							Text(error, style: const TextStyle(color: CupertinoColors.destructiveRed))
+						else if (isDone)
+							Text('Done — ${p.uploadedFiles} file${p.uploadedFiles == 1 ? '' : 's'} migrated.')
+						else ...[
+							Text('Uploading ${p.processedFiles} / ${p.totalFiles}…'),
+							const SizedBox(height: 10),
+							LinearProgressIndicator(value: frac),
+						],
+					],
+				),
+			),
+			actions: [
+				if (isDone || error != null)
+					AdaptiveDialogAction(
+						isDefaultAction: true,
+						onPressed: () => Navigator.pop(context),
+						child: const Text('Done'),
+					)
+				else
+					AdaptiveDialogAction(
+						onPressed: () {
+							ThreadDownloadService.instance.cancelMigration();
+							Navigator.pop(context);
+						},
+						child: const Text('Cancel'),
+					),
+			],
+		);
+	}
+}
+
 final dataSettings = [
 	SwitchSettingWidget(
 		description: 'Require authentication on launch',
@@ -689,6 +767,200 @@ final dataSettings = [
 		description: 'Cached threads and history',
 		icon: CupertinoIcons.archivebox,
 		builder: (context) => const SettingsThreadsPanel()
+	),
+	PopupSubpageSettingWidget(
+		description: 'CopyParty sync',
+		icon: CupertinoIcons.cloud_upload,
+		settings: [
+			const SwitchSettingWidget(
+				description: 'Enable CopyParty sync',
+				icon: CupertinoIcons.cloud_upload,
+				setting: Settings.copypartyEnabledSetting,
+			),
+			ImmutableButtonSettingWidget(
+				description: 'Server URL',
+				icon: CupertinoIcons.globe,
+				setting: Settings.copypartyServerUrlSetting,
+				builder: (url) => Text(url.isEmpty ? 'Not set' : url, overflow: TextOverflow.ellipsis),
+				onPressed: (context, url, setUrl) async {
+					final controller = TextEditingController(text: url);
+					final save = await showAdaptiveDialog<bool>(
+						context: context,
+						barrierDismissible: true,
+						builder: (context) => AdaptiveAlertDialog(
+							title: const Text('CopyParty Server URL'),
+							content: Column(
+								mainAxisSize: MainAxisSize.min,
+								children: [
+									const SizedBox(height: 10),
+									const Text('e.g. https://192.168.1.10:3923'),
+									const SizedBox(height: 10),
+									AdaptiveTextField(
+										autofocus: true,
+										controller: controller,
+										keyboardType: TextInputType.url,
+										smartDashesType: SmartDashesType.disabled,
+										smartQuotesType: SmartQuotesType.disabled,
+										placeholder: 'https://192.168.1.10:3923',
+										onSubmitted: (_) => Navigator.pop(context, true),
+									)
+								]
+							),
+							actions: [
+								AdaptiveDialogAction(
+									isDefaultAction: true,
+									child: const Text('Save'),
+									onPressed: () => Navigator.pop(context, true)
+								),
+								AdaptiveDialogAction(
+									child: const Text('Cancel'),
+									onPressed: () => Navigator.pop(context, false)
+								)
+							]
+						)
+					);
+					if (save == true) setUrl(controller.text.trim());
+				},
+			),
+			ImmutableButtonSettingWidget(
+				description: 'Destination folder',
+				icon: CupertinoIcons.folder,
+				setting: Settings.copypartyDestRootSetting,
+				builder: (path) => Text(path.isEmpty ? 'Not set' : path, overflow: TextOverflow.ellipsis),
+				onPressed: (context, path, setPath) async {
+					final controller = TextEditingController(text: path);
+					final save = await showAdaptiveDialog<bool>(
+						context: context,
+						barrierDismissible: true,
+						builder: (context) => AdaptiveAlertDialog(
+							title: const Text('Destination Folder'),
+							content: Column(
+								mainAxisSize: MainAxisSize.min,
+								children: [
+									const SizedBox(height: 10),
+									const Text('Root path on the server where files will be uploaded'),
+									const SizedBox(height: 10),
+									AdaptiveTextField(
+										autofocus: true,
+										controller: controller,
+										smartDashesType: SmartDashesType.disabled,
+										smartQuotesType: SmartQuotesType.disabled,
+										placeholder: '/chan/',
+										onSubmitted: (_) => Navigator.pop(context, true),
+									)
+								]
+							),
+							actions: [
+								AdaptiveDialogAction(
+									isDefaultAction: true,
+									child: const Text('Save'),
+									onPressed: () => Navigator.pop(context, true)
+								),
+								AdaptiveDialogAction(
+									child: const Text('Cancel'),
+									onPressed: () => Navigator.pop(context, false)
+								)
+							]
+						)
+					);
+					if (save == true) setPath(controller.text.trim());
+				},
+			),
+			SimpleButtonSettingWidget(
+				description: 'Set password',
+				icon: CupertinoIcons.lock,
+				onPressed: (context) async {
+					final storage = ThreadDownloadService.instance.storage;
+					final existing = await storage.read(key: 'copypartyPassword') ?? '';
+					if (!context.mounted) return;
+					final controller = TextEditingController(text: existing);
+					final save = await showAdaptiveDialog<bool>(
+						context: context,
+						barrierDismissible: true,
+						builder: (context) => AdaptiveAlertDialog(
+							title: const Text('CopyParty Password'),
+							content: Column(
+								mainAxisSize: MainAxisSize.min,
+								children: [
+									const SizedBox(height: 10),
+									const Text('Stored securely on device'),
+									const SizedBox(height: 10),
+									CupertinoTextField(
+										autofocus: true,
+										controller: controller,
+										obscureText: true,
+										smartDashesType: SmartDashesType.disabled,
+										smartQuotesType: SmartQuotesType.disabled,
+										placeholder: 'Password',
+										onSubmitted: (_) => Navigator.pop(context, true),
+									)
+								]
+							),
+							actions: [
+								AdaptiveDialogAction(
+									isDefaultAction: true,
+									child: const Text('Save'),
+									onPressed: () => Navigator.pop(context, true)
+								),
+								AdaptiveDialogAction(
+									child: const Text('Cancel'),
+									onPressed: () => Navigator.pop(context, false)
+								)
+							]
+						)
+					);
+					if (save == true) await storage.write(key: 'copypartyPassword', value: controller.text);
+				},
+			),
+			SimpleButtonSettingWidget(
+				description: 'Migrate local files to CopyParty',
+				icon: CupertinoIcons.arrow_right_arrow_left_circle,
+				onPressed: (context) async {
+					final serverUrl = Persistence.settings.copypartyServerUrl;
+					if (serverUrl.isEmpty) {
+						showAdaptiveDialog(
+							context: context,
+							barrierDismissible: true,
+							builder: (context) => AdaptiveAlertDialog(
+								title: const Text('Server URL not set'),
+								content: const Text('Configure the CopyParty server URL first.'),
+								actions: [AdaptiveDialogAction(isDefaultAction: true, onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+							),
+						);
+						return;
+					}
+					final confirmed = await showAdaptiveDialog<bool>(
+						context: context,
+						barrierDismissible: true,
+						builder: (context) => AdaptiveAlertDialog(
+							title: const Text('Migrate local files?'),
+							content: const Text(
+								'All local media from completed thread downloads will be uploaded to CopyParty.\n\n'
+								'Each file is deleted from this device only after the server confirms receipt.\n\n'
+								'If the upload fails for any reason, the migration stops and remaining files stay on device.',
+							),
+							actions: [
+								AdaptiveDialogAction(
+									isDefaultAction: true,
+									onPressed: () => Navigator.pop(context, true),
+									child: const Text('Migrate'),
+								),
+								AdaptiveDialogAction(
+									onPressed: () => Navigator.pop(context, false),
+									child: const Text('Cancel'),
+								),
+							],
+						),
+					);
+					if (confirmed != true || !context.mounted) return;
+					showAdaptiveDialog(
+						context: context,
+						barrierDismissible: false,
+						builder: (context) => const _CopyPartyMigrationDialog(),
+					);
+				},
+			),
+		]
 	),
 	const SwitchSettingWidget(
 		description: 'Separate cookies for Wi-Fi and cellular data',
