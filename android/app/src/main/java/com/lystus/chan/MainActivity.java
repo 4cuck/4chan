@@ -1,4 +1,4 @@
-package com.moffatman.chan;
+package com.lystus.chan;
 
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
@@ -501,7 +501,7 @@ public class MainActivity extends FlutterFragmentActivity {
                     if (call.method.equals("launchUrl")) {
                         String url = call.argument("url");
                         // Force an actual external app, not just redirecting back to us
-                        ComponentName[] excludedComponentNames = {new ComponentName("com.moffatman.chan", "MainActivity")};
+                        ComponentName[] excludedComponentNames = {new ComponentName("com.lystus.chan", "MainActivity")};
                         Intent launchIntent =
                                 new Intent(Intent.ACTION_VIEW)
                                         .setData(Uri.parse(url))

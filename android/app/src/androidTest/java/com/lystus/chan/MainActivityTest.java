@@ -1,4 +1,4 @@
-package com.moffatman.chan;
+package com.lystus.chan;
 
 import androidx.test.rule.ActivityTestRule;
 import dev.flutter.plugins.integration_test.FlutterTestRunner;
