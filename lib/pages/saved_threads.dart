@@ -41,6 +41,7 @@ class DownloadedThreadsPage extends StatefulWidget {
 
 class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 	List<DownloadedThread> _downloads = [];
+	List<DownloadedThread> _cachedSortedDownloads = [];
 	StreamSubscription<Object?>? _sub;
 	_DownloadSortMethod _sortMethod = _DownloadSortMethod.downloadedAt;
 	bool _sortReversed = false;
@@ -49,6 +50,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 	int _importTotal = 0;
 	bool _isSelecting = false;
 	final Set<String> _selectedBoxKeys = {};
+	final ScrollController _scrollController = ScrollController();
 
 	@override
 	void initState() {
@@ -62,11 +64,11 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 
 	void _reload() {
 		_downloads = ThreadDownloadService.instance.allDownloads;
+		_rebuildSortedList();
 	}
 
-	List<DownloadedThread> get _sortedDownloads {
+	void _rebuildSortedList() {
 		final list = List<DownloadedThread>.from(_downloads);
-		final epoch = DateTime(2000);
 		switch (_sortMethod) {
 			case _DownloadSortMethod.downloadedAt:
 				list.sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
@@ -75,9 +77,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 			case _DownloadSortMethod.title:
 				list.sort((a, b) => (a.title ?? '').toLowerCase().compareTo((b.title ?? '').toLowerCase()));
 		}
-		if (_sortReversed) return list.reversed.toList();
-		return list;
+		_cachedSortedDownloads = _sortReversed ? list.reversed.toList() : list;
 	}
+
+	List<DownloadedThread> get _sortedDownloads => _cachedSortedDownloads;
 
 	Future<void> _showSortMenu(BuildContext context) async {
 		await showAdaptiveModalPopup<void>(
@@ -99,6 +102,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 									_sortMethod = entry.key;
 									_sortReversed = false;
 								}
+								_rebuildSortedList();
+								}
 							});
 						},
 					)),
@@ -114,6 +119,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 	@override
 	void dispose() {
 		_sub?.cancel();
+		_scrollController.dispose();
 		super.dispose();
 	}
 
@@ -424,7 +430,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 					Expanded(
 						child: _downloads.isEmpty
 							? const Center(child: Text('No downloaded threads'))
-							: ListView.builder(							padding: EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom),								itemCount: _downloads.length,
+							: ListView.builder(
+								controller: _scrollController,
+								padding: EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom),
+								itemCount: _cachedSortedDownloads.length,
 								itemBuilder: (context, i) {
 						final d = _sortedDownloads[i];
 						return _DownloadedThreadRow(
