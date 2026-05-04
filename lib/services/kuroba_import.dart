@@ -114,8 +114,8 @@ Future<KurobaImportResult> importKurobaZip(String zipPath) async {
 			if (f.existsSync()) f.deleteSync();
 		}
 
-		// Count remaining media files
-		final mediaFiles = threadDir
+		// Count remaining media files (mutable — may be updated after retry)
+		var mediaFiles = threadDir
 				.listSync()
 				.whereType<File>()
 				.map((f) => f.uri.pathSegments.last)
@@ -248,6 +248,38 @@ Future<KurobaImportResult> importKurobaZip(String zipPath) async {
 			return KurobaImportFailure('Failed to parse any posts from HTML');
 		}
 
+		// 6b. Verify extracted files match what HTML references; retry once if not.
+		// Thumbnails are named "{cdnId}s.jpg" — only full-res CDN filenames are expected.
+		final expectedFilenames = <String>{};
+		for (final post in posts) {
+			for (final att in post.attachments_) {
+				final name = Uri.tryParse(att.url)?.pathSegments.lastOrNull;
+				if (name != null && name.isNotEmpty) expectedFilenames.add(name);
+			}
+		}
+		if (expectedFilenames.isNotEmpty) {
+			final missing = expectedFilenames.difference(mediaFiles);
+			if (missing.isNotEmpty) {
+				// Re-extract and recount once — handles cases where extraction was interrupted
+				await extractFileToDisk(zipPath, threadDir.path);
+				for (final name in ['thread_data.html', 'tomorrow.css']) {
+					final f = File('${threadDir.path}/$name');
+					if (f.existsSync()) f.deleteSync();
+				}
+				mediaFiles = threadDir
+						.listSync()
+						.whereType<File>()
+						.map((f) => f.uri.pathSegments.last)
+						.toSet();
+			}
+		}
+		final presentCount = expectedFilenames.isEmpty
+				? mediaFiles.length
+				: expectedFilenames.intersection(mediaFiles).length;
+		final missingAfterRetry = expectedFilenames.isEmpty
+				? 0
+				: expectedFilenames.difference(mediaFiles).length;
+
 		opTime ??= DateTime.now();
 
 		// 7. Build Thread object
@@ -290,8 +322,13 @@ Future<KurobaImportResult> importKurobaZip(String zipPath) async {
 		);
 
 		final displayTitle = opSubject ?? '/$board/ #$threadId';
+		final filesSummary = expectedFilenames.isEmpty
+				? '${mediaFiles.length} files'
+				: missingAfterRetry == 0
+					? '${presentCount}/${expectedFilenames.length} files'
+					: '${presentCount}/${expectedFilenames.length} files ($missingAfterRetry not in ZIP)';
 		return KurobaImportSuccess(
-			'Imported "$displayTitle" (${posts.length} posts, ${mediaFiles.length} files)',
+			'Imported "$displayTitle" (${posts.length} posts, $filesSummary)',
 		);
 	} catch (e) {
 		return KurobaImportFailure('Import failed: $e');
