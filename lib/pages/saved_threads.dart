@@ -103,7 +103,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 									_sortReversed = false;
 								}
 								_rebuildSortedList();
-								}
 							});
 						},
 					)),
