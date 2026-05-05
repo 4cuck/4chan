@@ -15,6 +15,7 @@ import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/thread_row.dart';
 import 'package:chan/widgets/util.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
@@ -51,14 +52,20 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 	bool _isSelecting = false;
 	final Set<String> _selectedBoxKeys = {};
 	final ScrollController _scrollController = ScrollController();
+	final Map<String, Thread?> _threadCache = {};
 
 	@override
 	void initState() {
 		super.initState();
 		_reload();
+		ThreadDownloadService.instance.purgeSoftDeleted();
+		_preloadThreadCache();
 		// Rebuild when any record changes
 		_sub = ThreadDownloadService.instance.watchAllChanges().listen((_) {
-			if (mounted) setState(_reload);
+			if (mounted) {
+				setState(_reload);
+				_preloadThreadCache();
+			}
 		});
 	}
 
@@ -78,6 +85,17 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 				list.sort((a, b) => (a.title ?? '').toLowerCase().compareTo((b.title ?? '').toLowerCase()));
 		}
 		_cachedSortedDownloads = _sortReversed ? list.reversed.toList() : list;
+	}
+
+	Future<void> _preloadThreadCache() async {
+		final downloads = List<DownloadedThread>.from(_downloads);
+		final futures = downloads.map((d) async {
+			final thread = await Persistence.getCachedThread(d.imageboardKey, d.board, d.threadId);
+			if (mounted) {
+				setState(() => _threadCache[d.boxKey] = thread);
+			}
+		});
+		await Future.wait(futures);
 	}
 
 	List<DownloadedThread> get _sortedDownloads => _cachedSortedDownloads;
@@ -344,6 +362,144 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 		}
 	}
 
+	/// Export a single thread as a ZIP and share it.
+	Future<void> _exportSingle(DownloadedThread d) async {
+		try {
+			final zipFile = await ThreadDownloadService.instance.exportToZip(d);
+			if (zipFile == null) {
+				if (mounted) {
+					showAdaptiveDialog(
+						context: context,
+						builder: (ctx) => AdaptiveAlertDialog(
+							title: const Text('Nothing to export'),
+							content: const Text('No local files found for this thread.'),
+							actions: [AdaptiveDialogAction(child: const Text('OK'), onPressed: () => Navigator.pop(ctx))],
+						),
+					);
+				}
+				return;
+			}
+			await Share.shareXFiles([XFile(zipFile.path)]);
+		} catch (e) {
+			if (mounted) {
+				showAdaptiveDialog(
+					context: context,
+					builder: (ctx) => AdaptiveAlertDialog(
+						title: const Text('Export failed'),
+						content: Text(e.toString()),
+						actions: [AdaptiveDialogAction(child: const Text('OK'), onPressed: () => Navigator.pop(ctx))],
+					),
+				);
+			}
+		}
+	}
+
+	/// Export all selected threads as ZIPs and share them.
+	Future<void> _exportSelected() async {
+		final selected = _sortedDownloads.where((d) => _selectedBoxKeys.contains(d.boxKey)).toList();
+		final xFiles = <XFile>[];
+		for (final d in selected) {
+			try {
+				final f = await ThreadDownloadService.instance.exportToZip(d);
+				if (f != null) xFiles.add(XFile(f.path));
+			} catch (_) {}
+		}
+		if (xFiles.isEmpty) {
+			showAdaptiveDialog(
+				context: context,
+				builder: (ctx) => AdaptiveAlertDialog(
+					title: const Text('Nothing to export'),
+					content: const Text('None of the selected threads have local files.'),
+					actions: [AdaptiveDialogAction(child: const Text('OK'), onPressed: () => Navigator.pop(ctx))],
+				),
+			);
+			return;
+		}
+		await Share.shareXFiles(xFiles);
+	}
+
+	Future<void> _softDeleteSingle(DownloadedThread d) async {
+		await ThreadDownloadService.instance.softDelete(d.identifier, d.imageboardKey);
+		if (mounted) setState(_reload);
+	}
+
+	Future<void> _undoSoftDeleteSingle(DownloadedThread d) async {
+		await ThreadDownloadService.instance.undoSoftDelete(d.identifier, d.imageboardKey);
+		if (mounted) setState(_reload);
+	}
+
+	Future<void> _permanentDeleteSingle(DownloadedThread d) async {
+		final confirmed = await showAdaptiveDialog<bool>(
+			context: context,
+			builder: (ctx) => AdaptiveAlertDialog(
+				title: const Text('Delete permanently?'),
+				content: const Text('All downloaded files for this thread will be removed immediately and cannot be undone.'),
+				actions: [
+					AdaptiveDialogAction(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx, false)),
+					AdaptiveDialogAction(isDestructiveAction: true, child: const Text('Delete'), onPressed: () => Navigator.pop(ctx, true)),
+				],
+			),
+		);
+		if (confirmed == true) {
+			await ThreadDownloadService.instance.permanentDelete(d.identifier, d.imageboardKey);
+			if (mounted) setState(_reload);
+		}
+	}
+
+	Future<void> _softDeleteSelected() async {
+		for (final key in List<String>.from(_selectedBoxKeys)) {
+			final d = _findByBoxKey(key);
+			if (d != null) await ThreadDownloadService.instance.softDelete(d.identifier, d.imageboardKey);
+		}
+		if (mounted) {
+			setState(() {
+				_selectedBoxKeys.clear();
+				_isSelecting = false;
+				_reload();
+			});
+		}
+	}
+
+	Future<void> _permanentDeleteSelected() async {
+		final count = _selectedBoxKeys.length;
+		final confirmed = await showAdaptiveDialog<bool>(
+			context: context,
+			builder: (ctx) => AdaptiveAlertDialog(
+				title: Text('Delete $count thread${count == 1 ? "" : "s"} permanently?'),
+				content: const Text('All downloaded files for the selected threads will be removed and cannot be undone.'),
+				actions: [
+					AdaptiveDialogAction(child: const Text('Cancel'), onPressed: () => Navigator.pop(ctx, false)),
+					AdaptiveDialogAction(isDestructiveAction: true, child: const Text('Delete'), onPressed: () => Navigator.pop(ctx, true)),
+				],
+			),
+		);
+		for (final key in List<String>.from(_selectedBoxKeys)) {
+			final d = _findByBoxKey(key);
+			if (d != null) await ThreadDownloadService.instance.permanentDelete(d.identifier, d.imageboardKey);
+		}
+		if (mounted) {
+			setState(() {
+				_selectedBoxKeys.clear();
+				_isSelecting = false;
+				_reload();
+			});
+		}
+	}
+
+	Future<void> _updateSelected() async {
+		for (final key in List<String>.from(_selectedBoxKeys)) {
+			final d = _findByBoxKey(key);
+			if (d != null) await _update(d);
+		}
+		if (mounted) {
+			setState(() {
+				_selectedBoxKeys.clear();
+				_isSelecting = false;
+				_reload();
+			});
+		}
+	}
+
 	@override
 	Widget build(BuildContext context) {
 		final theme = context.watch<SavedTheme>();
@@ -368,17 +524,43 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 									: CupertinoIcons.checkmark_square,
 							),
 						),
-						if (Persistence.settings.copypartyEnabled && _selectedBoxKeys.isNotEmpty)
-							CupertinoButton(
-								padding: EdgeInsets.zero,
-								onPressed: _migrateSelected,
-								child: const Icon(CupertinoIcons.cloud_upload),
-							),
 						if (_selectedBoxKeys.isNotEmpty)
 							CupertinoButton(
 								padding: EdgeInsets.zero,
-								onPressed: _deleteSelected,
-								child: const Icon(CupertinoIcons.trash),
+								onPressed: () => showAdaptiveModalPopup(
+									context: context,
+									builder: (ctx) => AdaptiveActionSheet(
+										actions: [
+											AdaptiveActionSheetAction(
+												child: const Text('Update'),
+												onPressed: () { Navigator.pop(ctx); _updateSelected(); },
+											),
+											AdaptiveActionSheetAction(
+												child: const Text('Export'),
+												onPressed: () { Navigator.pop(ctx); _exportSelected(); },
+											),
+											if (Persistence.settings.copypartyEnabled)
+												AdaptiveActionSheetAction(
+													child: const Text('Migrate to CopyParty'),
+													onPressed: () { Navigator.pop(ctx); _migrateSelected(); },
+												),
+											AdaptiveActionSheetAction(
+												child: const Text('Mark for Deletion (5 days)'),
+												onPressed: () { Navigator.pop(ctx); _softDeleteSelected(); },
+											),
+											AdaptiveActionSheetAction(
+												isDestructiveAction: true,
+												child: const Text('Delete Permanently'),
+												onPressed: () { Navigator.pop(ctx); _permanentDeleteSelected(); },
+											),
+										],
+										cancelButton: AdaptiveActionSheetAction(
+											child: const Text('Cancel'),
+											onPressed: () => Navigator.pop(ctx),
+										),
+									),
+								),
+								child: const Icon(CupertinoIcons.ellipsis),
 							),
 					],
 				)
@@ -437,9 +619,14 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 						final d = _sortedDownloads[i];
 						return _DownloadedThreadRow(
 							download: d,
+						preloadedThread: _threadCache[d.boxKey],
 						onTap: _isSelecting ? () => _toggleSelect(d.boxKey) : () => _openThread(d),
 						onDelete: () => _delete(d),
 						onUpdate: () => _update(d),
+						onExport: () => _exportSingle(d),
+						onSoftDelete: () => _softDeleteSingle(d),
+						onPermanentDelete: () => _permanentDeleteSingle(d),
+						onUndoSoftDelete: () => _undoSoftDeleteSingle(d),
 						onMigrate: () async {
 							await showAdaptiveDialog(
 								context: context,
@@ -466,9 +653,14 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 
 class _DownloadedThreadRow extends StatefulWidget {
 	final DownloadedThread download;
+	final Thread? preloadedThread;
 	final VoidCallback onTap;
 	final VoidCallback onDelete;
 	final VoidCallback onUpdate;
+	final VoidCallback onExport;
+	final VoidCallback onSoftDelete;
+	final VoidCallback onPermanentDelete;
+	final VoidCallback onUndoSoftDelete;
 	final Future<void> Function() onMigrate;
 	final VoidCallback onCancel;
 	final VoidCallback onSelect;
@@ -477,9 +669,14 @@ class _DownloadedThreadRow extends StatefulWidget {
 
 	const _DownloadedThreadRow({
 		required this.download,
+		this.preloadedThread,
 		required this.onTap,
 		required this.onDelete,
 		required this.onUpdate,
+		required this.onExport,
+		required this.onSoftDelete,
+		required this.onPermanentDelete,
+		required this.onUndoSoftDelete,
 		required this.onMigrate,
 		required this.onCancel,
 		required this.onSelect,
@@ -492,14 +689,12 @@ class _DownloadedThreadRow extends StatefulWidget {
 }
 
 class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
-	Thread? _thread;
 	Uri? _copypartyThumbUri;
 	Map<String, String>? _copypartyThumbHeaders;
 
 	@override
 	void initState() {
 		super.initState();
-		_loadThread();
 		_loadCopypartyThumb();
 	}
 
@@ -507,20 +702,9 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 	void didUpdateWidget(_DownloadedThreadRow old) {
 		super.didUpdateWidget(old);
 		if (old.download.boxKey != widget.download.boxKey) {
-			_thread = null;
 			_copypartyThumbUri = null;
 			_copypartyThumbHeaders = null;
-			_loadThread();
 			_loadCopypartyThumb();
-		}
-	}
-
-	Future<void> _loadThread() async {
-		final d = widget.download;
-		if (!Persistence.isThreadCached(d.imageboardKey, d.board, d.threadId)) return;
-		final thread = await Persistence.getCachedThread(d.imageboardKey, d.board, d.threadId);
-		if (mounted) {
-			setState(() => _thread = thread);
 		}
 	}
 
@@ -540,13 +724,16 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 	Widget build(BuildContext context) {
 		final d = widget.download;
 		final imageboard = ImageboardRegistry.instance.getImageboard(d.imageboardKey);
-		final thread = _thread;
+		final thread = widget.preloadedThread;
 		final theme = context.watch<SavedTheme>();
 		final progress = d.totalFiles > 0 ? d.downloadedFiles / d.totalFiles : null;
 		final canOpen = d.status == DownloadStatus.complete || d.status == DownloadStatus.failed || d.status == DownloadStatus.cancelled;
 
+		final isPendingDeletion = d.pendingDeletionAt != null;
 		if (imageboard != null && thread != null) {
-			return GestureDetector(
+			return Opacity(
+				opacity: isPendingDeletion ? 0.4 : 1.0,
+				child: GestureDetector(
 				onTap: (canOpen || widget.isSelecting) ? widget.onTap : null,
 				onLongPress: widget.isSelecting ? null : () => _showActionSheet(context, d),
 				child: Container(
@@ -587,12 +774,15 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 						],
 					),
 				),
+			),
 			);
 		}
 
 		// Fallback when thread data is not yet cached
 		final thumbnailUrl = d.thumbnailUrl;
-		return GestureDetector(
+		return Opacity(
+			opacity: isPendingDeletion ? 0.4 : 1.0,
+			child: GestureDetector(
 			onTap: (canOpen || widget.isSelecting) ? widget.onTap : null,
 			onLongPress: widget.isSelecting ? null : () => _showActionSheet(context, d),
 			child: Container(
@@ -641,6 +831,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 					],
 				),
 			),
+		),
 		);
 	}
 
@@ -692,11 +883,13 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 					),
 				]);
 			case DownloadStatus.complete:
-				return Row(children: [
-					const Icon(CupertinoIcons.checkmark_circle, size: 14, color: CupertinoColors.activeGreen),
-					const SizedBox(width: 4),
-					Text('${d.downloadedFiles} files · ${_formatDate(d.downloadedAt)}', style: const TextStyle(fontSize: 12)),
-					const SizedBox(width: 4),
+				// Show pending deletion countdown if soft-deleted
+				if (d.pendingDeletionAt != null) {
+					final daysLeft = 5 - DateTime.now().difference(d.pendingDeletionAt!).inDays;
+					final label = daysLeft > 0 ? 'Marked for deletion in $daysLeft day${daysLeft == 1 ? "" : "s"}' : 'Marked for deletion';
+					return Text(label, style: const TextStyle(fontSize: 12, color: CupertinoColors.destructiveRed));
+				}
+				return Row(mainAxisSize: MainAxisSize.min, children: [
 					_buildStorageIndicator(d),
 					if (d.isArchivedOnServer) ...[
 						const SizedBox(width: 6),
@@ -762,6 +955,13 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 								widget.onUpdate();
 							},
 						),
+					AdaptiveActionSheetAction(
+						child: const Text('Export'),
+						onPressed: () {
+							Navigator.pop(popupContext);
+							widget.onExport();
+						},
+					),
 					if (Persistence.settings.copypartyEnabled && d.status == DownloadStatus.complete)
 						AdaptiveActionSheetAction(
 							child: const Text('Migrate to CopyParty'),
@@ -777,12 +977,28 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 							widget.onSelect();
 						},
 					),
+					if (d.pendingDeletionAt != null)
+						AdaptiveActionSheetAction(
+							child: const Text('Undo Mark for Deletion'),
+							onPressed: () {
+								Navigator.pop(popupContext);
+								widget.onUndoSoftDelete();
+							},
+						)
+					else
+						AdaptiveActionSheetAction(
+							child: const Text('Mark for Deletion (5 days)'),
+							onPressed: () {
+								Navigator.pop(popupContext);
+								widget.onSoftDelete();
+							},
+						),
 					AdaptiveActionSheetAction(
 						isDestructiveAction: true,
-						child: const Text('Delete'),
+						child: const Text('Delete Permanently'),
 						onPressed: () {
 							Navigator.pop(popupContext);
-							widget.onDelete();
+							widget.onPermanentDelete();
 						},
 					),
 				],
