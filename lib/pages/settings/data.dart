@@ -768,7 +768,21 @@ final dataSettings = [
 		icon: CupertinoIcons.archivebox,
 		builder: (context) => const SettingsThreadsPanel()
 	),
-	PopupSubpageSettingWidget(
+	SliderSettingWidget(
+		description: 'Download file spacing',
+		icon: CupertinoIcons.arrow_down_to_line,
+		setting: const MappedSetting(
+			Settings.downloadInterFileDelayMsSetting,
+			FieldMappers.toDouble,
+			FieldMappers.toInt
+		),
+		min: 0,
+		max: 2000,
+		step: 50,
+		textFormatter: (s) => s.round() == 0 ? 'No delay' : s.round().toString() + 'ms between files',
+		helpText: 'Adds a pause between each file download to avoid being rate-limited by the imageboard CDN. 0 = disabled.',
+	),
+		PopupSubpageSettingWidget(
 		description: 'CopyParty sync',
 		icon: CupertinoIcons.cloud_upload,
 		settings: [

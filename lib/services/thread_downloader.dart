@@ -8,6 +8,7 @@ import 'package:chan/models/thread.dart';
 import 'package:chan/services/copyparty_sync.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/thread_html.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/streaming_mp4.dart';
 import 'package:chan/sites/imageboard_site.dart';
@@ -137,6 +138,8 @@ class ThreadDownloadService {
     for (final record in _box.values) {
       if (record.status != DownloadStatus.complete) continue;
       if (record.isArchivedOnServer) continue;
+      if (record.pendingDeletionAt != null)
+        continue; // skip pending-deletion threads
       final imageboard =
           ImageboardRegistry.instance.getImageboard(record.imageboardKey);
       if (imageboard == null) continue;
@@ -189,6 +192,8 @@ class ThreadDownloadService {
     await mutex.protect(() async {
       final record = _box.get(key);
       if (record == null || !record.isInBox) return;
+      // Don't update threads that are pending soft-deletion
+      if (record.pendingDeletionAt != null) return;
       if (record.status == DownloadStatus.downloading ||
           record.status == DownloadStatus.updating ||
           record.status == DownloadStatus.pending) {
@@ -248,10 +253,23 @@ class ThreadDownloadService {
     String? thumbnailUrl,
     required DateTime downloadedAt,
     required int totalFiles,
+    bool isArchivedOnServer = true,
   }) async {
     final key = _key(imageboardKey, ThreadIdentifier(board, threadId));
     final existing = _box.get(key);
     if (existing != null && existing.status == DownloadStatus.complete) {
+      // Update metadata that may have changed (e.g. re-import of updated ZIP).
+      bool changed = false;
+      if (existing.totalFiles != totalFiles) {
+        existing.totalFiles = totalFiles;
+        existing.downloadedFiles = totalFiles;
+        changed = true;
+      }
+      if (existing.isArchivedOnServer != isArchivedOnServer) {
+        existing.isArchivedOnServer = isArchivedOnServer;
+        changed = true;
+      }
+      if (changed) await existing.save();
       return false;
     }
     final localThumbnailFilename = thumbnailUrl != null
@@ -269,7 +287,7 @@ class ThreadDownloadService {
       status: DownloadStatus.complete,
       totalFiles: totalFiles,
       downloadedFiles: totalFiles,
-      isArchivedOnServer: true,
+      isArchivedOnServer: isArchivedOnServer,
     );
     await _box.put(key, record);
     return true;
@@ -698,6 +716,9 @@ class ThreadDownloadService {
   Directory _threadDirFor(DownloadedThread record) => Directory(
       '${_downloadsDir.path}/${record.imageboardKey}/${record.board}/${record.threadId}');
 
+  /// Public accessor for the local directory of a downloaded/imported thread.
+  Directory getThreadDir(DownloadedThread record) => _threadDirFor(record);
+
   File _fileForName(DownloadedThread record, String filename) =>
       File('${_threadDirFor(record).path}/$filename');
 
@@ -972,6 +993,12 @@ class ThreadDownloadService {
               }
             }
           }
+
+          // Throttle: optional inter-file delay to avoid CDN rate-limiting.
+          final delayMs = Persistence.settings.downloadInterFileDelayMs;
+          if (!cancelToken.isCancelled && delayMs > 0) {
+            await Future.delayed(Duration(milliseconds: delayMs));
+          }
         }
 
         if (!cancelToken.isCancelled) {
@@ -1148,10 +1175,52 @@ class ThreadDownloadService {
     final zipFile = File(zipPath);
     if (zipFile.existsSync()) zipFile.deleteSync();
 
+    // Generate thread_data.html from cached thread data so the ZIP is
+    // self-contained and can be re-imported even if the thread is 404.
+    final thread = await Persistence.getCachedThread(
+        record.imageboardKey, record.board, record.threadId,
+        syncIO: true);
+    final htmlFile = thread != null
+        ? File(
+            '${Persistence.shareCacheDirectory.path}/thread_data_${record.threadId}.html')
+        : null;
+    if (thread != null && htmlFile != null) {
+      htmlFile.writeAsStringSync(generateThreadHtml(thread));
+    }
+
     final enc = ZipFileEncoder();
-    enc.create(zipPath);
-    await enc.addDirectory(threadDir, includeDirName: false);
-    enc.close();
+    bool zipClosed = false;
+    try {
+      enc.create(zipPath);
+      // Add all thread files individually, skipping any stale thread_data.html
+      // so the freshly-generated one below is the sole copy in the ZIP.
+      for (final f in threadDir.listSync().whereType<File>()) {
+        final name = f.uri.pathSegments.last;
+        if (name == 'thread_data.html') continue;
+        await enc.addFile(f, name);
+      }
+      // Add the freshly-generated HTML; fall back to the one already on disk.
+      if (htmlFile != null && htmlFile.existsSync()) {
+        await enc.addFile(htmlFile, 'thread_data.html');
+      } else {
+        final existing = File('${threadDir.path}/thread_data.html');
+        if (existing.existsSync())
+          await enc.addFile(existing, 'thread_data.html');
+      }
+      enc.close();
+      zipClosed = true;
+    } finally {
+      // Always clean up the temp HTML file.
+      try {
+        htmlFile?.deleteSync();
+      } catch (_) {}
+      // Remove partial ZIP on failure.
+      if (!zipClosed && zipFile.existsSync()) {
+        try {
+          zipFile.deleteSync();
+        } catch (_) {}
+      }
+    }
 
     return zipFile;
   }

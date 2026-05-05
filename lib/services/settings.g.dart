@@ -2843,6 +2843,18 @@ class SavedSettingsFields {
     fieldName: 'copypartyDestRoot',
     merger: PrimitiveMerger(),
   );
+  static int getDownloadInterFileDelayMs(SavedSettings x) =>
+      x.downloadInterFileDelayMs;
+  static void setDownloadInterFileDelayMs(SavedSettings x, int v) =>
+      x.downloadInterFileDelayMs = v;
+  static const int kDownloadInterFileDelayMs = 220;
+  static const downloadInterFileDelayMs = HiveFieldAdapter<SavedSettings, int>(
+    getter: getDownloadInterFileDelayMs,
+    setter: setDownloadInterFileDelayMs,
+    fieldNumber: kDownloadInterFileDelayMs,
+    fieldName: 'downloadInterFileDelayMs',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3062,13 +3074,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     216: SavedSettingsFields.didHideTabPopupAutomatically,
     217: SavedSettingsFields.copypartyEnabled,
     218: SavedSettingsFields.copypartyServerUrl,
-    219: SavedSettingsFields.copypartyDestRoot
+    219: SavedSettingsFields.copypartyDestRoot,
+    220: SavedSettingsFields.downloadInterFileDelayMs
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(220, null);
+    final List<dynamic> fields = List.filled(221, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3301,13 +3314,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       copypartyEnabled: fields[217] as bool?,
       copypartyServerUrl: fields[218] as String?,
       copypartyDestRoot: fields[219] as String?,
+      downloadInterFileDelayMs: fields[220] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(207)
+      ..writeByte(208)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3721,7 +3735,9 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(218)
       ..write(obj.copypartyServerUrl)
       ..writeByte(219)
-      ..write(obj.copypartyDestRoot);
+      ..write(obj.copypartyDestRoot)
+      ..writeByte(220)
+      ..write(obj.downloadInterFileDelayMs);
   }
 
   @override

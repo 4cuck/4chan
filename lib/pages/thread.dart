@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -25,6 +26,7 @@ import 'package:chan/services/settings.dart';
 import 'package:chan/services/share.dart';
 import 'package:chan/services/theme.dart';
 import 'package:chan/models/downloaded_thread.dart';
+import 'package:chan/services/kuroba_import.dart';
 import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/thread_watcher.dart';
 import 'package:chan/services/translation.dart';
@@ -2659,6 +2661,50 @@ class ThreadPageState extends State<ThreadPage> {
                                                                           .ensureThreadLoaded();
                                                                   debugPrint(
                                                                       '[IMPORT_DEBUG] ensureThreadLoaded returned: $loaded (posts: ${loaded?.posts.length})');
+                                                                  if (loaded ==
+                                                                          null &&
+                                                                      downloadStatus !=
+                                                                          null &&
+                                                                      downloadStatus
+                                                                          .isArchivedOnServer) {
+                                                                    // Recovery: re-parse thread_data.html if box entry is missing after restart
+                                                                    try {
+                                                                      final threadDir = ThreadDownloadService
+                                                                          .instance
+                                                                          .getThreadDir(
+                                                                              downloadStatus);
+                                                                      final htmlFile =
+                                                                          File(
+                                                                              '${threadDir.path}/thread_data.html');
+                                                                      if (htmlFile
+                                                                          .existsSync()) {
+                                                                        final html =
+                                                                            htmlFile.readAsStringSync();
+                                                                        final recovered = parseKurobaThreadHtml(
+                                                                            imageboard.key,
+                                                                            widget.thread.board,
+                                                                            widget.thread.id,
+                                                                            html);
+                                                                        if (recovered !=
+                                                                            null) {
+                                                                          await Persistence.setCachedThread(
+                                                                              imageboard.key,
+                                                                              widget.thread.board,
+                                                                              widget.thread.id,
+                                                                              recovered);
+                                                                          final reloaded =
+                                                                              await persistentState.ensureThreadLoaded();
+                                                                          debugPrint(
+                                                                              '[IMPORT_DEBUG] recovery succeeded: ${reloaded?.posts.length} posts');
+                                                                          return reloaded
+                                                                              ?.posts;
+                                                                        }
+                                                                      }
+                                                                    } catch (e) {
+                                                                      debugPrint(
+                                                                          '[IMPORT_DEBUG] recovery failed: $e');
+                                                                    }
+                                                                  }
                                                                   return loaded
                                                                       ?.posts;
                                                                 }

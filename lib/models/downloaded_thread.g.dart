@@ -231,14 +231,14 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       thumbnailUrl: fields[4] as String?,
       downloadedAt: fields[5] as DateTime,
       status: fields[6] as DownloadStatus,
-      totalFiles: fields[7] as int,
-      downloadedFiles: fields[8] as int,
+      totalFiles: (fields[7] as int?) ?? 0,
+      downloadedFiles: (fields[8] as int?) ?? 0,
       lastUpdatedAt: fields[9] as DateTime?,
-      syncedFiles: fields[10] as int,
+      syncedFiles: (fields[10] as int?) ?? 0,
       lastSyncedAt: fields[11] as DateTime?,
       errorMessage: fields[12] as String?,
       localThumbnailFilename: fields[13] as String?,
-      isArchivedOnServer: fields[14] as bool? ?? false,
+      isArchivedOnServer: (fields[14] as bool?) ?? false,
       pendingDeletionAt: fields[15] as DateTime?,
     );
   }
