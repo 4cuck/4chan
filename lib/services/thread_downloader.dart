@@ -73,6 +73,16 @@ class ThreadDownloadService {
         record.status = DownloadStatus.pending;
         if (record.isInBox) await record.save();
       }
+      // Migration: reset threads that failed due to the null-int hot-reload bug
+      // (downloadInterFileDelayMs was null in memory after a hot-reload).
+      if (record.status == DownloadStatus.failed &&
+          (record.errorMessage
+                  ?.contains("'Null' is not a subtype of type 'int'") ==
+              true)) {
+        record.status = DownloadStatus.complete;
+        record.errorMessage = null;
+        if (record.isInBox) await record.save();
+      }
     }
     // Subscribe to thread state changes for auto-update
     instance._threadStateSubscription =
@@ -995,7 +1005,14 @@ class ThreadDownloadService {
           }
 
           // Throttle: optional inter-file delay to avoid CDN rate-limiting.
-          final delayMs = Persistence.settings.downloadInterFileDelayMs;
+          // Use try/catch to guard against null during hot-reload (field may be
+          // uninitialised in the in-memory instance when the field was just added).
+          int delayMs;
+          try {
+            delayMs = Persistence.settings.downloadInterFileDelayMs;
+          } on TypeError {
+            delayMs = 0;
+          }
           if (!cancelToken.isCancelled && delayMs > 0) {
             await Future.delayed(Duration(milliseconds: delayMs));
           }

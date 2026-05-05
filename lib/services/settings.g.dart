@@ -3321,7 +3321,7 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(208)
+      ..writeByte(209)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
