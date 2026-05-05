@@ -3083,10 +3083,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     final numOfFields = reader.readByte();
     final List<dynamic> fields = List.filled(221, null);
     for (int i = 0; i < numOfFields; i++) {
-      final int fieldId = reader.readByte();
-      final dynamic value = reader.read();
-      if (fieldId < fields.length) {
-        fields[fieldId] = value;
+      try {
+        final int fieldId = reader.readByte();
+        final dynamic value = reader.read();
+        if (fieldId < fields.length) {
+          fields[fieldId] = value;
+        }
+      } on RangeError {
+        break;
       }
     }
     _readHookSavedSettingsFields(fields);
@@ -3321,7 +3325,7 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(209)
+      ..writeByte(208)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)

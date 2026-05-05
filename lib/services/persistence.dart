@@ -1187,7 +1187,9 @@ class Persistence extends ChangeNotifier {
             disabledArchiveNames: {},
             postSortingMethodPerBoard: {},
             downloadSubfoldersPerBoard: {},
-            postingFlags: {}));
+            postingFlags: {},
+            hiddenImageIds: {},
+            showImageIds: {}));
     if (browserState.deprecatedTabs.isNotEmpty &&
         ImageboardRegistry.instance.getImageboardUnsafe(imageboardKey) !=
             null) {
@@ -1254,6 +1256,12 @@ class Persistence extends ChangeNotifier {
       list.removeRange(0, max(0, list.length - _maxHiddenIdsPerBoard));
     }
     for (final list in browserState.overrideShowIds.values) {
+      list.removeRange(0, max(0, list.length - _maxHiddenIdsPerBoard));
+    }
+    for (final list in browserState.hiddenImageIds.values) {
+      list.removeRange(0, max(0, list.length - _maxHiddenIdsPerBoard));
+    }
+    for (final list in browserState.showImageIds.values) {
       list.removeRange(0, max(0, list.length - _maxHiddenIdsPerBoard));
     }
     if (!browserState.notificationsMigrated) {
@@ -2511,6 +2519,14 @@ class PersistentBrowserState {
   final Map<BoardKey, String> downloadSubfoldersPerBoard;
   @HiveField(33, defaultValue: {})
   final Map<BoardKey, ImageboardBoardFlag> postingFlags;
+  @HiveField(34,
+      defaultValue: <String, List<int>>{},
+      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  final Map<BoardKey, List<int>> hiddenImageIds;
+  @HiveField(35,
+      defaultValue: <String, List<int>>{},
+      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  final Map<BoardKey, List<int>> showImageIds;
 
   PersistentBrowserState(
       {this.deprecatedTabs = const [],
@@ -2542,7 +2558,9 @@ class PersistentBrowserState {
       this.postSortingMethod,
       required this.postSortingMethodPerBoard,
       required this.downloadSubfoldersPerBoard,
-      required this.postingFlags})
+      required this.postingFlags,
+      this.hiddenImageIds = const {},
+      this.showImageIds = const {}})
       : notificationsId = notificationsId ?? (const Uuid()).v4();
 
   final Map<BoardKey, Filter> _catalogFilters = {};
@@ -2552,6 +2570,38 @@ class PersistentBrowserState {
         () => FilterCache(IDFilter(
             hideIds: hiddenIds[board]?.toList(growable: false) ?? [],
             showIds: overrideShowIds[board]?.toList(growable: false) ?? [])));
+  }
+
+  bool getThreadImageHiding(ThreadIdentifier thread) {
+    return hiddenImageIds[thread.boardKey]?.contains(thread.id) ?? false;
+  }
+
+  void setThreadImageHiding(ThreadIdentifier thread, bool hiding) {
+    if (hiding) {
+      final list = hiddenImageIds.putIfAbsent(thread.boardKey, () => []);
+      if (!list.contains(thread.id)) {
+        list.add(thread.id);
+      }
+      // Clear any show override when explicitly hiding
+      showImageIds[thread.boardKey]?.remove(thread.id);
+    } else {
+      hiddenImageIds[thread.boardKey]?.remove(thread.id);
+    }
+  }
+
+  bool getThreadImageShowOverride(ThreadIdentifier thread) {
+    return showImageIds[thread.boardKey]?.contains(thread.id) ?? false;
+  }
+
+  void setThreadImageShowOverride(ThreadIdentifier thread, bool showing) {
+    if (showing) {
+      final list = showImageIds.putIfAbsent(thread.boardKey, () => []);
+      if (!list.contains(thread.id)) {
+        list.add(thread.id);
+      }
+    } else {
+      showImageIds[thread.boardKey]?.remove(thread.id);
+    }
   }
 
   bool? getThreadHiding(ThreadIdentifier thread) {
