@@ -3,6 +3,23 @@ import 'package:hive/hive.dart';
 
 part 'downloaded_thread.g.dart';
 
+/// User preference for where a thread's files should be stored.
+/// [null] on a [DownloadedThread] means "follow the global [copypartyAutoUpload] setting".
+@HiveType(typeId: 54)
+enum ThreadStoragePreference {
+  /// Keep files on device only — never upload to Copyparty.
+  @HiveField(0)
+  localOnly,
+
+  /// Upload to Copyparty and delete local copy after confirmation.
+  @HiveField(1)
+  remoteOnly,
+
+  /// Upload to Copyparty but keep local copy as well.
+  @HiveField(2)
+  both,
+}
+
 @HiveType(typeId: 53)
 enum ThreadStorageLocation {
   /// All files are stored on the local device.
@@ -72,6 +89,8 @@ class DownloadedThread extends HiveObject {
   ThreadStorageLocation storageLocation;
   @HiveField(17)
   int? totalSizeBytes;
+  @HiveField(18)
+  ThreadStoragePreference? storagePreference;
 
   DownloadedThread({
     required this.imageboardKey,
@@ -92,6 +111,7 @@ class DownloadedThread extends HiveObject {
     this.pendingDeletionAt,
     this.storageLocation = ThreadStorageLocation.local,
     this.totalSizeBytes,
+    this.storagePreference,
   });
 
   /// Returns the effective storage location, inferring from [syncedFiles] for

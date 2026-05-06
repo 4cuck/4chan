@@ -2855,6 +2855,17 @@ class SavedSettingsFields {
     fieldName: 'downloadInterFileDelayMs',
     merger: PrimitiveMerger(),
   );
+  static bool getCopypartyAutoUpload(SavedSettings x) => x.copypartyAutoUpload;
+  static void setCopypartyAutoUpload(SavedSettings x, bool v) =>
+      x.copypartyAutoUpload = v;
+  static const int kCopypartyAutoUpload = 221;
+  static const copypartyAutoUpload = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getCopypartyAutoUpload,
+    setter: setCopypartyAutoUpload,
+    fieldNumber: kCopypartyAutoUpload,
+    fieldName: 'copypartyAutoUpload',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3075,13 +3086,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     217: SavedSettingsFields.copypartyEnabled,
     218: SavedSettingsFields.copypartyServerUrl,
     219: SavedSettingsFields.copypartyDestRoot,
-    220: SavedSettingsFields.downloadInterFileDelayMs
+    220: SavedSettingsFields.downloadInterFileDelayMs,
+    221: SavedSettingsFields.copypartyAutoUpload
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(221, null);
+    final List<dynamic> fields = List.filled(222, null);
     for (int i = 0; i < numOfFields; i++) {
       try {
         final int fieldId = reader.readByte();
@@ -3319,13 +3331,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       copypartyServerUrl: fields[218] as String?,
       copypartyDestRoot: fields[219] as String?,
       downloadInterFileDelayMs: fields[220] as int?,
+      copypartyAutoUpload: fields[221] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(208)
+      ..writeByte(209)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3741,7 +3754,9 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(219)
       ..write(obj.copypartyDestRoot)
       ..writeByte(220)
-      ..write(obj.downloadInterFileDelayMs);
+      ..write(obj.downloadInterFileDelayMs)
+      ..writeByte(221)
+      ..write(obj.copypartyAutoUpload);
   }
 
   @override

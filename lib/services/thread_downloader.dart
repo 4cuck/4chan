@@ -59,6 +59,20 @@ class ThreadDownloadService {
   StreamSubscription<PersistentThreadState>? _threadStateSubscription;
   static Timer? _autoSyncTimer;
   bool _migrationCancelled = false;
+  bool _migrationRunning = false;
+  final List<DownloadedThread> _migrationQueue = [];
+
+  /// In-memory set of thread `boxKey`s currently being synced to CopyParty
+  /// in the background. Rows listen to this to show a syncing indicator.
+  final ValueNotifier<Set<String>> activeMigrations =
+      ValueNotifier<Set<String>>({});
+
+  /// Per-run file count for each thread currently migrating.
+  /// Used as the denominator for the progress bar so it always starts at 0.
+  final Map<String, int> _migrationRunTotals = {};
+
+  /// Returns the number of files to upload for [boxKey] in the current run.
+  int migrationRunTotal(String boxKey) => _migrationRunTotals[boxKey] ?? 1;
 
   ThreadDownloadService._(this._box, this._downloadsDir);
 
@@ -116,6 +130,9 @@ class ThreadDownloadService {
     final key = _key(state.imageboardKey, state.identifier);
     final record = _box.get(key);
     if (record == null || record.status != DownloadStatus.complete) return;
+    // Archived threads can't receive new posts — skip to avoid unnecessary network
+    // requests and potential storageLocation corruption (E2).
+    if (record.isArchivedOnServer) return;
     final thread = state.thread;
     if (thread == null) return;
 
@@ -286,8 +303,8 @@ class ThreadDownloadService {
         ? Uri.tryParse(thumbnailUrl)?.pathSegments.lastOrNull
         : null;
     // Compute total size from already-extracted files.
-    final threadDir = Directory(
-        '${_downloadsDir.path}/$imageboardKey/$board/$threadId');
+    final threadDir =
+        Directory('${_downloadsDir.path}/$imageboardKey/$board/$threadId');
     int sizeBytes = 0;
     if (threadDir.existsSync()) {
       await for (final entity in threadDir.list()) {
@@ -448,6 +465,146 @@ class ThreadDownloadService {
   /// Cancel an in-progress migration started by [migrateLocalFilesToCopyparty].
   void cancelMigration() => _migrationCancelled = true;
 
+  /// Starts a background CopyParty upload for [records].
+  /// - Resets each record's [syncedFiles] to 0 so progress always starts from 0.
+  /// - If a migration is already running, queues records to run immediately after.
+  /// - Duplicate keys (already active or already queued) are skipped.
+  Future<void> startBackgroundMigration(List<DownloadedThread> records) async {
+    // Skip records already tracked (active or queued).
+    final current = activeMigrations.value;
+    final newRecords = records.where((r) {
+      if (current.contains(r.boxKey)) return false;
+      if (_migrationQueue.any((q) => q.boxKey == r.boxKey)) return false;
+      return true;
+    }).toList();
+    if (newRecords.isEmpty) return;
+
+    // Reset progress counter so the bar starts at 0 regardless of past runs.
+    // Skip the reset if _runDownload is actively in progress for this record
+    // to avoid clobbering syncedFiles it is currently incrementing (E3).
+    for (final r in newRecords) {
+      if (r.status == DownloadStatus.downloading ||
+          r.status == DownloadStatus.updating) continue;
+      r.syncedFiles = 0;
+      if (r.isInBox) await r.save();
+    }
+
+    if (_migrationRunning) {
+      // Already busy — queue and show spinner so the row gives immediate feedback.
+      _migrationQueue.addAll(newRecords);
+      activeMigrations.value = {...current, ...newRecords.map((r) => r.boxKey)};
+      return;
+    }
+    await _runMigrationBatch(newRecords);
+  }
+
+  /// Runs a foreground (user-initiated) migration for [records] with full state
+  /// management: deduplicates against the background queue, resets progress
+  /// counters, updates [activeMigrations] so rows show the syncing indicator,
+  /// and sets [_migrationRunTotals] for accurate progress bars.
+  /// Use this instead of calling [migrateLocalFilesToCopyparty] directly so
+  /// the row UI stays in sync (L1 fix).
+  Stream<MigrationProgress> runForegroundMigration(
+      List<DownloadedThread> records) async* {
+    // Remove from background queue — these will be handled by this foreground run.
+    _migrationQueue
+        .removeWhere((r) => records.any((req) => req.boxKey == r.boxKey));
+
+    // Skip records already being migrated by the background batch to prevent
+    // concurrent uploads and syncedFiles double-increments (F3).
+    final runRecords = records
+        .where((r) => !activeMigrations.value.contains(r.boxKey))
+        .toList();
+    if (runRecords.isEmpty) {
+      // Nothing to run — all records are handled by the background batch.
+      // Yield a terminal event so the dialog can show "Done" instead of
+      // getting stuck with a spinner (N1).
+      yield const MigrationProgress(
+        totalFiles: 0,
+        processedFiles: 0,
+        uploadedFiles: 0,
+        isDone: true,
+      );
+      return;
+    }
+
+    // Reset progress counters (same logic as startBackgroundMigration).
+    for (final r in runRecords) {
+      if (r.status == DownloadStatus.downloading ||
+          r.status == DownloadStatus.updating) continue;
+      r.syncedFiles = 0;
+      if (r.isInBox) await r.save();
+    }
+
+    // Count local files for accurate progress denominator.
+    final keys = runRecords.map((r) => r.boxKey).toSet();
+    for (final r in runRecords) {
+      final dir = _threadDirFor(r);
+      int count = 0;
+      if (dir.existsSync()) {
+        await for (final entity in dir.list()) {
+          if (entity is File && !entity.path.endsWith('.part')) count++;
+        }
+      }
+      _migrationRunTotals[r.boxKey] = count;
+    }
+
+    activeMigrations.value = {...activeMigrations.value, ...keys};
+    try {
+      await for (final progress
+          in migrateLocalFilesToCopyparty(only: runRecords)) {
+        yield progress;
+      }
+    } finally {
+      for (final key in keys) {
+        _migrationRunTotals.remove(key);
+      }
+      activeMigrations.value = activeMigrations.value.difference(keys);
+    }
+  }
+
+  Future<void> _runMigrationBatch(List<DownloadedThread> records) async {
+    _migrationRunning = true;
+    final keys = records.map((r) => r.boxKey).toSet();
+    activeMigrations.value = {...activeMigrations.value, ...keys};
+
+    // Count actual local files per record so the progress bar denominator is
+    // accurate and always starts from 0/N instead of jumping to 100%.
+    for (final r in records) {
+      final dir = _threadDirFor(r);
+      int count = 0;
+      if (dir.existsSync()) {
+        await for (final entity in dir.list()) {
+          if (entity is File && !entity.path.endsWith('.part')) count++;
+        }
+      }
+      _migrationRunTotals[r.boxKey] = count;
+    }
+
+    try {
+      await for (final _ in migrateLocalFilesToCopyparty(only: records)) {
+        // per-record syncedFiles++ + save happens inside the stream;
+        // Hive watch on the page triggers row rebuilds automatically.
+      }
+    } finally {
+      for (final key in keys) {
+        _migrationRunTotals.remove(key);
+      }
+      activeMigrations.value = activeMigrations.value.difference(keys);
+
+      // Keep _migrationRunning=true until the queue is fully drained so a
+      // concurrent startBackgroundMigration can't launch a second batch in
+      // the window between cleanup and the recursive call (L1).
+      if (_migrationQueue.isNotEmpty) {
+        final next = List<DownloadedThread>.from(_migrationQueue);
+        _migrationQueue.clear();
+        await _runMigrationBatch(next);
+      } else {
+        _migrationRunning = false;
+      }
+    }
+  }
+
   /// Scans all [complete] thread directories for local files and uploads each to
   /// CopyParty, deleting the local copy only after a confirmed [CopyPartySyncResult.ok].
   /// Any auth or server failure stops the migration immediately — unprocessed files
@@ -484,7 +641,9 @@ class ThreadDownloadService {
 
     // Phase 1: discover all eligible local files across complete thread dirs.
     final completeRecords = (only ?? _box.values)
-        .where((r) => r.status == DownloadStatus.complete)
+        .where((r) =>
+            r.status == DownloadStatus.complete &&
+            r.storagePreference != ThreadStoragePreference.localOnly)
         .toList();
     final filesToUpload =
         <({File file, String remotePath, DownloadedThread record})>[];
@@ -518,9 +677,12 @@ class ThreadDownloadService {
     int processed = 0;
     int uploaded = 0;
     final Set<DownloadedThread> touchedRecords = {};
+    // Tracks bytes uploaded this run per record so totalSizeBytes stays accurate
+    // for remoteOnly threads where local files are deleted after upload.
+    final Map<DownloadedThread, int> uploadedSizePerRecord = {};
 
-    // Saves syncedFiles/lastSyncedAt for all records that had at least one file uploaded.
-    // Also updates storageLocation based on whether any local files remain.
+    // Saves syncedFiles/lastSyncedAt/storageLocation/totalSizeBytes for all
+    // touched records. storageLocation is derived from actual remaining local files.
     Future<void> flushTouched() async {
       final now = DateTime.now();
       for (final r in touchedRecords) {
@@ -536,8 +698,19 @@ class ThreadDownloadService {
             }
           }
         }
-        if (!hasLocalFiles && r.syncedFiles > 0) {
+        if (r.storagePreference == ThreadStoragePreference.both) {
+          // Files intentionally kept locally — always mixed if synced.
+          r.storageLocation = r.syncedFiles > 0
+              ? ThreadStorageLocation.mixed
+              : ThreadStorageLocation.local;
+        } else if (!hasLocalFiles && r.syncedFiles > 0) {
           r.storageLocation = ThreadStorageLocation.remote;
+          // Update totalSizeBytes from bytes uploaded this run so the size
+          // display stays accurate now that local files have been deleted.
+          final accumulated = uploadedSizePerRecord[r] ?? 0;
+          if (accumulated > 0) {
+            r.totalSizeBytes = (r.totalSizeBytes ?? 0) + accumulated;
+          }
         } else if (hasLocalFiles && r.syncedFiles > 0) {
           r.storageLocation = ThreadStorageLocation.mixed;
         }
@@ -549,6 +722,17 @@ class ThreadDownloadService {
       if (_migrationCancelled) break;
       // Re-check: if record left complete state since Phase 1 (e.g. download started), skip safely
       if (entry.record.status != DownloadStatus.complete) continue;
+      // Re-check: storagePreference may have been changed to localOnly since the
+      // Phase 1 snapshot. Never delete files for a record that now explicitly wants
+      // local storage (F1 — prevents migration continuing after pref change mid-run).
+      if (entry.record.storagePreference == ThreadStoragePreference.localOnly) {
+        processed++;
+        yield MigrationProgress(
+            totalFiles: total,
+            processedFiles: processed,
+            uploadedFiles: uploaded);
+        continue;
+      }
       // File may have been deleted by concurrent _runDownload since Phase 1 snapshot — skip safely
       if (!entry.file.existsSync()) {
         processed++;
@@ -560,6 +744,47 @@ class ThreadDownloadService {
       }
       CopyPartySyncResult result;
       try {
+        // Skip upload if the file is already present on CopyParty.
+        // This prevents duplicates when the preference is 'both' (local files
+        // are kept after upload, so a second migration run would re-upload them).
+        final alreadyExists = await CopyPartySyncService.instance.fileExists(
+          remoteRelativePath: entry.remotePath,
+          serverUrl: serverUrl,
+          password: password,
+        );
+        if (alreadyExists) {
+          print(
+              '[CopyParty] migrateLocalFilesToCopyparty: already exists, skipping ${entry.remotePath}');
+          // Delete the local copy only for remoteOnly / follow-global preferences.
+          // Never delete for 'both' (keep-local) or 'localOnly' (guarded above, but
+          // defence-in-depth for any code path that reaches here — F1).
+          if (entry.record.storagePreference != ThreadStoragePreference.both &&
+              entry.record.storagePreference !=
+                  ThreadStoragePreference.localOnly) {
+            // Capture size before deletion so totalSizeBytes stays accurate (E3).
+            try {
+              final fileSize =
+                  entry.file.existsSync() ? entry.file.lengthSync() : 0;
+              if (fileSize > 0) {
+                uploadedSizePerRecord[entry.record] =
+                    (uploadedSizePerRecord[entry.record] ?? 0) + fileSize;
+              }
+            } catch (_) {}
+            try {
+              await entry.file.delete();
+            } catch (_) {}
+          }
+          processed++;
+          entry.record.syncedFiles++;
+          touchedRecords.add(entry.record);
+          uploaded++;
+          if (entry.record.isInBox) await entry.record.save();
+          yield MigrationProgress(
+              totalFiles: total,
+              processedFiles: processed,
+              uploadedFiles: uploaded);
+          continue;
+        }
         print(
             '[CopyParty] migrateLocalFilesToCopyparty: uploading ${entry.remotePath}');
         result = await CopyPartySyncService.instance.putFile(
@@ -583,11 +808,30 @@ class ThreadDownloadService {
       }
       processed++;
       if (result == CopyPartySyncResult.ok) {
+        // Capture size before deletion so totalSizeBytes stays accurate
+        // for remoteOnly threads where the local file is about to be removed.
         try {
-          await entry.file.delete();
+          final fileSize =
+              entry.file.existsSync() ? entry.file.lengthSync() : 0;
+          if (fileSize > 0) {
+            uploadedSizePerRecord[entry.record] =
+                (uploadedSizePerRecord[entry.record] ?? 0) + fileSize;
+          }
         } catch (_) {}
+        // Delete local file only for remoteOnly / follow-global preferences.
+        // Never delete for 'both' (keep-local) or 'localOnly' (preference may have
+        // changed mid-run — guarded by the loop re-check above, but defence-in-depth
+        // for any race that slips through — F1).
+        if (entry.record.storagePreference != ThreadStoragePreference.both &&
+            entry.record.storagePreference !=
+                ThreadStoragePreference.localOnly) {
+          try {
+            await entry.file.delete();
+          } catch (_) {}
+        }
         entry.record.syncedFiles++;
         touchedRecords.add(entry.record);
+        if (entry.record.isInBox) await entry.record.save();
         uploaded++;
         yield MigrationProgress(
             totalFiles: total,
@@ -902,6 +1146,18 @@ class ThreadDownloadService {
 
         // 5. Download each attachment + thumbnail
         final copypartyEnabled = Persistence.settings.copypartyEnabled;
+        // Effective upload decision: per-thread preference overrides global autoUpload setting.
+        final pref = record.storagePreference;
+        final shouldUpload = copypartyEnabled &&
+            (pref == ThreadStoragePreference.remoteOnly ||
+                pref == ThreadStoragePreference.both ||
+                (pref == null && Persistence.settings.copypartyAutoUpload));
+        final shouldDeleteAfterUpload = pref != ThreadStoragePreference.both;
+        // Always reset sync counter so it accurately reflects uploads done in
+        // THIS run. Without this, stale syncedFiles from a previous remoteOnly
+        // run can cause _runDownload to set storageLocation = remote at the end
+        // even when nothing was uploaded (e.g. after switching to localOnly).
+        record.syncedFiles = 0;
         final serverUrl = Persistence.settings.copypartyServerUrl;
         final destRoot = Persistence.settings.copypartyDestRoot;
         final password = copypartyEnabled
@@ -926,7 +1182,34 @@ class ThreadDownloadService {
             final mainFile = _fileForName(record, mainFilename);
             final mainPreExisted = mainFile.existsSync();
             bool mainOk = mainPreExisted;
-            if (!mainOk) {
+            // HEAD check for all shouldUpload threads:
+            // - remoteOnly (shouldDeleteAfterUpload=true): skip download + upload
+            //   if already on server — no local copy needed.
+            // - 'both' (shouldDeleteAfterUpload=false): skip the re-upload only;
+            //   still download to ensure a local copy exists.
+            bool mainAlreadyOnServer = false;
+            if (!mainOk &&
+                shouldUpload &&
+                serverUrl.isNotEmpty &&
+                !copypartyAuthFailed &&
+                !copypartyServerFailed &&
+                !mainFilename.contains('..') &&
+                !mainFilename.contains('/') &&
+                !mainFilename.contains('\\') &&
+                !record.imageboardKey.contains('..') &&
+                !record.board.contains('..')) {
+              final remoteCheckPath =
+                  '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$mainFilename';
+              mainAlreadyOnServer =
+                  await CopyPartySyncService.instance.fileExists(
+                remoteRelativePath: remoteCheckPath,
+                serverUrl: serverUrl,
+                password: password,
+              );
+            }
+            // For remoteOnly: skip download when already on server (no local copy needed).
+            // For 'both': always download even if on server, to get the local copy.
+            if (!mainOk && !(mainAlreadyOnServer && shouldDeleteAfterUpload)) {
               try {
                 final cached =
                     await _tryCopyFromCache(attachment.url, mainFile);
@@ -945,7 +1228,7 @@ class ThreadDownloadService {
                 }
               }
             }
-            if (!mainPreExisted) {
+            if (!mainPreExisted && mainOk) {
               record.downloadedFiles++;
               saveCount++;
               if (saveCount % 10 == 0 && record.isInBox) await record.save();
@@ -957,8 +1240,8 @@ class ThreadDownloadService {
               } catch (_) {}
             }
 
-            if (mainOk &&
-                copypartyEnabled &&
+            if ((mainOk || mainAlreadyOnServer) &&
+                shouldUpload &&
                 serverUrl.isNotEmpty &&
                 !copypartyAuthFailed &&
                 !copypartyServerFailed &&
@@ -969,26 +1252,45 @@ class ThreadDownloadService {
                 !record.board.contains('..')) {
               final remotePath =
                   '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$mainFilename';
-              final result = await CopyPartySyncService.instance.putFile(
-                file: mainFile,
-                remoteRelativePath: remotePath,
-                serverUrl: serverUrl,
-                password: password,
-              );
-              if (result == CopyPartySyncResult.ok) {
+              // For 'both' preference, file is kept locally after upload. On
+              // subsequent update runs the file pre-exists locally. Skip the
+              // upload (and the existence HEAD check) if this is a pre-existing
+              // file that we would keep anyway — it's already on the server.
+              // Also skip if the HEAD check above confirmed the file is already
+              // on the server (remoteOnly thread on a subsequent update run).
+              final skipUpload = (mainPreExisted && !shouldDeleteAfterUpload) ||
+                  mainAlreadyOnServer;
+              if (skipUpload) {
+                // Already uploaded in a previous run; count it without re-uploading.
                 record.syncedFiles++;
-                try {
-                  await mainFile.delete();
-                } catch (_) {}
                 if (record.isInBox) await record.save();
-              } else if (result == CopyPartySyncResult.authFailed) {
-                copypartyAuthFailed = true;
-                record.errorMessage =
-                    'CopyParty: auth failed — check password in settings';
               } else {
-                copypartyServerFailed = true;
-                record.errorMessage ??=
-                    'CopyParty sync incomplete — server unreachable or error';
+                final result = await CopyPartySyncService.instance.putFile(
+                  file: mainFile,
+                  remoteRelativePath: remotePath,
+                  serverUrl: serverUrl,
+                  password: password,
+                );
+                if (result == CopyPartySyncResult.ok) {
+                  record.syncedFiles++;
+                  // Re-read pref: user may have changed to localOnly/both mid-run (F1).
+                  final livePref = record.storagePreference;
+                  if (livePref != ThreadStoragePreference.both &&
+                      livePref != ThreadStoragePreference.localOnly) {
+                    try {
+                      await mainFile.delete();
+                    } catch (_) {}
+                  }
+                  if (record.isInBox) await record.save();
+                } else if (result == CopyPartySyncResult.authFailed) {
+                  copypartyAuthFailed = true;
+                  record.errorMessage =
+                      'CopyParty: auth failed — check password in settings';
+                } else {
+                  copypartyServerFailed = true;
+                  record.errorMessage ??=
+                      'CopyParty sync incomplete — server unreachable or error';
+                }
               }
             }
           }
@@ -1002,7 +1304,29 @@ class ThreadDownloadService {
             final thumbFile = _fileForName(record, thumbFilename);
             final thumbPreExisted = thumbFile.existsSync();
             bool thumbOk = thumbPreExisted;
-            if (!thumbOk) {
+            // Same HEAD check as main file — covers both remoteOnly and 'both'.
+            bool thumbAlreadyOnServer = false;
+            if (!thumbOk &&
+                shouldUpload &&
+                serverUrl.isNotEmpty &&
+                !copypartyAuthFailed &&
+                !copypartyServerFailed &&
+                !thumbFilename.contains('..') &&
+                !thumbFilename.contains('/') &&
+                !thumbFilename.contains('\\') &&
+                !record.imageboardKey.contains('..') &&
+                !record.board.contains('..')) {
+              final remoteCheckPath =
+                  '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$thumbFilename';
+              thumbAlreadyOnServer =
+                  await CopyPartySyncService.instance.fileExists(
+                remoteRelativePath: remoteCheckPath,
+                serverUrl: serverUrl,
+                password: password,
+              );
+            }
+            if (!thumbOk &&
+                !(thumbAlreadyOnServer && shouldDeleteAfterUpload)) {
               try {
                 final cached =
                     await _tryCopyFromCache(attachment.thumbnailUrl, thumbFile);
@@ -1021,7 +1345,7 @@ class ThreadDownloadService {
                 }
               }
             }
-            if (!thumbPreExisted) {
+            if (!thumbPreExisted && thumbOk) {
               record.downloadedFiles++;
               // Store first OP thumbnail filename for the list UI
               if (record.localThumbnailFilename == null) {
@@ -1037,8 +1361,8 @@ class ThreadDownloadService {
               } catch (_) {}
             }
 
-            if (thumbOk &&
-                copypartyEnabled &&
+            if ((thumbOk || thumbAlreadyOnServer) &&
+                shouldUpload &&
                 serverUrl.isNotEmpty &&
                 !copypartyAuthFailed &&
                 !copypartyServerFailed &&
@@ -1049,26 +1373,39 @@ class ThreadDownloadService {
                 !record.board.contains('..')) {
               final remotePath =
                   '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$thumbFilename';
-              final result = await CopyPartySyncService.instance.putFile(
-                file: thumbFile,
-                remoteRelativePath: remotePath,
-                serverUrl: serverUrl,
-                password: password,
-              );
-              if (result == CopyPartySyncResult.ok) {
+              final skipUpload =
+                  (thumbPreExisted && !shouldDeleteAfterUpload) ||
+                      thumbAlreadyOnServer;
+              if (skipUpload) {
                 record.syncedFiles++;
-                try {
-                  await thumbFile.delete();
-                } catch (_) {}
                 if (record.isInBox) await record.save();
-              } else if (result == CopyPartySyncResult.authFailed) {
-                copypartyAuthFailed = true;
-                record.errorMessage =
-                    'CopyParty: auth failed — check password in settings';
               } else {
-                copypartyServerFailed = true;
-                record.errorMessage ??=
-                    'CopyParty sync incomplete — server unreachable or error';
+                final result = await CopyPartySyncService.instance.putFile(
+                  file: thumbFile,
+                  remoteRelativePath: remotePath,
+                  serverUrl: serverUrl,
+                  password: password,
+                );
+                if (result == CopyPartySyncResult.ok) {
+                  record.syncedFiles++;
+                  // Re-read pref: user may have changed to localOnly/both mid-run (F1).
+                  final livePrefThumb = record.storagePreference;
+                  if (livePrefThumb != ThreadStoragePreference.both &&
+                      livePrefThumb != ThreadStoragePreference.localOnly) {
+                    try {
+                      await thumbFile.delete();
+                    } catch (_) {}
+                  }
+                  if (record.isInBox) await record.save();
+                } else if (result == CopyPartySyncResult.authFailed) {
+                  copypartyAuthFailed = true;
+                  record.errorMessage =
+                      'CopyParty: auth failed — check password in settings';
+                } else {
+                  copypartyServerFailed = true;
+                  record.errorMessage ??=
+                      'CopyParty sync incomplete — server unreachable or error';
+                }
               }
             }
           }
@@ -1092,12 +1429,33 @@ class ThreadDownloadService {
           record.lastUpdatedAt = DateTime.now();
           print(
               '[ThreadDownloader] COMPLETE: ${record.boxKey} downloaded=${record.downloadedFiles}/${record.totalFiles}');
+          // Re-read pref: user may have changed preference mid-run (F1).
+          final finalPref = record.storagePreference;
+          // Delete CopyParty folder for localOnly threads regardless of
+          // copypartyEnabled guard — the guard is for upload decisions, not
+          // for deletion intent set by the user.
+          // Also covers legacy records where storageLocation==local but
+          // syncedFiles>0 indicates remote files exist (pre-field-16 records).
+          if (finalPref == ThreadStoragePreference.localOnly &&
+              (record.storageLocation != ThreadStorageLocation.local ||
+                  record.syncedFiles > 0)) {
+            print(
+                '[ThreadDownloader] localOnly complete, firing CopyParty deletion for ${record.boxKey}');
+            _deleteCopypartyFolder(record);
+          }
           if (copypartyEnabled &&
               !copypartyAuthFailed &&
               !copypartyServerFailed) {
             record.lastSyncedAt = DateTime.now();
-            // Determine final storage location based on sync outcome.
-            if (record.syncedFiles >= record.totalFiles &&
+            // Determine final storage location based on sync outcome and live pref.
+            if (finalPref == ThreadStoragePreference.localOnly) {
+              record.syncedFiles = 0;
+              record.storageLocation = ThreadStorageLocation.local;
+            } else if (finalPref == ThreadStoragePreference.both &&
+                record.syncedFiles > 0) {
+              // Files exist both locally and on Copyparty.
+              record.storageLocation = ThreadStorageLocation.mixed;
+            } else if (record.syncedFiles >= record.totalFiles &&
                 record.totalFiles > 0) {
               record.storageLocation = ThreadStorageLocation.remote;
             } else if (record.syncedFiles > 0) {
@@ -1106,11 +1464,48 @@ class ThreadDownloadService {
               record.storageLocation = ThreadStorageLocation.local;
             }
           } else {
-            record.storageLocation = ThreadStorageLocation.local;
+            // CopyParty auth or server failure: partial upload+delete may have
+            // occurred. Update storageLocation so gallery lookup stays correct (F2).
+            if (shouldUpload &&
+                shouldDeleteAfterUpload &&
+                record.syncedFiles > 0) {
+              if (record.syncedFiles >= record.totalFiles &&
+                  record.totalFiles > 0) {
+                record.storageLocation = ThreadStorageLocation.remote;
+              } else {
+                record.storageLocation = ThreadStorageLocation.mixed;
+              }
+            } else {
+              record.storageLocation = ThreadStorageLocation.local;
+            }
           }
-          // Accumulate total media size (persists across update runs).
-          if (newSizeBytes > 0) {
-            record.totalSizeBytes = (record.totalSizeBytes ?? 0) + newSizeBytes;
+          // Compute total media size.
+          // For remoteOnly threads (files deleted after upload), accumulate the
+          // bytes that were downloaded this run — local files are gone so a
+          // directory scan would return 0.
+          // For all other cases (localOnly, both, global-off) the files remain
+          // on disk; scan the directory so the stored value always reflects what
+          // is actually present regardless of how many runs have happened.
+          if (shouldUpload && shouldDeleteAfterUpload) {
+            // remoteOnly path: accumulate bytes downloaded this run.
+            if (newSizeBytes > 0) {
+              record.totalSizeBytes =
+                  (record.totalSizeBytes ?? 0) + newSizeBytes;
+            }
+          } else {
+            // Local-files-kept path: scan dir for ground-truth size.
+            int actualSize = 0;
+            final sizeDir = _threadDirFor(record);
+            if (sizeDir.existsSync()) {
+              await for (final entity in sizeDir.list()) {
+                if (entity is File && !entity.path.endsWith('.part')) {
+                  try {
+                    actualSize += entity.lengthSync();
+                  } catch (_) {}
+                }
+              }
+            }
+            if (actualSize > 0) record.totalSizeBytes = actualSize;
           }
         } else {
           record.status = DownloadStatus.cancelled;
@@ -1129,6 +1524,27 @@ class ThreadDownloadService {
               statusCode != null ? 'HTTP $statusCode' : e.message;
           print(
               '[ThreadDownloader] DioError FAILED: ${record.boxKey} | ${record.errorMessage} | type=${e.type} | url=${e.requestOptions.uri}');
+          // Partial sync may have uploaded and deleted some local files before the
+          // error. Update storageLocation so the icon accurately reflects what is
+          // actually on CopyParty vs disk, preventing findDownloadedFile from
+          // skipping records that still have remote files (F2).
+          if (record.syncedFiles > 0) {
+            final p = record.storagePreference;
+            final cpEnabled = Persistence.settings.copypartyEnabled;
+            final effectiveUpload = cpEnabled &&
+                (p == ThreadStoragePreference.remoteOnly ||
+                    p == ThreadStoragePreference.both ||
+                    (p == null && Persistence.settings.copypartyAutoUpload));
+            final wouldDelete = p != ThreadStoragePreference.both;
+            if (effectiveUpload && wouldDelete) {
+              if (record.syncedFiles >= record.totalFiles &&
+                  record.totalFiles > 0) {
+                record.storageLocation = ThreadStorageLocation.remote;
+              } else {
+                record.storageLocation = ThreadStorageLocation.mixed;
+              }
+            }
+          }
         }
         if (record.isInBox) await record.save();
       } on ThreadNotFoundException {
@@ -1139,6 +1555,17 @@ class ThreadDownloadService {
           record.status = DownloadStatus.complete;
           record.lastUpdatedAt = DateTime.now();
           print('[ThreadDownloader] ARCHIVED: ${record.boxKey}');
+          // If the user explicitly switched to localOnly (download-first path),
+          // honour the deletion intent even though we couldn't download new files.
+          if (record.storagePreference == ThreadStoragePreference.localOnly &&
+              (record.storageLocation != ThreadStorageLocation.local ||
+                  record.syncedFiles > 0)) {
+            print(
+                '[ThreadDownloader] localOnly+archived, firing CopyParty deletion for ${record.boxKey}');
+            _deleteCopypartyFolder(record);
+            record.syncedFiles = 0;
+            record.storageLocation = ThreadStorageLocation.local;
+          }
         } else {
           // Thread not found on first download attempt
           record.status = DownloadStatus.failed;
@@ -1233,12 +1660,48 @@ class ThreadDownloadService {
     await record.save();
   }
 
+  /// Deletes the CopyParty remote folder for [record] silently.
+  /// No-ops if CopyParty is not configured or the record has no remote files.
+  Future<void> _deleteCopypartyFolder(DownloadedThread record) async {
+    if (!Persistence.settings.copypartyEnabled) return;
+    final serverUrl = Persistence.settings.copypartyServerUrl;
+    if (serverUrl.isEmpty) return;
+    if (record.syncedFiles == 0 &&
+        record.storageLocation == ThreadStorageLocation.local) return;
+    final destRoot = Persistence.settings.copypartyDestRoot;
+    final baseRoot = destRoot.endsWith('/')
+        ? destRoot.substring(0, destRoot.length - 1)
+        : destRoot;
+    final folderPath =
+        '$baseRoot/${record.imageboardKey}/${record.board}/${record.threadId}';
+    final password = await storage.read(key: 'copypartyPassword') ?? '';
+    try {
+      await CopyPartySyncService.instance.deleteFolder(
+        remoteFolderPath: folderPath,
+        serverUrl: serverUrl,
+        password: password,
+      );
+    } catch (e) {
+      print('[ThreadDownloader] _deleteCopypartyFolder failed (ignored): $e');
+    }
+  }
+
+  /// Public fire-and-forget wrapper for external callers (e.g. saved_threads.dart)
+  /// when switching a thread to localOnly preference.
+  void deleteCopypartyFolderForThread(DownloadedThread record) {
+    _deleteCopypartyFolder(record);
+  }
+
   /// Immediately removes files and the Hive record for [thread].
+  /// Also deletes the remote CopyParty folder if the thread had remote files.
   Future<void> permanentDelete(
       ThreadIdentifier thread, String imageboardKey) async {
     final key = _key(imageboardKey, thread);
     final record = _box.get(key);
     if (record != null) {
+      // Delete remote folder first (fire-and-forget errors) so it is cleaned up
+      // even if the thread was remoteOnly and has no local directory.
+      await _deleteCopypartyFolder(record);
       final dir = _threadDirFor(record);
       if (dir.existsSync()) {
         await dir.delete(recursive: true);

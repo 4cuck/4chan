@@ -380,6 +380,181 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     }
   }
 
+  void _showMultiStoragePreferenceSheet() {
+    showAdaptiveModalPopup<void>(
+      context: context,
+      builder: (ctx) => AdaptiveActionSheet(
+        title: Text(
+            'Storage preference for ${_selectedBoxKeys.length} thread${_selectedBoxKeys.length == 1 ? "" : "s"}'),
+        message: const Text(
+            'Overrides the global "Auto-upload" setting for each selected thread.'),
+        actions: [
+          AdaptiveActionSheetAction(
+            child: const Text('Follow global setting'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreferenceForSelected(null);
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: const Text('Local only (never upload)'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreferenceForSelected(
+                  ThreadStoragePreference.localOnly);
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: const Text('Remote only (upload then delete local)'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreferenceForSelected(
+                  ThreadStoragePreference.remoteOnly);
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: const Text('Keep both (upload + keep local copy)'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreferenceForSelected(ThreadStoragePreference.both);
+            },
+          ),
+        ],
+        cancelButton: AdaptiveActionSheetAction(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(ctx),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setStoragePreferenceForSelected(
+      ThreadStoragePreference? pref) async {
+    final selected = _sortedDownloads
+        .where((d) => _selectedBoxKeys.contains(d.boxKey))
+        .toList();
+    // Warn if any selected thread has files only on CopyParty.
+    if (pref == ThreadStoragePreference.localOnly) {
+      final remoteCount = selected
+          .where(
+              (d) => d.effectiveStorageLocation == ThreadStorageLocation.remote)
+          .length;
+      if (remoteCount > 0) {
+        if (!mounted) return;
+        final confirmed = await showAdaptiveDialog<bool>(
+          context: context,
+          builder: (ctx) => AdaptiveAlertDialog(
+            title: const Text('Files on CopyParty only'),
+            content: Text(
+              '$remoteCount '
+              '${remoteCount == 1 ? 'thread has its files' : 'threads have their files'} '
+              'only on CopyParty — not on your device.\n\nSwitching to '
+              '"Local only" will not download them back. Files will remain '
+              'on CopyParty but won\'t be accessible offline.',
+            ),
+            actions: [
+              AdaptiveDialogAction(
+                child: const Text('Cancel'),
+                onPressed: () => Navigator.pop(ctx, false),
+              ),
+              AdaptiveDialogAction(
+                child: const Text('Switch anyway'),
+                onPressed: () => Navigator.pop(ctx, true),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || confirmed != true) return;
+      }
+    }
+    for (final d in selected) {
+      d.storagePreference = pref;
+      // Same immediate reset as _setStoragePreference for localOnly.
+      // Fire CopyParty deletion BEFORE zeroing fields — the guard inside
+      // _deleteCopypartyFolder reads syncedFiles/storageLocation synchronously.
+      if (pref == ThreadStoragePreference.localOnly) {
+        final hadRemoteFiles = d.syncedFiles > 0 ||
+            d.storageLocation != ThreadStorageLocation.local;
+        if (hadRemoteFiles) {
+          ThreadDownloadService.instance.deleteCopypartyFolderForThread(d);
+        }
+        d.syncedFiles = 0;
+        d.storageLocation = ThreadStorageLocation.local;
+        d.totalSizeBytes = null;
+      }
+      if (d.isInBox) await d.save();
+    }
+    // Kick off background migration or re-download for complete threads.
+    if (Persistence.settings.copypartyEnabled &&
+        (pref == ThreadStoragePreference.remoteOnly ||
+            pref == ThreadStoragePreference.both)) {
+      final complete =
+          selected.where((d) => d.status == DownloadStatus.complete).toList();
+      if (complete.isNotEmpty) {
+        if (pref == ThreadStoragePreference.both) {
+          // For 'both': threads with files only on CopyParty need a re-download
+          // to restore local copies; others migrate un-synced local files (F3).
+          final needReDownload = complete
+              .where((d) =>
+                  d.effectiveStorageLocation == ThreadStorageLocation.remote &&
+                  !d.isArchivedOnServer)
+              .toList();
+          final archivedRemote = complete
+              .where((d) =>
+                  d.effectiveStorageLocation == ThreadStorageLocation.remote &&
+                  d.isArchivedOnServer)
+              .toList();
+          final needMigrate = complete
+              .where((d) =>
+                  d.effectiveStorageLocation != ThreadStorageLocation.remote)
+              .toList();
+          for (final d in needReDownload) {
+            final imageboard =
+                ImageboardRegistry.instance.getImageboard(d.imageboardKey);
+            if (imageboard != null) {
+              ThreadDownloadService.instance
+                  .updateThread(d.identifier, imageboard.site, d.imageboardKey);
+            }
+          }
+          if (archivedRemote.isNotEmpty && mounted) {
+            showAdaptiveDialog(
+              context: context,
+              builder: (ctx) => AdaptiveAlertDialog(
+                title: const Text('Cannot restore local files'),
+                content: Text(
+                  '${archivedRemote.length} '
+                  '${archivedRemote.length == 1 ? 'thread is archived' : 'threads are archived'} — '
+                  'files cannot be re-downloaded from the imageboard. '
+                  'Files will remain on CopyParty but won\'t be available offline.',
+                ),
+                actions: [
+                  AdaptiveDialogAction(
+                    child: const Text('OK'),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            );
+          }
+          if (needMigrate.isNotEmpty) {
+            ThreadDownloadService.instance
+                .startBackgroundMigration(needMigrate);
+          }
+        } else {
+          // remoteOnly: always migrate.
+          ThreadDownloadService.instance.startBackgroundMigration(complete);
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _selectedBoxKeys.clear();
+        _isSelecting = false;
+        _reload();
+      });
+    }
+  }
+
   /// Export a single thread as a ZIP, saving it to a user-chosen folder.
   Future<void> _exportSingle(DownloadedThread d) async {
     try {
@@ -408,11 +583,17 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       final destFile = File('$destDir/${zipFile.uri.pathSegments.last}');
       await zipFile.copy(destFile.path);
       if (mounted) {
+        // If the thread's files are remote-only, the ZIP contains only metadata.
+        final remoteNote =
+            d.effectiveStorageLocation == ThreadStorageLocation.remote
+                ? '\n\nNote: media files are stored on CopyParty and were '
+                    'not included in the ZIP.'
+                : '';
         showAdaptiveDialog(
           context: context,
           builder: (ctx) => AdaptiveAlertDialog(
             title: const Text('Exported'),
-            content: Text('Saved to ${destFile.path}'),
+            content: Text('Saved to ${destFile.path}$remoteNote'),
             actions: [
               AdaptiveDialogAction(
                   child: const Text('OK'), onPressed: () => Navigator.pop(ctx))
@@ -567,6 +748,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         ],
       ),
     );
+    if (confirmed != true) return;
     for (final key in List<String>.from(_selectedBoxKeys)) {
       final d = _findByBoxKey(key);
       if (d != null)
@@ -647,6 +829,14 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                               onPressed: () {
                                 Navigator.pop(ctx);
                                 _migrateSelected();
+                              },
+                            ),
+                          if (Persistence.settings.copypartyEnabled)
+                            AdaptiveActionSheetAction(
+                              child: const Text('Set storage preference...'),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                _showMultiStoragePreferenceSheet();
                               },
                             ),
                           AdaptiveActionSheetAction(
@@ -816,6 +1006,19 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     super.initState();
     _loadCopypartyThumb();
     _refreshSize();
+    ThreadDownloadService.instance.activeMigrations
+        .addListener(_onMigrationStateChanged);
+  }
+
+  void _onMigrationStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    ThreadDownloadService.instance.activeMigrations
+        .removeListener(_onMigrationStateChanged);
+    super.dispose();
   }
 
   @override
@@ -837,12 +1040,23 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 
   void _refreshSize() {
     final d = widget.download;
-    if (d.totalSizeBytes != null && d.totalSizeBytes! > 0) {
-      if (mounted) setState(() => _displaySizeBytes = d.totalSizeBytes);
+    // For remoteOnly threads (no local files), use the stored totalSizeBytes
+    // which was captured when files were downloaded and uploaded.
+    // For all other threads, scan the directory for the ground-truth current size
+    // so the display always matches what is actually on disk.
+    if (d.effectiveStorageLocation == ThreadStorageLocation.remote) {
+      if (d.totalSizeBytes != null && d.totalSizeBytes! > 0) {
+        if (mounted) setState(() => _displaySizeBytes = d.totalSizeBytes);
+      }
       return;
     }
     ThreadDownloadService.instance.computeThreadDirSize(d).then((size) {
-      if (mounted && size > 0) setState(() => _displaySizeBytes = size);
+      if (mounted && size > 0) {
+        setState(() => _displaySizeBytes = size);
+      } else if (mounted && d.totalSizeBytes != null && d.totalSizeBytes! > 0) {
+        // Fallback to stored value (e.g. files were just deleted mid-run).
+        setState(() => _displaySizeBytes = d.totalSizeBytes);
+      }
     });
   }
 
@@ -1036,6 +1250,30 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
 
   Widget _statusWidget(
       BuildContext context, DownloadedThread d, double? progress) {
+    // Background CopyParty sync in progress — show syncing indicator regardless
+    // of the stored status so the user can see live progress.
+    if (ThreadDownloadService.instance.activeMigrations.value
+        .contains(d.boxKey)) {
+      final runTotal =
+          ThreadDownloadService.instance.migrationRunTotal(d.boxKey);
+      final syncProgress =
+          runTotal > 0 ? (d.syncedFiles / runTotal).clamp(0.0, 1.0) : null;
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (syncProgress != null)
+          LinearProgressIndicator(value: syncProgress, minHeight: 4),
+        Row(children: [
+          const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.5)),
+          const SizedBox(width: 6),
+          Text(
+            'Syncing ${d.syncedFiles}/$runTotal…',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ]),
+      ]);
+    }
     switch (d.status) {
       case DownloadStatus.pending:
         return const Row(children: [
@@ -1137,8 +1375,8 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     if (sizeStr == null) return iconWidget;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Text(sizeStr,
-          style: const TextStyle(
-              fontSize: 12, color: CupertinoColors.systemGrey)),
+          style:
+              const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey)),
       const SizedBox(width: 4),
       iconWidget,
     ]);
@@ -1174,6 +1412,14 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
               onPressed: () {
                 Navigator.pop(popupContext);
                 widget.onMigrate();
+              },
+            ),
+          if (Persistence.settings.copypartyEnabled)
+            AdaptiveActionSheetAction(
+              child: Text(_storagePreferenceLabel(d.storagePreference)),
+              onPressed: () {
+                Navigator.pop(popupContext);
+                _showStoragePreferenceSheet(context, d);
               },
             ),
           AdaptiveActionSheetAction(
@@ -1214,6 +1460,222 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
         ),
       ),
     );
+  }
+
+  String _storagePreferenceLabel(ThreadStoragePreference? pref) {
+    switch (pref) {
+      case ThreadStoragePreference.localOnly:
+        return 'Storage: Local only';
+      case ThreadStoragePreference.remoteOnly:
+        return 'Storage: Remote only';
+      case ThreadStoragePreference.both:
+        return 'Storage: Keep both';
+      case null:
+        return 'Storage: Follow global setting';
+    }
+  }
+
+  void _showStoragePreferenceSheet(BuildContext context, DownloadedThread d) {
+    showAdaptiveModalPopup<void>(
+      context: context,
+      builder: (ctx) => AdaptiveActionSheet(
+        title: const Text('Storage preference for this thread'),
+        message: const Text(
+            'Overrides the global "Auto-upload" setting for this thread.'),
+        actions: [
+          AdaptiveActionSheetAction(
+            child: Text(
+              'Follow global setting',
+              style: d.storagePreference == null
+                  ? const TextStyle(fontWeight: FontWeight.bold)
+                  : null,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreference(d, null);
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: Text(
+              'Local only (never upload)',
+              style: d.storagePreference == ThreadStoragePreference.localOnly
+                  ? const TextStyle(fontWeight: FontWeight.bold)
+                  : null,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreference(d, ThreadStoragePreference.localOnly);
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: Text(
+              'Remote only (upload then delete local)',
+              style: d.storagePreference == ThreadStoragePreference.remoteOnly
+                  ? const TextStyle(fontWeight: FontWeight.bold)
+                  : null,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreference(d, ThreadStoragePreference.remoteOnly);
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: Text(
+              'Keep both (upload + keep local copy)',
+              style: d.storagePreference == ThreadStoragePreference.both
+                  ? const TextStyle(fontWeight: FontWeight.bold)
+                  : null,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _setStoragePreference(d, ThreadStoragePreference.both);
+            },
+          ),
+        ],
+        cancelButton: AdaptiveActionSheetAction(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(ctx),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setStoragePreference(
+      DownloadedThread d, ThreadStoragePreference? pref) async {
+    // Switching to localOnly when files are only on CopyParty:
+    // - Live threads: download to device first, then delete from CopyParty
+    //   on download completion (_runDownload detects remote storageLocation).
+    // - Archived threads: can't re-download, warn about permanent deletion.
+    if (pref == ThreadStoragePreference.localOnly &&
+        d.effectiveStorageLocation == ThreadStorageLocation.remote) {
+      if (!mounted) return;
+      if (!d.isArchivedOnServer) {
+        // Live thread: download first, CopyParty deletion fires on completion.
+        final confirmed = await showAdaptiveDialog<bool>(
+          context: context,
+          builder: (ctx) => AdaptiveAlertDialog(
+            title: const Text('Download before switching?'),
+            content: const Text(
+              'This thread\'s files are only stored on CopyParty. They will be '
+              'downloaded to your device first, then removed from CopyParty '
+              'once the download is complete.',
+            ),
+            actions: [
+              AdaptiveDialogAction(
+                child: const Text('Cancel'),
+                onPressed: () => Navigator.pop(ctx, false),
+              ),
+              AdaptiveDialogAction(
+                child: const Text('Download & switch'),
+                onPressed: () => Navigator.pop(ctx, true),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || confirmed != true) return;
+        // Set preference — storageLocation intentionally left as 'remote' so
+        // _runDownload can detect it at completion and fire CopyParty deletion.
+        d.storagePreference = pref;
+        if (d.isInBox) await d.save();
+        if (mounted) setState(() {});
+        final imageboard =
+            ImageboardRegistry.instance.getImageboard(d.imageboardKey);
+        if (imageboard != null) {
+          ThreadDownloadService.instance
+              .updateThread(d.identifier, imageboard.site, d.imageboardKey);
+        }
+        return;
+      }
+      // Archived thread: cannot re-download — warn about permanent loss.
+      final confirmed = await showAdaptiveDialog<bool>(
+        context: context,
+        builder: (ctx) => AdaptiveAlertDialog(
+          title: const Text('Permanently delete from CopyParty?'),
+          content: const Text(
+            'This thread is archived — its files cannot be re-downloaded '
+            'from the imageboard. Switching to "Local only" will permanently '
+            'delete them from CopyParty with no way to recover them.',
+          ),
+          actions: [
+            AdaptiveDialogAction(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(ctx, false),
+            ),
+            AdaptiveDialogAction(
+              isDestructiveAction: true,
+              child: const Text('Delete anyway'),
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+      // Fall through to immediate deletion below.
+    }
+    d.storagePreference = pref;
+    // For mixed (local+remote) and archived remoteOnly threads, clear remote
+    // state fields immediately. Live remoteOnly threads returned early above;
+    // their state is cleaned up by _runDownload on completion.
+    final hadRemoteFiles = pref == ThreadStoragePreference.localOnly &&
+        (d.syncedFiles > 0 || d.storageLocation != ThreadStorageLocation.local);
+    // Fire-and-forget BEFORE zeroing fields — the guard inside
+    // _deleteCopypartyFolder checks syncedFiles/storageLocation synchronously,
+    // so it must run while they still reflect the old remote state.
+    if (hadRemoteFiles) {
+      ThreadDownloadService.instance.deleteCopypartyFolderForThread(d);
+    }
+    if (pref == ThreadStoragePreference.localOnly) {
+      d.syncedFiles = 0;
+      d.storageLocation = ThreadStorageLocation.local;
+      d.totalSizeBytes = null;
+    }
+    if (d.isInBox) await d.save();
+    if (mounted) setState(() {});
+    // If the new preference implies uploading and the thread already has local
+    // files, kick off background migration so the user sees progress directly
+    // on the row — no blocking dialog.
+    if (mounted &&
+        Persistence.settings.copypartyEnabled &&
+        d.status == DownloadStatus.complete) {
+      if (pref == ThreadStoragePreference.both &&
+          d.effectiveStorageLocation == ThreadStorageLocation.remote) {
+        if (d.isArchivedOnServer) {
+          // Archived threads can't be re-downloaded — show an informational
+          // dialog so the user isn't left wondering why nothing happened (E2/D1).
+          if (mounted) {
+            showAdaptiveDialog(
+              context: context,
+              builder: (ctx) => AdaptiveAlertDialog(
+                title: const Text('Cannot restore local files'),
+                content: const Text(
+                  'This thread is archived — its files cannot be re-downloaded '
+                  'from the imageboard. Files will remain on CopyParty but '
+                  "won't be available offline until you re-import a ZIP.",
+                ),
+                actions: [
+                  AdaptiveDialogAction(
+                    child: const Text('OK'),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            );
+          }
+        } else {
+          // All files are on CopyParty only — trigger a re-download to restore
+          // local copies. A migration on an empty local dir would find nothing.
+          final imageboard =
+              ImageboardRegistry.instance.getImageboard(d.imageboardKey);
+          if (imageboard != null) {
+            ThreadDownloadService.instance
+                .updateThread(d.identifier, imageboard.site, d.imageboardKey);
+          }
+        }
+      } else if (pref == ThreadStoragePreference.remoteOnly ||
+          pref == ThreadStoragePreference.both) {
+        ThreadDownloadService.instance.startBackgroundMigration([d]);
+      }
+    }
   }
 
   Widget _actionsWidget(BuildContext context, DownloadedThread d) {
@@ -1271,7 +1733,7 @@ class _MigrateSelectedDialogState extends State<_MigrateSelectedDialog> {
   void initState() {
     super.initState();
     _sub = ThreadDownloadService.instance
-        .migrateLocalFilesToCopyparty(only: widget.records)
+        .runForegroundMigration(widget.records)
         .listen(
       (p) {
         if (mounted) {

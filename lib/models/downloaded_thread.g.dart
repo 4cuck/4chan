@@ -205,6 +205,20 @@ class DownloadedThreadFields {
     fieldName: 'totalSizeBytes',
     merger: PrimitiveMerger(),
   );
+  static ThreadStoragePreference? getStoragePreference(DownloadedThread x) =>
+      x.storagePreference;
+  static void setStoragePreference(
+          DownloadedThread x, ThreadStoragePreference? v) =>
+      x.storagePreference = v;
+  static const int kStoragePreference = 18;
+  static const storagePreference =
+      HiveFieldAdapter<DownloadedThread, ThreadStoragePreference?>(
+    getter: getStoragePreference,
+    setter: setStoragePreference,
+    fieldNumber: kStoragePreference,
+    fieldName: 'storagePreference',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
@@ -236,12 +250,13 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
     15: DownloadedThreadFields.pendingDeletionAt,
     16: DownloadedThreadFields.storageLocation,
     17: DownloadedThreadFields.totalSizeBytes,
+    18: DownloadedThreadFields.storagePreference,
   };
 
   @override
   DownloadedThread read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(18, null);
+    final List<dynamic> fields = List.filled(19, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -269,13 +284,14 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       storageLocation:
           (fields[16] as ThreadStorageLocation?) ?? ThreadStorageLocation.local,
       totalSizeBytes: fields[17] as int?,
+      storagePreference: fields[18] as ThreadStoragePreference?,
     );
   }
 
   @override
   void write(BinaryWriter writer, DownloadedThread obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.imageboardKey)
       ..writeByte(1)
@@ -311,7 +327,9 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       ..writeByte(16)
       ..write(obj.storageLocation)
       ..writeByte(17)
-      ..write(obj.totalSizeBytes);
+      ..write(obj.totalSizeBytes)
+      ..writeByte(18)
+      ..write(obj.storagePreference);
   }
 
   @override
@@ -440,6 +458,59 @@ class ThreadStorageLocationAdapter extends TypeAdapter<ThreadStorageLocation> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ThreadStorageLocationAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class ThreadStoragePreferenceAdapter
+    extends TypeAdapter<ThreadStoragePreference> {
+  const ThreadStoragePreferenceAdapter();
+
+  static const int kTypeId = 54;
+
+  @override
+  final int typeId = kTypeId;
+
+  @override
+  final Map<int, ReadOnlyHiveFieldAdapter<ThreadStoragePreference, dynamic>>
+      fields = const {};
+
+  @override
+  ThreadStoragePreference read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return ThreadStoragePreference.localOnly;
+      case 1:
+        return ThreadStoragePreference.remoteOnly;
+      case 2:
+        return ThreadStoragePreference.both;
+      default:
+        return ThreadStoragePreference.localOnly;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, ThreadStoragePreference obj) {
+    switch (obj) {
+      case ThreadStoragePreference.localOnly:
+        writer.writeByte(0);
+        break;
+      case ThreadStoragePreference.remoteOnly:
+        writer.writeByte(1);
+        break;
+      case ThreadStoragePreference.both:
+        writer.writeByte(2);
+        break;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThreadStoragePreferenceAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }

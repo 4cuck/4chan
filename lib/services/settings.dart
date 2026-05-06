@@ -1302,6 +1302,8 @@ class SavedSettings extends HiveObject {
   String copypartyDestRoot;
   @HiveField(220)
   int downloadInterFileDelayMs;
+  @HiveField(221)
+  bool copypartyAutoUpload;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1524,6 +1526,7 @@ class SavedSettings extends HiveObject {
     String? copypartyServerUrl,
     String? copypartyDestRoot,
     int? downloadInterFileDelayMs,
+    bool? copypartyAutoUpload,
   })  : autoloadAttachments =
             autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
         theme = theme ?? TristateSystemSetting.system,
@@ -1804,7 +1807,8 @@ class SavedSettings extends HiveObject {
         copypartyEnabled = copypartyEnabled ?? false,
         copypartyServerUrl = copypartyServerUrl ?? '',
         copypartyDestRoot = copypartyDestRoot ?? '/chan/',
-        downloadInterFileDelayMs = downloadInterFileDelayMs ?? 0 {
+        downloadInterFileDelayMs = downloadInterFileDelayMs ?? 0,
+        copypartyAutoUpload = copypartyAutoUpload ?? true {
     if (!this.appliedMigrations.contains('filters')) {
       this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
           RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
@@ -3462,6 +3466,10 @@ class Settings extends ChangeNotifier {
   static const copypartyDestRootSetting =
       SavedSetting(SavedSettingsFields.copypartyDestRoot);
   String get copypartyDestRoot => copypartyDestRootSetting(this);
+
+  static const copypartyAutoUploadSetting =
+      SavedSetting(SavedSettingsFields.copypartyAutoUpload);
+  bool get copypartyAutoUpload => copypartyAutoUploadSetting(this);
 
   static const downloadInterFileDelayMsSetting =
       SavedSetting(SavedSettingsFields.downloadInterFileDelayMs);
