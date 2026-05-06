@@ -848,9 +848,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     final thread = widget.preloadedThread;
     final theme = context.watch<SavedTheme>();
     final progress = d.totalFiles > 0 ? d.downloadedFiles / d.totalFiles : null;
-    final canOpen = d.status == DownloadStatus.complete ||
-        d.status == DownloadStatus.failed ||
-        d.status == DownloadStatus.cancelled;
+    final canOpen = d.status != DownloadStatus.pending;
 
     final isPendingDeletion = d.pendingDeletionAt != null;
     if (imageboard != null && thread != null) {
