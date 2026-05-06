@@ -571,6 +571,7 @@ class Persistence extends ChangeNotifier {
     Hive.registerAdapter(const TlsClientHelloAdapter());
     Hive.registerAdapter(DownloadStatusAdapter());
     Hive.registerAdapter(DownloadedThreadAdapter());
+    Hive.registerAdapter(const ThreadStorageLocationAdapter());
   }
 
   static Future<void> initializeForTesting() async {

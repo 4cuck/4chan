@@ -285,6 +285,19 @@ class ThreadDownloadService {
     final localThumbnailFilename = thumbnailUrl != null
         ? Uri.tryParse(thumbnailUrl)?.pathSegments.lastOrNull
         : null;
+    // Compute total size from already-extracted files.
+    final threadDir = Directory(
+        '${_downloadsDir.path}/$imageboardKey/$board/$threadId');
+    int sizeBytes = 0;
+    if (threadDir.existsSync()) {
+      await for (final entity in threadDir.list()) {
+        if (entity is File && !entity.path.endsWith('.part')) {
+          try {
+            sizeBytes += entity.lengthSync();
+          } catch (_) {}
+        }
+      }
+    }
     final record = DownloadedThread(
       imageboardKey: imageboardKey,
       board: board,
@@ -298,6 +311,7 @@ class ThreadDownloadService {
       totalFiles: totalFiles,
       downloadedFiles: totalFiles,
       isArchivedOnServer: isArchivedOnServer,
+      totalSizeBytes: sizeBytes > 0 ? sizeBytes : null,
     );
     await _box.put(key, record);
     return true;
@@ -332,6 +346,8 @@ class ThreadDownloadService {
       if (r.board != attachment.board || r.threadId != threadId) continue;
       if (r.status == DownloadStatus.cancelled ||
           r.status == DownloadStatus.failed) continue;
+      // Skip records known to have no local files — all content is on Copyparty.
+      if (r.effectiveStorageLocation == ThreadStorageLocation.remote) continue;
       // Verify imageboard matches: check against both the site base URL and the CDN
       // image URL, since some sites (e.g. 4chan) serve media from a different host
       // (i.4cdn.org) than their base URL (boards.4chan.org).
@@ -366,6 +382,8 @@ class ThreadDownloadService {
       if (r.board != attachment.board || r.threadId != threadId) continue;
       if (r.status == DownloadStatus.cancelled ||
           r.status == DownloadStatus.failed) continue;
+      // Skip records known to have no local files — all content is on Copyparty.
+      if (r.effectiveStorageLocation == ThreadStorageLocation.remote) continue;
       if (thumbHost != null) {
         final imageboard =
             ImageboardRegistry.instance.getImageboard(r.imageboardKey);
@@ -408,6 +426,8 @@ class ThreadDownloadService {
     for (final r in _box.values) {
       if (r.board != attachment.board || r.threadId != threadId) continue;
       if (r.status != DownloadStatus.complete) continue;
+      // Skip records known to have no files on Copyparty — all content is local.
+      if (r.effectiveStorageLocation == ThreadStorageLocation.local) continue;
       if (attachmentHost != null) {
         final imageboard =
             ImageboardRegistry.instance.getImageboard(r.imageboardKey);
@@ -500,10 +520,27 @@ class ThreadDownloadService {
     final Set<DownloadedThread> touchedRecords = {};
 
     // Saves syncedFiles/lastSyncedAt for all records that had at least one file uploaded.
+    // Also updates storageLocation based on whether any local files remain.
     Future<void> flushTouched() async {
       final now = DateTime.now();
       for (final r in touchedRecords) {
         r.lastSyncedAt = now;
+        // Determine storage location: check if any local files remain.
+        final dir = _threadDirFor(r);
+        bool hasLocalFiles = false;
+        if (dir.existsSync()) {
+          await for (final entity in dir.list()) {
+            if (entity is File && !entity.path.endsWith('.part')) {
+              hasLocalFiles = true;
+              break;
+            }
+          }
+        }
+        if (!hasLocalFiles && r.syncedFiles > 0) {
+          r.storageLocation = ThreadStorageLocation.remote;
+        } else if (hasLocalFiles && r.syncedFiles > 0) {
+          r.storageLocation = ThreadStorageLocation.mixed;
+        }
         if (r.isInBox) await r.save();
       }
     }
@@ -599,6 +636,22 @@ class ThreadDownloadService {
     if (filename == null) return null;
     final file = _fileForName(record, filename);
     return file.existsSync() ? file : null;
+  }
+
+  /// Computes the total size of all local files in a thread's download directory.
+  /// Returns 0 if the directory does not exist or has no files.
+  Future<int> computeThreadDirSize(DownloadedThread record) async {
+    final dir = _threadDirFor(record);
+    if (!dir.existsSync()) return 0;
+    int total = 0;
+    await for (final entity in dir.list()) {
+      if (entity is File && !entity.path.endsWith('.part')) {
+        try {
+          total += await entity.length();
+        } catch (_) {}
+      }
+    }
+    return total;
   }
 
   /// Constructs a CopyParty URL for the OP thumbnail of a downloaded thread record.
@@ -703,6 +756,9 @@ class ThreadDownloadService {
             status: DownloadStatus.complete,
             totalFiles: files.length,
             downloadedFiles: files.length,
+            storageLocation: ThreadStorageLocation.local,
+            totalSizeBytes: files.fold<int>(
+                0, (sum, f) => sum + (f.existsSync() ? f.lengthSync() : 0)),
           );
           await _box.put(key, record);
           found++;
@@ -858,6 +914,7 @@ class ThreadDownloadService {
         bool copypartyAuthFailed = false;
         bool copypartyServerFailed = false;
         int saveCount = 0;
+        int newSizeBytes = 0;
 
         for (final attachment in attachments) {
           if (cancelToken.isCancelled) break;
@@ -892,6 +949,12 @@ class ThreadDownloadService {
               record.downloadedFiles++;
               saveCount++;
               if (saveCount % 10 == 0 && record.isInBox) await record.save();
+            }
+            // Accumulate size for newly downloaded files (before potential Copyparty deletion).
+            if (!mainPreExisted && mainOk) {
+              try {
+                newSizeBytes += mainFile.lengthSync();
+              } catch (_) {}
             }
 
             if (mainOk &&
@@ -967,6 +1030,12 @@ class ThreadDownloadService {
               saveCount++;
               if (saveCount % 10 == 0 && record.isInBox) await record.save();
             }
+            // Accumulate size for newly downloaded thumbnails (before potential Copyparty deletion).
+            if (!thumbPreExisted && thumbOk) {
+              try {
+                newSizeBytes += thumbFile.lengthSync();
+              } catch (_) {}
+            }
 
             if (thumbOk &&
                 copypartyEnabled &&
@@ -1027,6 +1096,21 @@ class ThreadDownloadService {
               !copypartyAuthFailed &&
               !copypartyServerFailed) {
             record.lastSyncedAt = DateTime.now();
+            // Determine final storage location based on sync outcome.
+            if (record.syncedFiles >= record.totalFiles &&
+                record.totalFiles > 0) {
+              record.storageLocation = ThreadStorageLocation.remote;
+            } else if (record.syncedFiles > 0) {
+              record.storageLocation = ThreadStorageLocation.mixed;
+            } else {
+              record.storageLocation = ThreadStorageLocation.local;
+            }
+          } else {
+            record.storageLocation = ThreadStorageLocation.local;
+          }
+          // Accumulate total media size (persists across update runs).
+          if (newSizeBytes > 0) {
+            record.totalSizeBytes = (record.totalSizeBytes ?? 0) + newSizeBytes;
           }
         } else {
           record.status = DownloadStatus.cancelled;

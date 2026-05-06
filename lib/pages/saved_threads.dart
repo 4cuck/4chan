@@ -809,11 +809,13 @@ class _DownloadedThreadRow extends StatefulWidget {
 class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
   Uri? _copypartyThumbUri;
   Map<String, String>? _copypartyThumbHeaders;
+  int? _displaySizeBytes;
 
   @override
   void initState() {
     super.initState();
     _loadCopypartyThumb();
+    _refreshSize();
   }
 
   @override
@@ -824,6 +826,35 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
       _copypartyThumbHeaders = null;
       _loadCopypartyThumb();
     }
+    final d = widget.download;
+    final o = old.download;
+    if (d.downloadedFiles != o.downloadedFiles ||
+        d.totalSizeBytes != o.totalSizeBytes ||
+        d.status != o.status) {
+      _refreshSize();
+    }
+  }
+
+  void _refreshSize() {
+    final d = widget.download;
+    if (d.totalSizeBytes != null && d.totalSizeBytes! > 0) {
+      if (mounted) setState(() => _displaySizeBytes = d.totalSizeBytes);
+      return;
+    }
+    ThreadDownloadService.instance.computeThreadDirSize(d).then((size) {
+      if (mounted && size > 0) setState(() => _displaySizeBytes = size);
+    });
+  }
+
+  static String _formatBytes(int bytes) {
+    if (bytes <= 0) return '';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   Future<void> _loadCopypartyThumb() async {
@@ -1020,10 +1051,24 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (progress != null)
             LinearProgressIndicator(value: progress, minHeight: 4),
-          Text(
-            '${d.downloadedFiles}/${d.totalFiles} files',
-            style: const TextStyle(fontSize: 12),
-          ),
+          Row(children: [
+            Text(
+              '${d.downloadedFiles}/${d.totalFiles} files',
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (_displaySizeBytes != null && _displaySizeBytes! > 0) ...[
+              const SizedBox(width: 6),
+              const Text('·',
+                  style: TextStyle(
+                      fontSize: 12, color: CupertinoColors.systemGrey)),
+              const SizedBox(width: 6),
+              Text(
+                _formatBytes(_displaySizeBytes!),
+                style: const TextStyle(
+                    fontSize: 12, color: CupertinoColors.systemGrey),
+              ),
+            ],
+          ]),
         ]);
       case DownloadStatus.complete:
         // Show pending deletion countdown if soft-deleted
@@ -1061,28 +1106,42 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
   }
 
   Widget _buildStorageIndicator(DownloadedThread d) {
-    if (d.downloadedFiles == 0) return const SizedBox.shrink();
-    if (d.syncedFiles <= 0) {
-      // All files are local (on device)
-      return const Icon(CupertinoIcons.device_phone_portrait,
-          size: 12, color: CupertinoColors.systemGrey);
-    } else if (d.syncedFiles >= d.downloadedFiles) {
-      // All files uploaded to CopyParty (no local copies)
-      return const Icon(CupertinoIcons.cloud_fill,
-          size: 12, color: CupertinoColors.systemBlue);
-    } else {
-      // Partial: some local, some on CopyParty
-      return const Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(CupertinoIcons.device_phone_portrait,
-            size: 12, color: CupertinoColors.systemGrey),
-        SizedBox(width: 2),
-        Text('/',
-            style: TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
-        SizedBox(width: 2),
-        Icon(CupertinoIcons.cloud_fill,
-            size: 12, color: CupertinoColors.systemBlue),
-      ]);
+    if (d.downloadedFiles == 0 && d.syncedFiles == 0)
+      return const SizedBox.shrink();
+
+    Widget iconWidget;
+    switch (d.effectiveStorageLocation) {
+      case ThreadStorageLocation.local:
+        iconWidget = const Icon(CupertinoIcons.device_phone_portrait,
+            size: 12, color: CupertinoColors.systemGrey);
+      case ThreadStorageLocation.remote:
+        iconWidget = const Icon(CupertinoIcons.cloud_fill,
+            size: 12, color: CupertinoColors.systemBlue);
+      case ThreadStorageLocation.mixed:
+        iconWidget = const Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(CupertinoIcons.device_phone_portrait,
+              size: 12, color: CupertinoColors.systemGrey),
+          SizedBox(width: 2),
+          Text('/',
+              style:
+                  TextStyle(fontSize: 10, color: CupertinoColors.systemGrey)),
+          SizedBox(width: 2),
+          Icon(CupertinoIcons.cloud_fill,
+              size: 12, color: CupertinoColors.systemBlue),
+        ]);
     }
+
+    final sizeStr = _displaySizeBytes != null && _displaySizeBytes! > 0
+        ? _formatBytes(_displaySizeBytes!)
+        : null;
+    if (sizeStr == null) return iconWidget;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text(sizeStr,
+          style: const TextStyle(
+              fontSize: 12, color: CupertinoColors.systemGrey)),
+      const SizedBox(width: 4),
+      iconWidget,
+    ]);
   }
 
   void _showActionSheet(BuildContext context, DownloadedThread d) {

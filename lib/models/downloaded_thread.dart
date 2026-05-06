@@ -3,6 +3,21 @@ import 'package:hive/hive.dart';
 
 part 'downloaded_thread.g.dart';
 
+@HiveType(typeId: 53)
+enum ThreadStorageLocation {
+  /// All files are stored on the local device.
+  @HiveField(0)
+  local,
+
+  /// All files have been synced to Copyparty and deleted locally.
+  @HiveField(1)
+  remote,
+
+  /// Partial sync — some files are local, some are on Copyparty.
+  @HiveField(2)
+  mixed,
+}
+
 @HiveType(typeId: 51)
 enum DownloadStatus {
   @HiveField(0)
@@ -53,6 +68,10 @@ class DownloadedThread extends HiveObject {
   bool isArchivedOnServer;
   @HiveField(15)
   DateTime? pendingDeletionAt;
+  @HiveField(16)
+  ThreadStorageLocation storageLocation;
+  @HiveField(17)
+  int? totalSizeBytes;
 
   DownloadedThread({
     required this.imageboardKey,
@@ -71,7 +90,22 @@ class DownloadedThread extends HiveObject {
     this.localThumbnailFilename,
     this.isArchivedOnServer = false,
     this.pendingDeletionAt,
+    this.storageLocation = ThreadStorageLocation.local,
+    this.totalSizeBytes,
   });
+
+  /// Returns the effective storage location, inferring from [syncedFiles] for
+  /// records created before field 16 was added (they default to [local]).
+  ThreadStorageLocation get effectiveStorageLocation {
+    if (storageLocation == ThreadStorageLocation.local && syncedFiles > 0) {
+      if (syncedFiles >= totalFiles && totalFiles > 0) {
+        return ThreadStorageLocation.remote;
+      }
+      return ThreadStorageLocation.mixed;
+    }
+    return storageLocation;
+  }
+
   String get boxKey => '${imageboardKey}_${board}_$threadId';
   ThreadIdentifier get identifier => ThreadIdentifier(board, threadId);
 }

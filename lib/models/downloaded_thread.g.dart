@@ -181,6 +181,30 @@ class DownloadedThreadFields {
     fieldName: 'pendingDeletionAt',
     merger: PrimitiveMerger(),
   );
+  static ThreadStorageLocation getStorageLocation(DownloadedThread x) =>
+      x.storageLocation;
+  static void setStorageLocation(DownloadedThread x, ThreadStorageLocation v) =>
+      x.storageLocation = v;
+  static const int kStorageLocation = 16;
+  static const storageLocation =
+      HiveFieldAdapter<DownloadedThread, ThreadStorageLocation>(
+    getter: getStorageLocation,
+    setter: setStorageLocation,
+    fieldNumber: kStorageLocation,
+    fieldName: 'storageLocation',
+    merger: PrimitiveMerger(),
+  );
+  static int? getTotalSizeBytes(DownloadedThread x) => x.totalSizeBytes;
+  static void setTotalSizeBytes(DownloadedThread x, int? v) =>
+      x.totalSizeBytes = v;
+  static const int kTotalSizeBytes = 17;
+  static const totalSizeBytes = HiveFieldAdapter<DownloadedThread, int?>(
+    getter: getTotalSizeBytes,
+    setter: setTotalSizeBytes,
+    fieldNumber: kTotalSizeBytes,
+    fieldName: 'totalSizeBytes',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
@@ -209,13 +233,15 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
     12: DownloadedThreadFields.errorMessage,
     13: DownloadedThreadFields.localThumbnailFilename,
     14: DownloadedThreadFields.isArchivedOnServer,
-    15: DownloadedThreadFields.pendingDeletionAt
+    15: DownloadedThreadFields.pendingDeletionAt,
+    16: DownloadedThreadFields.storageLocation,
+    17: DownloadedThreadFields.totalSizeBytes,
   };
 
   @override
   DownloadedThread read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(16, null);
+    final List<dynamic> fields = List.filled(18, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -240,13 +266,16 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       localThumbnailFilename: fields[13] as String?,
       isArchivedOnServer: (fields[14] as bool?) ?? false,
       pendingDeletionAt: fields[15] as DateTime?,
+      storageLocation:
+          (fields[16] as ThreadStorageLocation?) ?? ThreadStorageLocation.local,
+      totalSizeBytes: fields[17] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, DownloadedThread obj) {
     writer
-      ..writeByte(16)
+      ..writeByte(18)
       ..writeByte(0)
       ..write(obj.imageboardKey)
       ..writeByte(1)
@@ -278,7 +307,11 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       ..writeByte(14)
       ..write(obj.isArchivedOnServer)
       ..writeByte(15)
-      ..write(obj.pendingDeletionAt);
+      ..write(obj.pendingDeletionAt)
+      ..writeByte(16)
+      ..write(obj.storageLocation)
+      ..writeByte(17)
+      ..write(obj.totalSizeBytes);
   }
 
   @override
@@ -355,6 +388,58 @@ class DownloadStatusAdapter extends TypeAdapter<DownloadStatus> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is DownloadStatusAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class ThreadStorageLocationAdapter extends TypeAdapter<ThreadStorageLocation> {
+  const ThreadStorageLocationAdapter();
+
+  static const int kTypeId = 53;
+
+  @override
+  final int typeId = kTypeId;
+
+  @override
+  final Map<int, ReadOnlyHiveFieldAdapter<ThreadStorageLocation, dynamic>>
+      fields = const {};
+
+  @override
+  ThreadStorageLocation read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return ThreadStorageLocation.local;
+      case 1:
+        return ThreadStorageLocation.remote;
+      case 2:
+        return ThreadStorageLocation.mixed;
+      default:
+        return ThreadStorageLocation.local;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, ThreadStorageLocation obj) {
+    switch (obj) {
+      case ThreadStorageLocation.local:
+        writer.writeByte(0);
+        break;
+      case ThreadStorageLocation.remote:
+        writer.writeByte(1);
+        break;
+      case ThreadStorageLocation.mixed:
+        writer.writeByte(2);
+        break;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThreadStorageLocationAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }
