@@ -250,7 +250,7 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
     15: DownloadedThreadFields.pendingDeletionAt,
     16: DownloadedThreadFields.storageLocation,
     17: DownloadedThreadFields.totalSizeBytes,
-    18: DownloadedThreadFields.storagePreference,
+    18: DownloadedThreadFields.storagePreference
   };
 
   @override
@@ -272,17 +272,18 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       thumbnailUrl: fields[4] as String?,
       downloadedAt: fields[5] as DateTime,
       status: fields[6] as DownloadStatus,
-      totalFiles: (fields[7] as int?) ?? 0,
-      downloadedFiles: (fields[8] as int?) ?? 0,
+      totalFiles: fields[7] as int,
+      downloadedFiles: fields[8] as int,
       lastUpdatedAt: fields[9] as DateTime?,
-      syncedFiles: (fields[10] as int?) ?? 0,
+      syncedFiles: fields[10] as int,
       lastSyncedAt: fields[11] as DateTime?,
       errorMessage: fields[12] as String?,
       localThumbnailFilename: fields[13] as String?,
-      isArchivedOnServer: (fields[14] as bool?) ?? false,
+      isArchivedOnServer: fields[14] as bool,
       pendingDeletionAt: fields[15] as DateTime?,
-      storageLocation:
-          (fields[16] as ThreadStorageLocation?) ?? ThreadStorageLocation.local,
+      storageLocation: fields[16] == null
+          ? ThreadStorageLocation.local
+          : fields[16] as ThreadStorageLocation,
       totalSizeBytes: fields[17] as int?,
       storagePreference: fields[18] as ThreadStoragePreference?,
     );
@@ -339,6 +340,111 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is DownloadedThreadAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class ThreadStoragePreferenceAdapter
+    extends TypeAdapter<ThreadStoragePreference> {
+  const ThreadStoragePreferenceAdapter();
+
+  static const int kTypeId = 54;
+
+  @override
+  final int typeId = kTypeId;
+
+  @override
+  final Map<int, ReadOnlyHiveFieldAdapter<ThreadStoragePreference, dynamic>>
+      fields = const {};
+
+  @override
+  ThreadStoragePreference read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return ThreadStoragePreference.localOnly;
+      case 1:
+        return ThreadStoragePreference.remoteOnly;
+      case 2:
+        return ThreadStoragePreference.both;
+      default:
+        return ThreadStoragePreference.localOnly;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, ThreadStoragePreference obj) {
+    switch (obj) {
+      case ThreadStoragePreference.localOnly:
+        writer.writeByte(0);
+        break;
+      case ThreadStoragePreference.remoteOnly:
+        writer.writeByte(1);
+        break;
+      case ThreadStoragePreference.both:
+        writer.writeByte(2);
+        break;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThreadStoragePreferenceAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class ThreadStorageLocationAdapter extends TypeAdapter<ThreadStorageLocation> {
+  const ThreadStorageLocationAdapter();
+
+  static const int kTypeId = 53;
+
+  @override
+  final int typeId = kTypeId;
+
+  @override
+  final Map<int, ReadOnlyHiveFieldAdapter<ThreadStorageLocation, dynamic>>
+      fields = const {};
+
+  @override
+  ThreadStorageLocation read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return ThreadStorageLocation.local;
+      case 1:
+        return ThreadStorageLocation.remote;
+      case 2:
+        return ThreadStorageLocation.mixed;
+      default:
+        return ThreadStorageLocation.local;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, ThreadStorageLocation obj) {
+    switch (obj) {
+      case ThreadStorageLocation.local:
+        writer.writeByte(0);
+        break;
+      case ThreadStorageLocation.remote:
+        writer.writeByte(1);
+        break;
+      case ThreadStorageLocation.mixed:
+        writer.writeByte(2);
+        break;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThreadStorageLocationAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }
@@ -406,111 +512,6 @@ class DownloadStatusAdapter extends TypeAdapter<DownloadStatus> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is DownloadStatusAdapter &&
-          runtimeType == other.runtimeType &&
-          typeId == other.typeId;
-}
-
-class ThreadStorageLocationAdapter extends TypeAdapter<ThreadStorageLocation> {
-  const ThreadStorageLocationAdapter();
-
-  static const int kTypeId = 53;
-
-  @override
-  final int typeId = kTypeId;
-
-  @override
-  final Map<int, ReadOnlyHiveFieldAdapter<ThreadStorageLocation, dynamic>>
-      fields = const {};
-
-  @override
-  ThreadStorageLocation read(BinaryReader reader) {
-    switch (reader.readByte()) {
-      case 0:
-        return ThreadStorageLocation.local;
-      case 1:
-        return ThreadStorageLocation.remote;
-      case 2:
-        return ThreadStorageLocation.mixed;
-      default:
-        return ThreadStorageLocation.local;
-    }
-  }
-
-  @override
-  void write(BinaryWriter writer, ThreadStorageLocation obj) {
-    switch (obj) {
-      case ThreadStorageLocation.local:
-        writer.writeByte(0);
-        break;
-      case ThreadStorageLocation.remote:
-        writer.writeByte(1);
-        break;
-      case ThreadStorageLocation.mixed:
-        writer.writeByte(2);
-        break;
-    }
-  }
-
-  @override
-  int get hashCode => typeId.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ThreadStorageLocationAdapter &&
-          runtimeType == other.runtimeType &&
-          typeId == other.typeId;
-}
-
-class ThreadStoragePreferenceAdapter
-    extends TypeAdapter<ThreadStoragePreference> {
-  const ThreadStoragePreferenceAdapter();
-
-  static const int kTypeId = 54;
-
-  @override
-  final int typeId = kTypeId;
-
-  @override
-  final Map<int, ReadOnlyHiveFieldAdapter<ThreadStoragePreference, dynamic>>
-      fields = const {};
-
-  @override
-  ThreadStoragePreference read(BinaryReader reader) {
-    switch (reader.readByte()) {
-      case 0:
-        return ThreadStoragePreference.localOnly;
-      case 1:
-        return ThreadStoragePreference.remoteOnly;
-      case 2:
-        return ThreadStoragePreference.both;
-      default:
-        return ThreadStoragePreference.localOnly;
-    }
-  }
-
-  @override
-  void write(BinaryWriter writer, ThreadStoragePreference obj) {
-    switch (obj) {
-      case ThreadStoragePreference.localOnly:
-        writer.writeByte(0);
-        break;
-      case ThreadStoragePreference.remoteOnly:
-        writer.writeByte(1);
-        break;
-      case ThreadStoragePreference.both:
-        writer.writeByte(2);
-        break;
-    }
-  }
-
-  @override
-  int get hashCode => typeId.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ThreadStoragePreferenceAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }

@@ -2866,6 +2866,19 @@ class SavedSettingsFields {
     fieldName: 'copypartyAutoUpload',
     merger: PrimitiveMerger(),
   );
+  static bool getUseAlternativeGalleryLayout(SavedSettings x) =>
+      x.useAlternativeGalleryLayout;
+  static void setUseAlternativeGalleryLayout(SavedSettings x, bool v) =>
+      x.useAlternativeGalleryLayout = v;
+  static const int kUseAlternativeGalleryLayout = 222;
+  static const useAlternativeGalleryLayout =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getUseAlternativeGalleryLayout,
+    setter: setUseAlternativeGalleryLayout,
+    fieldNumber: kUseAlternativeGalleryLayout,
+    fieldName: 'useAlternativeGalleryLayout',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3087,22 +3100,19 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     218: SavedSettingsFields.copypartyServerUrl,
     219: SavedSettingsFields.copypartyDestRoot,
     220: SavedSettingsFields.downloadInterFileDelayMs,
-    221: SavedSettingsFields.copypartyAutoUpload
+    221: SavedSettingsFields.copypartyAutoUpload,
+    222: SavedSettingsFields.useAlternativeGalleryLayout
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(222, null);
+    final List<dynamic> fields = List.filled(223, null);
     for (int i = 0; i < numOfFields; i++) {
-      try {
-        final int fieldId = reader.readByte();
-        final dynamic value = reader.read();
-        if (fieldId < fields.length) {
-          fields[fieldId] = value;
-        }
-      } on RangeError {
-        break;
+      final int fieldId = reader.readByte();
+      final dynamic value = reader.read();
+      if (fieldId < fields.length) {
+        fields[fieldId] = value;
       }
     }
     _readHookSavedSettingsFields(fields);
@@ -3332,13 +3342,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       copypartyDestRoot: fields[219] as String?,
       downloadInterFileDelayMs: fields[220] as int?,
       copypartyAutoUpload: fields[221] as bool?,
+      useAlternativeGalleryLayout: fields[222] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(209)
+      ..writeByte(210)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3756,7 +3767,9 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(220)
       ..write(obj.downloadInterFileDelayMs)
       ..writeByte(221)
-      ..write(obj.copypartyAutoUpload);
+      ..write(obj.copypartyAutoUpload)
+      ..writeByte(222)
+      ..write(obj.useAlternativeGalleryLayout);
   }
 
   @override

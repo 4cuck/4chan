@@ -1304,6 +1304,8 @@ class SavedSettings extends HiveObject {
   int downloadInterFileDelayMs;
   @HiveField(221)
   bool copypartyAutoUpload;
+  @HiveField(222)
+  bool useAlternativeGalleryLayout;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1527,6 +1529,7 @@ class SavedSettings extends HiveObject {
     String? copypartyDestRoot,
     int? downloadInterFileDelayMs,
     bool? copypartyAutoUpload,
+    bool? useAlternativeGalleryLayout,
   })  : autoloadAttachments =
             autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
         theme = theme ?? TristateSystemSetting.system,
@@ -1808,7 +1811,8 @@ class SavedSettings extends HiveObject {
         copypartyServerUrl = copypartyServerUrl ?? '',
         copypartyDestRoot = copypartyDestRoot ?? '/chan/',
         downloadInterFileDelayMs = downloadInterFileDelayMs ?? 0,
-        copypartyAutoUpload = copypartyAutoUpload ?? true {
+        copypartyAutoUpload = copypartyAutoUpload ?? true,
+        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false {
     if (!this.appliedMigrations.contains('filters')) {
       this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
           RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
@@ -3470,6 +3474,11 @@ class Settings extends ChangeNotifier {
   static const copypartyAutoUploadSetting =
       SavedSetting(SavedSettingsFields.copypartyAutoUpload);
   bool get copypartyAutoUpload => copypartyAutoUploadSetting(this);
+
+  static const useAlternativeGalleryLayoutSetting =
+      SavedSetting(SavedSettingsFields.useAlternativeGalleryLayout);
+  bool get useAlternativeGalleryLayout =>
+      useAlternativeGalleryLayoutSetting(this);
 
   static const downloadInterFileDelayMsSetting =
       SavedSetting(SavedSettingsFields.downloadInterFileDelayMs);
