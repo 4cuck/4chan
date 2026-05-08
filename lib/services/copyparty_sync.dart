@@ -147,19 +147,23 @@ class CopyPartySyncService {
         ),
       );
       print('[CopyParty] deleteFolder: response ${response.statusCode}');
-      if (response.statusCode == 401 || response.statusCode == 403)
+      if (response.statusCode == 401 || response.statusCode == 403) {
         return CopyPartySyncResult.authFailed;
+      }
       if (response.statusCode == 404) return CopyPartySyncResult.ok;
       if (response.statusCode != null &&
           response.statusCode! >= 200 &&
-          response.statusCode! < 300) return CopyPartySyncResult.ok;
+          response.statusCode! < 300) {
+        return CopyPartySyncResult.ok;
+      }
       return CopyPartySyncResult.serverError;
     } on DioError catch (e) {
       print(
           '[CopyParty] deleteFolder: DioError status=${e.response?.statusCode} body=${e.response?.data}');
       if (e.response?.statusCode == 404) return CopyPartySyncResult.ok;
-      if (e.response?.statusCode == 401 || e.response?.statusCode == 403)
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
         return CopyPartySyncResult.authFailed;
+      }
       if (e.response != null) return CopyPartySyncResult.serverError;
       return CopyPartySyncResult.networkError;
     }

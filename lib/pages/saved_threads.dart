@@ -13,11 +13,9 @@ import 'package:chan/services/util.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/thread_row.dart';
-import 'package:chan/widgets/util.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 import 'package:provider/provider.dart';
 
 enum _DownloadSortMethod {
@@ -715,9 +713,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   Future<void> _softDeleteSelected() async {
     for (final key in List<String>.from(_selectedBoxKeys)) {
       final d = _findByBoxKey(key);
-      if (d != null)
+      if (d != null) {
         await ThreadDownloadService.instance
             .softDelete(d.identifier, d.imageboardKey);
+      }
     }
     if (mounted) {
       setState(() {
@@ -751,9 +750,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (confirmed != true) return;
     for (final key in List<String>.from(_selectedBoxKeys)) {
       final d = _findByBoxKey(key);
-      if (d != null)
+      if (d != null) {
         await ThreadDownloadService.instance
             .permanentDelete(d.identifier, d.imageboardKey);
+      }
     }
     if (mounted) {
       setState(() {
@@ -876,10 +876,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                       : CupertinoIcons.sort_down),
                 ),
                 if (_isImporting)
-                  CupertinoButton(
+                  const CupertinoButton(
                     padding: EdgeInsets.zero,
                     onPressed: null,
-                    child: const CupertinoActivityIndicator(),
+                    child: CupertinoActivityIndicator(),
                   )
                 else
                   CupertinoButton(
@@ -1344,8 +1344,9 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
   }
 
   Widget _buildStorageIndicator(DownloadedThread d) {
-    if (d.downloadedFiles == 0 && d.syncedFiles == 0)
+    if (d.downloadedFiles == 0 && d.syncedFiles == 0) {
       return const SizedBox.shrink();
+    }
 
     Widget iconWidget;
     switch (d.effectiveStorageLocation) {

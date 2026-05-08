@@ -60,6 +60,7 @@ class _QuiltGalleryPageState extends State<QuiltGalleryPage> {
   late final ValueNotifier<int> _metadataVersionNotifier;
   TaggedAttachment? _currentAttachment;
   bool _scanning = false;
+  bool _openingAttachment = false;
 
   @override
   void initState() {
@@ -89,51 +90,57 @@ class _QuiltGalleryPageState extends State<QuiltGalleryPage> {
     _scanning = true;
     final downloader = ThreadDownloadService.instance;
     bool anyUpdate = false;
-    for (final tagged in widget.attachments) {
-      if (!tagged.attachment.type.usesVideoPlayer) continue;
-      final url = tagged.attachment.url;
-      if (AttachmentViewerController.mediaMetadataCache.containsKey(url))
-        continue;
-      try {
-        // 1. Check in-memory MediaScan cache synchronously
-        final localFile = downloader.findDownloadedFile(tagged.attachment);
-        if (localFile != null) {
-          final fromMemory = MediaScan.peekCachedFileScan(localFile.path);
-          if (fromMemory != null) {
-            AttachmentViewerController.mediaMetadataCache[url] = (
-              duration: fromMemory.duration,
-              hasAudio: fromMemory.hasAudio,
-            );
-            anyUpdate = true;
-            continue;
-          }
-          // 2. Check Hive disk cache
-          final fromDisk = await MediaScan.cachedFileScan(localFile.path);
-          if (fromDisk != null) {
-            AttachmentViewerController.mediaMetadataCache[url] = (
-              duration: fromDisk.duration,
-              hasAudio: fromDisk.hasAudio,
-            );
-            anyUpdate = true;
-            continue;
-          }
-          // 3. Full ffprobe scan for the local file (result is persisted to Hive)
-          final scan = await MediaScan.scan(localFile.uri);
-          AttachmentViewerController.mediaMetadataCache[url] = (
-            duration: scan.duration,
-            hasAudio: scan.hasAudio,
-          );
-          anyUpdate = true;
+    try {
+      for (final tagged in widget.attachments) {
+        if (!tagged.attachment.type.usesVideoPlayer) continue;
+        final url = tagged.attachment.url;
+        if (AttachmentViewerController.mediaMetadataCache.containsKey(url)) {
+          continue;
         }
-      } catch (_) {
-        // Skip silently — badge just won't show duration for this attachment
+        try {
+          // 1. Check in-memory MediaScan cache synchronously
+          final localFile = downloader.findDownloadedFile(tagged.attachment);
+          if (localFile != null) {
+            final fromMemory = MediaScan.peekCachedFileScan(localFile.path);
+            if (fromMemory != null) {
+              AttachmentViewerController.mediaMetadataCache[url] = (
+                duration: fromMemory.duration,
+                hasAudio: fromMemory.hasAudio,
+              );
+              anyUpdate = true;
+              continue;
+            }
+            // 2. Check Hive disk cache
+            final fromDisk = await MediaScan.cachedFileScan(localFile.path);
+            if (fromDisk != null) {
+              AttachmentViewerController.mediaMetadataCache[url] = (
+                duration: fromDisk.duration,
+                hasAudio: fromDisk.hasAudio,
+              );
+              anyUpdate = true;
+              continue;
+            }
+            // 3. Full ffprobe scan for the local file (result is persisted to Hive)
+            final scan = await MediaScan.scan(localFile.uri);
+            AttachmentViewerController.mediaMetadataCache[url] = (
+              duration: scan.duration,
+              hasAudio: scan.hasAudio,
+            );
+            anyUpdate = true;
+          }
+        } catch (_) {
+          // Skip silently — badge just won't show duration for this attachment
+        }
       }
+      if (anyUpdate && mounted) _metadataVersionNotifier.value++;
+    } finally {
+      _scanning = false;
     }
-    if (anyUpdate && mounted) _metadataVersionNotifier.value++;
-    _scanning = false;
   }
 
   Future<void> _openAttachment(TaggedAttachment attachment) async {
+    if (_openingAttachment) return;
+    _openingAttachment = true;
     setState(() => _currentAttachment = attachment);
     final result =
         await Navigator.of(context, rootNavigator: true).push<Attachment>(
@@ -162,6 +169,7 @@ class _QuiltGalleryPageState extends State<QuiltGalleryPage> {
         ),
       ),
     );
+    _openingAttachment = false;
     if (!mounted) return;
     final target = result != null
         ? widget.attachments.tryFirstWhere((a) => a.attachment == result)
@@ -269,7 +277,7 @@ class _QuiltGalleryPageState extends State<QuiltGalleryPage> {
       backgroundColor: Colors.black,
       body: RefreshableList<TaggedAttachment>(
         filterableAdapter: null,
-        id: '${widget.attachments.length} quilt',
+        id: '${widget.attachments.tryFirst?.attachment.id}_${widget.attachments.tryLast?.attachment.id}_${widget.attachments.length}_quilt',
         controller: _controller,
         listUpdater: (_) => throw UnimplementedError(),
         disableUpdates: true,
@@ -315,8 +323,9 @@ class _CellBadge extends StatelessWidget {
     ];
     final text = parts.join('  ');
     final showAudio = hasAudio == true;
-    if (icon == null && text.isEmpty && !showAudio)
+    if (icon == null && text.isEmpty && !showAudio) {
       return const SizedBox.shrink();
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       color: Colors.black54,

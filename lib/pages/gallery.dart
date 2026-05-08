@@ -1235,8 +1235,9 @@ class _GalleryPageState extends State<GalleryPage> {
                                                                     (await confirm(
                                                                         context,
                                                                         'Redownload?'));
-                                                            if (!download)
+                                                            if (!download) {
                                                               return;
+                                                            }
                                                             final filename =
                                                                 await currentController
                                                                     .download(
@@ -1245,8 +1246,9 @@ class _GalleryPageState extends State<GalleryPage> {
                                                             if (!context
                                                                     .mounted ||
                                                                 filename ==
-                                                                    null)
+                                                                    null) {
                                                               return;
+                                                            }
                                                             showToast(
                                                                 context:
                                                                     context,
@@ -1405,8 +1407,9 @@ class _GalleryPageState extends State<GalleryPage> {
                                                                     attachment)
                                                                 .loadFullAttachment()
                                                                 .then((x) {
-                                                              if (!mounted)
+                                                              if (!mounted) {
                                                                 return;
+                                                              }
                                                               _currentAttachmentChanged
                                                                   .didUpdate();
                                                             });
@@ -1442,8 +1445,9 @@ class _GalleryPageState extends State<GalleryPage> {
                                                                         .loadFullAttachment()
                                                                         .then(
                                                                             (x) {
-                                                                      if (!mounted)
+                                                                      if (!mounted) {
                                                                         return;
+                                                                      }
                                                                       _currentAttachmentChanged
                                                                           .didUpdate();
                                                                     });
@@ -1491,7 +1495,8 @@ class _GalleryPageState extends State<GalleryPage> {
                                           child: child),
                                       child: Row(
                                           mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
                                           children: [
                                             if (zone != null && showChrome)
                                               AdaptiveIconButton(
@@ -1950,14 +1955,15 @@ class _GalleryPageState extends State<GalleryPage> {
                                                                 : 44),
                                                       ),
                                                     if (!widget.showScrollSheet)
-                                      SizedBox(
-                                          height: (currentController
-                                                      .attachment
-                                                      .type
-                                                      .usesVideoPlayer
-                                                  ? 72.0
-                                                  : layoutInsets.bottom) +
-                                              8)
+                                                      SizedBox(
+                                                          height: (currentController
+                                                                      .attachment
+                                                                      .type
+                                                                      .usesVideoPlayer
+                                                                  ? 72.0
+                                                                  : layoutInsets
+                                                                      .bottom) +
+                                                              8)
                                                   ]))))),
                               // Standalone video controls shown when the scroll sheet is hidden
                               if (!widget.showScrollSheet)

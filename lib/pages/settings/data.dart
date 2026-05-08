@@ -468,13 +468,14 @@ class _CopyPartyMigrationDialogState extends State<_CopyPartyMigrationDialog> {
         if (mounted) setState(() => _progress = p);
       },
       onError: (e) {
-        if (mounted)
+        if (mounted) {
           setState(() => _progress = MigrationProgress(
               totalFiles: _progress?.totalFiles ?? 0,
               processedFiles: _progress?.processedFiles ?? 0,
               uploadedFiles: _progress?.uploadedFiles ?? 0,
               error: e.toString(),
               isDone: true));
+        }
       },
     );
   }
@@ -792,7 +793,7 @@ final dataSettings = [
     max: 2000,
     step: 50,
     textFormatter: (s) =>
-        s.round() == 0 ? 'No delay' : s.round().toString() + 'ms between files',
+        s.round() == 0 ? 'No delay' : '${s.round()}ms between files',
     helpText:
         'Adds a pause between each file download to avoid being rate-limited by the imageboard CDN. 0 = disabled.',
   ),
@@ -1003,9 +1004,10 @@ final dataSettings = [
                               child: const Text('Cancel'),
                               onPressed: () => Navigator.pop(context, false))
                         ]));
-            if (save == true)
+            if (save == true) {
               await storage.write(
                   key: 'copypartyPassword', value: controller.text);
+            }
           },
         ),
         SimpleButtonSettingWidget(

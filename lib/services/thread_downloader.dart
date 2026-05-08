@@ -117,8 +117,9 @@ class ThreadDownloadService {
         .where((r) => r.status == DownloadStatus.pending)
         .toList(); // snapshot — box may change during processing
     for (final record in pending) {
-      if (record.status != DownloadStatus.pending)
+      if (record.status != DownloadStatus.pending) {
         continue; // may have changed since snapshot
+      }
       final imageboard =
           ImageboardRegistry.instance.getImageboard(record.imageboardKey);
       if (imageboard == null) continue;
@@ -165,8 +166,9 @@ class ThreadDownloadService {
     for (final record in _box.values) {
       if (record.status != DownloadStatus.complete) continue;
       if (record.isArchivedOnServer) continue;
-      if (record.pendingDeletionAt != null)
+      if (record.pendingDeletionAt != null) {
         continue; // skip pending-deletion threads
+      }
       final imageboard =
           ImageboardRegistry.instance.getImageboard(record.imageboardKey);
       if (imageboard == null) continue;
@@ -362,7 +364,9 @@ class ThreadDownloadService {
     for (final r in _box.values) {
       if (r.board != attachment.board || r.threadId != threadId) continue;
       if (r.status == DownloadStatus.cancelled ||
-          r.status == DownloadStatus.failed) continue;
+          r.status == DownloadStatus.failed) {
+        continue;
+      }
       // Skip records known to have no local files — all content is on Copyparty.
       if (r.effectiveStorageLocation == ThreadStorageLocation.remote) continue;
       // Verify imageboard matches: check against both the site base URL and the CDN
@@ -374,8 +378,9 @@ class ThreadDownloadService {
         if (imageboard == null) continue;
         final siteBaseHost = Uri.tryParse(imageboard.site.baseUrl)?.host ?? '';
         final siteImageHost = imageboard.site.imageUrl ?? '';
-        if (attachmentHost != siteBaseHost && attachmentHost != siteImageHost)
+        if (attachmentHost != siteBaseHost && attachmentHost != siteImageHost) {
           continue;
+        }
       }
 
       final filename = Uri.parse(attachment.url).pathSegments.lastOrNull;
@@ -398,7 +403,9 @@ class ThreadDownloadService {
     for (final r in _box.values) {
       if (r.board != attachment.board || r.threadId != threadId) continue;
       if (r.status == DownloadStatus.cancelled ||
-          r.status == DownloadStatus.failed) continue;
+          r.status == DownloadStatus.failed) {
+        continue;
+      }
       // Skip records known to have no local files — all content is on Copyparty.
       if (r.effectiveStorageLocation == ThreadStorageLocation.remote) continue;
       if (thumbHost != null) {
@@ -451,8 +458,9 @@ class ThreadDownloadService {
         if (imageboard == null) continue;
         final siteBaseHost = Uri.tryParse(imageboard.site.baseUrl)?.host ?? '';
         final siteImageHost = imageboard.site.imageUrl ?? '';
-        if (attachmentHost != siteBaseHost && attachmentHost != siteImageHost)
+        if (attachmentHost != siteBaseHost && attachmentHost != siteImageHost) {
           continue;
+        }
       }
       final filename = Uri.tryParse(targetUrl)?.pathSegments.lastOrNull;
       if (filename == null) return null;
@@ -484,7 +492,9 @@ class ThreadDownloadService {
     // to avoid clobbering syncedFiles it is currently incrementing (E3).
     for (final r in newRecords) {
       if (r.status == DownloadStatus.downloading ||
-          r.status == DownloadStatus.updating) continue;
+          r.status == DownloadStatus.updating) {
+        continue;
+      }
       r.syncedFiles = 0;
       if (r.isInBox) await r.save();
     }
@@ -531,7 +541,9 @@ class ThreadDownloadService {
     // Reset progress counters (same logic as startBackgroundMigration).
     for (final r in runRecords) {
       if (r.status == DownloadStatus.downloading ||
-          r.status == DownloadStatus.updating) continue;
+          r.status == DownloadStatus.updating) {
+        continue;
+      }
       r.syncedFiles = 0;
       if (r.isInBox) await r.save();
     }
@@ -659,7 +671,9 @@ class ThreadDownloadService {
             record.board.contains('..') ||
             name.contains('..') ||
             name.contains('/') ||
-            name.contains('\\')) continue;
+            name.contains('\\')) {
+          continue;
+        }
         final remotePath =
             '$baseRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$name';
         filesToUpload
@@ -933,8 +947,9 @@ class ThreadDownloadService {
     await for (final ibEntry in _downloadsDir.list()) {
       if (ibEntry is! Directory) continue;
       final imageboardKey = ibEntry.path.split(RegExp(r'[/\\]')).last;
-      if (ImageboardRegistry.instance.getImageboard(imageboardKey) == null)
+      if (ImageboardRegistry.instance.getImageboard(imageboardKey) == null) {
         continue;
+      }
 
       await for (final boardEntry in ibEntry.list()) {
         if (boardEntry is! Directory) continue;
@@ -972,7 +987,7 @@ class ThreadDownloadService {
             final thread = await Persistence.getCachedThread(
                 imageboardKey, board, threadId);
             final op = thread?.posts_.firstOrNull;
-            final rawTitle = thread?.title ?? op?.text?.trim();
+            final rawTitle = thread?.title ?? op?.text.trim();
             title = rawTitle != null && rawTitle.length > 100
                 ? rawTitle.substring(0, 100)
                 : rawTitle;
@@ -1054,9 +1069,7 @@ class ThreadDownloadService {
       }
 
       // extended_image caches images (and is a fallback for anything else)
-      if (source == null) {
-        source = await getCachedImageFile(url);
-      }
+      source ??= await getCachedImageFile(url);
 
       if (source != null && source.existsSync()) {
         await source.copy(dest.path);
@@ -1107,7 +1120,7 @@ class ThreadDownloadService {
 
         // 2. Update metadata from thread
         final opPost = thread.posts_.firstOrNull;
-        final rawTitle = thread.title ?? opPost?.text?.trim();
+        final rawTitle = thread.title ?? opPost?.text.trim();
         record.title = rawTitle != null && rawTitle.length > 100
             ? rawTitle.substring(0, 100)
             : rawTitle;
@@ -1213,9 +1226,10 @@ class ThreadDownloadService {
               try {
                 final cached =
                     await _tryCopyFromCache(attachment.url, mainFile);
-                if (!cached)
+                if (!cached) {
                   await _downloadFile(
                       attachment.url, mainFile, cancelToken, site);
+                }
                 mainOk = mainFile.existsSync();
               } on DioError catch (e) {
                 if (e.type == DioErrorType.cancel) rethrow;
@@ -1330,9 +1344,10 @@ class ThreadDownloadService {
               try {
                 final cached =
                     await _tryCopyFromCache(attachment.thumbnailUrl, thumbFile);
-                if (!cached)
+                if (!cached) {
                   await _downloadFile(
                       attachment.thumbnailUrl, thumbFile, cancelToken, site);
+                }
                 thumbOk = thumbFile.existsSync();
               } on DioError catch (e) {
                 if (e.type == DioErrorType.cancel) rethrow;
@@ -1348,9 +1363,7 @@ class ThreadDownloadService {
             if (!thumbPreExisted && thumbOk) {
               record.downloadedFiles++;
               // Store first OP thumbnail filename for the list UI
-              if (record.localThumbnailFilename == null) {
-                record.localThumbnailFilename = thumbFilename;
-              }
+              record.localThumbnailFilename ??= thumbFilename;
               saveCount++;
               if (saveCount % 10 == 0 && record.isInBox) await record.save();
             }
@@ -1667,7 +1680,9 @@ class ThreadDownloadService {
     final serverUrl = Persistence.settings.copypartyServerUrl;
     if (serverUrl.isEmpty) return;
     if (record.syncedFiles == 0 &&
-        record.storageLocation == ThreadStorageLocation.local) return;
+        record.storageLocation == ThreadStorageLocation.local) {
+      return;
+    }
     final destRoot = Persistence.settings.copypartyDestRoot;
     final baseRoot = destRoot.endsWith('/')
         ? destRoot.substring(0, destRoot.length - 1)
@@ -1768,8 +1783,9 @@ class ThreadDownloadService {
         await enc.addFile(htmlFile, 'thread_data.html');
       } else {
         final existing = File('${threadDir.path}/thread_data.html');
-        if (existing.existsSync())
+        if (existing.existsSync()) {
           await enc.addFile(existing, 'thread_data.html');
+        }
       }
       enc.close();
       zipClosed = true;
