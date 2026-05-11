@@ -5,7 +5,9 @@ import 'package:chan/models/downloaded_thread.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/pages/thread.dart';
 import 'package:chan/services/imageboard.dart';
+import 'package:chan/pages/gallery.dart';
 import 'package:chan/services/kuroba_import.dart';
+import 'package:chan/widgets/attachment_thumbnail.dart';
 import 'package:chan/services/persistence.dart';
 import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/settings.dart';
@@ -90,8 +92,27 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   Future<void> _preloadThreadCache() async {
     final downloads = List<DownloadedThread>.from(_downloads);
     final futures = downloads.map((d) async {
-      final thread = await Persistence.getCachedThread(
+      Thread? thread = await Persistence.getCachedThread(
           d.imageboardKey, d.board, d.threadId);
+      // Recovery: if the thread is not in cache but has a local thread_data.html
+      // (kept as a recovery artifact by the importer), re-parse and restore it.
+      if (thread == null && d.status == DownloadStatus.complete) {
+        final htmlFile = File(
+            '${Persistence.downloadsDirectory.path}/${d.imageboardKey}/${d.board}/${d.threadId}/thread_data.html');
+        if (htmlFile.existsSync()) {
+          try {
+            final recovered = parseKurobaThreadHtml(d.imageboardKey, d.board,
+                d.threadId, htmlFile.readAsStringSync());
+            if (recovered != null) {
+              await Persistence.setCachedThread(
+                  d.imageboardKey, d.board, d.threadId, recovered);
+              thread = recovered;
+            }
+          } catch (_) {
+            // Corrupt HTML — leave thread as null, fallback row will show
+          }
+        }
+      }
       if (mounted) {
         setState(() => _threadCache[d.boxKey] = thread);
       }
@@ -1126,6 +1147,27 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
                           showSiteIcon: true,
                           forceShowInHistory: true,
                           semanticParentIds: const [-5],
+                          dimReadThreads: Settings.instance.dimReadThreads,
+                          showLastReplies:
+                              Settings.instance.showLastRepliesInCatalog,
+                          onThumbnailTap: (initialAttachment) {
+                            final allAttachments = thread.posts_
+                                .expand((p) =>
+                                    p.attachments_.map((a) => TaggedAttachment(
+                                          imageboard: imageboard,
+                                          attachment: a,
+                                          semanticParentIds: const [-5],
+                                          postId: thread.id,
+                                        )))
+                                .toList();
+                            showGalleryPretagged(
+                              context: context,
+                              attachments: allAttachments,
+                              initialAttachment: initialAttachment,
+                              heroOtherEndIsBoxFitCover:
+                                  Settings.instance.squareThumbnails,
+                            );
+                          },
                         ),
                       ),
                     ),
