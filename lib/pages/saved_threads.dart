@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:collection/collection.dart';
 import 'package:chan/models/downloaded_thread.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/pages/thread.dart';
@@ -52,6 +53,9 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   final Set<String> _selectedBoxKeys = {};
   final ScrollController _scrollController = ScrollController();
   final Map<String, Thread?> _threadCache = {};
+  /// Tracks the last known lastUpdatedAt per boxKey so we know when thread
+  /// content actually changed (vs a status-only box write).
+  final Map<String, DateTime?> _lastUpdatedAt = {};
 
   @override
   void initState() {
@@ -59,11 +63,37 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     _reload();
     ThreadDownloadService.instance.purgeSoftDeleted();
     _preloadThreadCache();
-    // Rebuild when any record changes
-    _sub = ThreadDownloadService.instance.watchAllChanges().listen((_) {
-      if (mounted) {
+    // Rebuild when any download record changes, but avoid re-reading all
+    // thread content from Hive on every status update.
+    _sub = ThreadDownloadService.instance.watchAllChanges().listen((event) {
+      if (!mounted) return;
+      final boxKey = event.key as String? ?? '';
+
+      if (event.deleted) {
+        // Record removed — drop from cache and rebuild list.
+        setState(() {
+          _threadCache.remove(boxKey);
+          _lastUpdatedAt.remove(boxKey);
+          _reload();
+        });
+      } else if (_threadCache[boxKey] == null) {
+        // New record (or previously null cache entry) — reload list then load
+        // this thread from Hive.
         setState(_reload);
-        _preloadThreadCache();
+        final d = _downloads.firstWhereOrNull((d) => d.boxKey == boxKey);
+        if (d != null) _loadOneThread(d);
+      } else {
+        // Existing record — only re-read thread content if lastUpdatedAt
+        // changed (i.e. new posts arrived). Status-only updates (syncedFiles,
+        // progress, etc.) are ignored for the thread cache.
+        final newRecord =
+            event.value is DownloadedThread ? event.value as DownloadedThread : null;
+        if (newRecord?.lastUpdatedAt != _lastUpdatedAt[boxKey]) {
+          _lastUpdatedAt[boxKey] = newRecord?.lastUpdatedAt;
+          final d = _downloads.firstWhereOrNull((d) => d.boxKey == boxKey);
+          if (d != null) _loadOneThread(d);
+        }
+        setState(_reload);
       }
     });
   }
@@ -91,36 +121,48 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 
   Future<void> _preloadThreadCache() async {
     final downloads = List<DownloadedThread>.from(_downloads);
-    final futures = downloads.map((d) async {
-      Thread? thread = await Persistence.getCachedThread(
-          d.imageboardKey, d.board, d.threadId);
-      // Recovery: if the thread is not in cache but has a local thread_data.html
-      // (kept as a recovery artifact by the importer), re-parse and restore it.
-      if (thread == null && d.status == DownloadStatus.complete) {
-        final htmlFile = File(
-            '${Persistence.downloadsDirectory.path}/${d.imageboardKey}/${d.board}/${d.threadId}/thread_data.html');
-        if (htmlFile.existsSync()) {
-          try {
-            final recovered = parseKurobaThreadHtml(d.imageboardKey, d.board,
-                d.threadId, htmlFile.readAsStringSync());
-            if (recovered != null) {
-              await Persistence.setCachedThread(
-                  d.imageboardKey, d.board, d.threadId, recovered);
-              thread = recovered;
-            }
-          } catch (_) {
-            // Corrupt HTML — leave thread as null, fallback row will show
-          }
-        }
-      }
-      if (mounted) {
-        setState(() => _threadCache[d.boxKey] = thread);
-      }
-    });
-    await Future.wait(futures);
+    await Future.wait(downloads.map((d) async {
+      // Fix B: skip threads already loaded (non-null) — avoids re-reading Hive
+      // on every _preloadThreadCache call for threads we already have.
+      if (_threadCache[d.boxKey] != null) return;
+      await _loadOneThread(d);
+    }));
   }
 
   List<DownloadedThread> get _sortedDownloads => _cachedSortedDownloads;
+
+  /// Loads a single thread from Hive (with HTML recovery fallback) and updates
+  /// [_threadCache] and [_lastUpdatedAt]. Used by both the initial preload and
+  /// the smart watch listener to avoid loading all threads on every box event.
+  Future<void> _loadOneThread(DownloadedThread d) async {
+    Thread? thread = await Persistence.getCachedThread(
+        d.imageboardKey, d.board, d.threadId);
+    // Recovery: if thread not in Hive but thread_data.html exists on disk,
+    // re-parse and restore it (Fix D: use async read).
+    if (thread == null && d.status == DownloadStatus.complete) {
+      final htmlFile = File(
+          '${Persistence.downloadsDirectory.path}/${d.imageboardKey}/${d.board}/${d.threadId}/thread_data.html');
+      if (htmlFile.existsSync()) {
+        try {
+          final recovered = parseKurobaThreadHtml(d.imageboardKey, d.board,
+              d.threadId, await htmlFile.readAsString());
+          if (recovered != null) {
+            await Persistence.setCachedThread(
+                d.imageboardKey, d.board, d.threadId, recovered);
+            thread = recovered;
+          }
+        } catch (_) {
+          // Corrupt HTML — leave thread as null, fallback row will show
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _threadCache[d.boxKey] = thread;
+        _lastUpdatedAt[d.boxKey] = d.lastUpdatedAt;
+      });
+    }
+  }
 
   Future<void> _showSortMenu(BuildContext context) async {
     await showAdaptiveModalPopup<void>(
