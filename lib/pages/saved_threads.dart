@@ -1147,7 +1147,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
                           showSiteIcon: true,
                           forceShowInHistory: true,
                           semanticParentIds: const [-5],
-                          dimReadThreads: Settings.instance.dimReadThreads,
+                          dimReadThreads: false,
                           showLastReplies:
                               Settings.instance.showLastRepliesInCatalog,
                           onThumbnailTap: (initialAttachment) {
