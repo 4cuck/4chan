@@ -46,6 +46,7 @@ class ThreadDownloadService {
   static const _boxName = 'downloadedThreads';
 
   final Box<DownloadedThread> _box;
+  Box<DownloadedThread> get downloadsBox => _box;
   final Directory _downloadsDir;
   final storage = const FlutterSecureStorage();
 
@@ -1450,7 +1451,7 @@ class ThreadDownloadService {
           // Also covers legacy records where storageLocation==local but
           // syncedFiles>0 indicates remote files exist (pre-field-16 records).
           if (finalPref == ThreadStoragePreference.localOnly &&
-              (record.storageLocation != ThreadStorageLocation.local ||
+              (record.effectiveStorageLocation != ThreadStorageLocation.local ||
                   record.syncedFiles > 0)) {
             print(
                 '[ThreadDownloader] localOnly complete, firing CopyParty deletion for ${record.boxKey}');
@@ -1571,7 +1572,7 @@ class ThreadDownloadService {
           // If the user explicitly switched to localOnly (download-first path),
           // honour the deletion intent even though we couldn't download new files.
           if (record.storagePreference == ThreadStoragePreference.localOnly &&
-              (record.storageLocation != ThreadStorageLocation.local ||
+              (record.effectiveStorageLocation != ThreadStorageLocation.local ||
                   record.syncedFiles > 0)) {
             print(
                 '[ThreadDownloader] localOnly+archived, firing CopyParty deletion for ${record.boxKey}');

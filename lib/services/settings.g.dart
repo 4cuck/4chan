@@ -2879,6 +2879,48 @@ class SavedSettingsFields {
     fieldName: 'useAlternativeGalleryLayout',
     merger: PrimitiveMerger(),
   );
+  static ThreadSortingMethod getDownloadedThreadsSortingMethod(
+          SavedSettings x) =>
+      x.downloadedThreadsSortingMethod;
+  static void setDownloadedThreadsSortingMethod(
+          SavedSettings x, ThreadSortingMethod v) =>
+      x.downloadedThreadsSortingMethod = v;
+  static const int kDownloadedThreadsSortingMethod = 223;
+  static const downloadedThreadsSortingMethod =
+      HiveFieldAdapter<SavedSettings, ThreadSortingMethod>(
+    getter: getDownloadedThreadsSortingMethod,
+    setter: setDownloadedThreadsSortingMethod,
+    fieldNumber: kDownloadedThreadsSortingMethod,
+    fieldName: 'downloadedThreadsSortingMethod',
+    merger: PrimitiveMerger(),
+  );
+  static bool getReverseDownloadedThreadsSorting(SavedSettings x) =>
+      x.reverseDownloadedThreadsSorting;
+  static void setReverseDownloadedThreadsSorting(SavedSettings x, bool v) =>
+      x.reverseDownloadedThreadsSorting = v;
+  static const int kReverseDownloadedThreadsSorting = 224;
+  static const reverseDownloadedThreadsSorting =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getReverseDownloadedThreadsSorting,
+    setter: setReverseDownloadedThreadsSorting,
+    fieldNumber: kReverseDownloadedThreadsSorting,
+    fieldName: 'reverseDownloadedThreadsSorting',
+    merger: PrimitiveMerger(),
+  );
+  static bool getShowActiveDownloadsAboveArchivedDownloads(SavedSettings x) =>
+      x.showActiveDownloadsAboveArchivedDownloads;
+  static void setShowActiveDownloadsAboveArchivedDownloads(
+          SavedSettings x, bool v) =>
+      x.showActiveDownloadsAboveArchivedDownloads = v;
+  static const int kShowActiveDownloadsAboveArchivedDownloads = 225;
+  static const showActiveDownloadsAboveArchivedDownloads =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getShowActiveDownloadsAboveArchivedDownloads,
+    setter: setShowActiveDownloadsAboveArchivedDownloads,
+    fieldNumber: kShowActiveDownloadsAboveArchivedDownloads,
+    fieldName: 'showActiveDownloadsAboveArchivedDownloads',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3101,13 +3143,16 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     219: SavedSettingsFields.copypartyDestRoot,
     220: SavedSettingsFields.downloadInterFileDelayMs,
     221: SavedSettingsFields.copypartyAutoUpload,
-    222: SavedSettingsFields.useAlternativeGalleryLayout
+    222: SavedSettingsFields.useAlternativeGalleryLayout,
+    223: SavedSettingsFields.downloadedThreadsSortingMethod,
+    224: SavedSettingsFields.reverseDownloadedThreadsSorting,
+    225: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(223, null);
+    final List<dynamic> fields = List.filled(226, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3343,13 +3388,16 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       downloadInterFileDelayMs: fields[220] as int?,
       copypartyAutoUpload: fields[221] as bool?,
       useAlternativeGalleryLayout: fields[222] as bool?,
+      downloadedThreadsSortingMethod: fields[223] as ThreadSortingMethod?,
+      reverseDownloadedThreadsSorting: fields[224] as bool?,
+      showActiveDownloadsAboveArchivedDownloads: fields[225] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(210)
+      ..writeByte(213)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3769,7 +3817,13 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(221)
       ..write(obj.copypartyAutoUpload)
       ..writeByte(222)
-      ..write(obj.useAlternativeGalleryLayout);
+      ..write(obj.useAlternativeGalleryLayout)
+      ..writeByte(223)
+      ..write(obj.downloadedThreadsSortingMethod)
+      ..writeByte(224)
+      ..write(obj.reverseDownloadedThreadsSorting)
+      ..writeByte(225)
+      ..write(obj.showActiveDownloadsAboveArchivedDownloads);
   }
 
   @override

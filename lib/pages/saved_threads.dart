@@ -24,13 +24,15 @@ import 'package:provider/provider.dart';
 enum _DownloadSortMethod {
   downloadedAt,
   lastUpdatedAt,
+  threadDate,
   title,
 }
 
 const _kDownloadSortMethodLabels = {
-  _DownloadSortMethod.downloadedAt: 'Date added',
+  _DownloadSortMethod.downloadedAt: 'Order added',
   _DownloadSortMethod.lastUpdatedAt: 'Last updated',
-  _DownloadSortMethod.title: 'Title',
+  _DownloadSortMethod.threadDate: 'Thread date',
+  _DownloadSortMethod.title: 'Alphabetically',
 };
 
 class DownloadedThreadsPage extends StatefulWidget {
@@ -44,8 +46,37 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   List<DownloadedThread> _downloads = [];
   List<DownloadedThread> _cachedSortedDownloads = [];
   StreamSubscription<Object?>? _sub;
-  _DownloadSortMethod _sortMethod = _DownloadSortMethod.downloadedAt;
-  bool _sortReversed = false;
+  _DownloadSortMethod get _sortMethod {
+    final v = Settings.instance.downloadedThreadsSortingMethod;
+    print('[SORT] get _sortMethod: settings=$v');
+    switch (v) {
+      case ThreadSortingMethod.alphabeticByTitle:
+        return _DownloadSortMethod.title;
+      case ThreadSortingMethod.lastPostTime:
+        return _DownloadSortMethod.lastUpdatedAt;
+      case ThreadSortingMethod.threadPostTime:
+        return _DownloadSortMethod.threadDate;
+      default:
+        print('[SORT] default -> downloadedAt');
+        return _DownloadSortMethod.downloadedAt;
+    }
+  }
+  set _sortMethod(_DownloadSortMethod method) {
+    print('[SORT] set _sortMethod: $method');
+    switch (method) {
+      case _DownloadSortMethod.title:
+        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.alphabeticByTitle;
+      case _DownloadSortMethod.lastUpdatedAt:
+        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.lastPostTime;
+      case _DownloadSortMethod.threadDate:
+        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.threadPostTime;
+      default:
+        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.savedTime;
+    }
+    print('[SORT] set done, now: ${Settings.instance.downloadedThreadsSortingMethod}');
+  }
+  bool get _sortReversed => Settings.instance.reverseDownloadedThreadsSorting;
+  set _sortReversed(bool v) => Settings.instance.reverseDownloadedThreadsSorting = v;
   bool _isImporting = false;
   int _importCurrent = 0;
   int _importTotal = 0;
@@ -60,9 +91,14 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   @override
   void initState() {
     super.initState();
+    print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
     ThreadDownloadService.instance.purgeSoftDeleted();
-    _preloadThreadCache();
+    _preloadThreadCache().then((_) {
+      if (mounted) {
+        setState(_rebuildSortedList);
+      }
+    });
     // Rebuild when any download record changes, but avoid re-reading all
     // thread content from Hive on every status update.
     _sub = ThreadDownloadService.instance.watchAllChanges().listen((event) {
@@ -74,14 +110,17 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         setState(() {
           _threadCache.remove(boxKey);
           _lastUpdatedAt.remove(boxKey);
-          _reload();
+          print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
         });
       } else if (_threadCache[boxKey] == null) {
         // New record (or previously null cache entry) — reload list then load
         // this thread from Hive.
         setState(_reload);
         final d = _downloads.firstWhereOrNull((d) => d.boxKey == boxKey);
-        if (d != null) _loadOneThread(d);
+        if (d != null) _loadOneThread(d).then((_) {
+          if (mounted) setState(_rebuildSortedList);
+        });
       } else {
         // Existing record — only re-read thread content if lastUpdatedAt
         // changed (i.e. new posts arrived). Status-only updates (syncedFiles,
@@ -91,7 +130,9 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         if (newRecord?.lastUpdatedAt != _lastUpdatedAt[boxKey]) {
           _lastUpdatedAt[boxKey] = newRecord?.lastUpdatedAt;
           final d = _downloads.firstWhereOrNull((d) => d.boxKey == boxKey);
-          if (d != null) _loadOneThread(d);
+          if (d != null) _loadOneThread(d).then((_) {
+          if (mounted) setState(_rebuildSortedList);
+        });
         }
         setState(_reload);
       }
@@ -104,6 +145,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   }
 
   void _rebuildSortedList() {
+    print('[SORT] _rebuildSortedList: _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     final list = List<DownloadedThread>.from(_downloads);
     switch (_sortMethod) {
       case _DownloadSortMethod.downloadedAt:
@@ -111,30 +153,59 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       case _DownloadSortMethod.lastUpdatedAt:
         list.sort((a, b) => (b.lastUpdatedAt ?? b.downloadedAt)
             .compareTo(a.lastUpdatedAt ?? a.downloadedAt));
+      case _DownloadSortMethod.threadDate:
+        list.sort((a, b) {
+          final aTime = _threadCache[a.boxKey]?.time ?? a.downloadedAt;
+          final bTime = _threadCache[b.boxKey]?.time ?? b.downloadedAt;
+          return bTime.compareTo(aTime);
+        });
       case _DownloadSortMethod.title:
         list.sort((a, b) => (a.title ?? '')
             .toLowerCase()
             .compareTo((b.title ?? '').toLowerCase()));
     }
     _cachedSortedDownloads = _sortReversed ? list.reversed.toList() : list;
+    if (Settings.instance.showActiveDownloadsAboveArchivedDownloads) {
+      final active = _cachedSortedDownloads.where((t) =>
+          t.status == DownloadStatus.downloading ||
+          t.status == DownloadStatus.updating ||
+          t.status == DownloadStatus.pending).toList();
+      final archived = _cachedSortedDownloads.where((t) =>
+          t.status == DownloadStatus.complete ||
+          t.status == DownloadStatus.failed ||
+          t.status == DownloadStatus.cancelled).toList();
+      _cachedSortedDownloads = [...active, ...archived];
+    }
   }
 
   Future<void> _preloadThreadCache() async {
-    final downloads = List<DownloadedThread>.from(_downloads);
-    await Future.wait(downloads.map((d) async {
-      // Fix B: skip threads already loaded (non-null) — avoids re-reading Hive
-      // on every _preloadThreadCache call for threads we already have.
-      if (_threadCache[d.boxKey] != null) return;
-      await _loadOneThread(d);
-    }));
+    final downloads = List<DownloadedThread>.from(_downloads)
+        .where((d) => _threadCache[d.boxKey] == null)
+        .toList();
+    if (downloads.isEmpty) return;
+    // Load in batches to avoid flooding Hive I/O and triggering per-item rebuilds
+    const batchSize = 10;
+    for (var i = 0; i < downloads.length; i += batchSize) {
+      final batch = downloads.skip(i).take(batchSize);
+      final results = await Future.wait(batch.map((d) => _loadThreadData(d)));
+      if (!mounted) return;
+      setState(() {
+        for (var j = 0; j < batch.length; j++) {
+          final d = batch.elementAt(j);
+          _threadCache[d.boxKey] = results[j];
+          _lastUpdatedAt[d.boxKey] = d.lastUpdatedAt;
+        }
+      });
+      // Yield to event loop so UI stays responsive
+      await Future.delayed(Duration.zero);
+    }
   }
 
   List<DownloadedThread> get _sortedDownloads => _cachedSortedDownloads;
 
-  /// Loads a single thread from Hive (with HTML recovery fallback) and updates
-  /// [_threadCache] and [_lastUpdatedAt]. Used by both the initial preload and
-  /// the smart watch listener to avoid loading all threads on every box event.
-  Future<void> _loadOneThread(DownloadedThread d) async {
+  /// Loads thread data from Hive (with HTML recovery fallback).
+  /// Does NOT call setState — the caller batches updates.
+  Future<Thread?> _loadThreadData(DownloadedThread d) async {
     Thread? thread = await Persistence.getCachedThread(
         d.imageboardKey, d.board, d.threadId);
     // Recovery: if thread not in Hive but thread_data.html exists on disk,
@@ -156,6 +227,13 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         }
       }
     }
+    return thread;
+  }
+
+  /// Loads a single thread and updates state. Used by watch listener for
+  /// individual thread updates (new download, content change).
+  Future<void> _loadOneThread(DownloadedThread d) async {
+    final thread = await _loadThreadData(d);
     if (mounted) {
       setState(() {
         _threadCache[d.boxKey] = thread;
@@ -191,6 +269,33 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                       });
                     },
                   )),
+          AdaptiveActionSheetAction(
+            onPressed: () {
+              Navigator.of(ctx, rootNavigator: true).pop();
+              setState(() {
+                _sortReversed = !_sortReversed;
+                _rebuildSortedList();
+              });
+            },
+            trailing: _sortReversed
+                ? const Icon(CupertinoIcons.checkmark_square)
+                : const Icon(CupertinoIcons.square),
+            child: const Text('Reverse order')
+          ),
+          AdaptiveActionSheetAction(
+            onPressed: () {
+              Navigator.of(ctx, rootNavigator: true).pop();
+              setState(() {
+                Settings.instance.showActiveDownloadsAboveArchivedDownloads =
+                    !Settings.instance.showActiveDownloadsAboveArchivedDownloads;
+                _rebuildSortedList();
+              });
+            },
+            trailing: Settings.instance.showActiveDownloadsAboveArchivedDownloads
+                ? const Icon(CupertinoIcons.checkmark_square)
+                : const Icon(CupertinoIcons.square),
+            child: const Text('Active downloads above archived')
+          ),
         ],
         cancelButton: AdaptiveActionSheetAction(
           child: const Text('Cancel'),
@@ -300,7 +405,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (!mounted) return;
     setState(() {
       _isImporting = false;
-      _reload();
+      print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
     });
     showAdaptiveDialog(
       context: context,
@@ -419,7 +525,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        _reload();
+        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
       });
     }
   }
@@ -436,7 +543,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        _reload();
+        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
       });
     }
   }
@@ -535,7 +643,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       // _deleteCopypartyFolder reads syncedFiles/storageLocation synchronously.
       if (pref == ThreadStoragePreference.localOnly) {
         final hadRemoteFiles = d.syncedFiles > 0 ||
-            d.storageLocation != ThreadStorageLocation.local;
+            d.effectiveStorageLocation != ThreadStorageLocation.local;
         if (hadRemoteFiles) {
           ThreadDownloadService.instance.deleteCopypartyFolderForThread(d);
         }
@@ -611,7 +719,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        _reload();
+        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
       });
     }
   }
@@ -785,7 +894,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        _reload();
+        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
       });
     }
   }
@@ -822,7 +932,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        _reload();
+        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
       });
     }
   }
@@ -836,7 +947,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        _reload();
+        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
+    _reload();
       });
     }
   }
@@ -929,7 +1041,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
               ],
             )
           : AdaptiveBar(
-              title: const Text('Downloads'),
+              title: Text('Downloads (${_downloads.length})'),
               actions: [
                 CupertinoButton(
                   padding: EdgeInsets.zero,
@@ -1702,7 +1814,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     // state fields immediately. Live remoteOnly threads returned early above;
     // their state is cleaned up by _runDownload on completion.
     final hadRemoteFiles = pref == ThreadStoragePreference.localOnly &&
-        (d.syncedFiles > 0 || d.storageLocation != ThreadStorageLocation.local);
+        (d.syncedFiles > 0 || d.effectiveStorageLocation != ThreadStorageLocation.local);
     // Fire-and-forget BEFORE zeroing fields — the guard inside
     // _deleteCopypartyFolder checks syncedFiles/storageLocation synchronously,
     // so it must run while they still reflect the old remote state.

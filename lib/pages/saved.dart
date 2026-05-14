@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:chan/main.dart';
@@ -10,6 +11,7 @@ import 'package:chan/pages/history_search.dart';
 import 'package:chan/pages/master_detail.dart';
 import 'package:chan/pages/saved_threads.dart';
 import 'package:chan/pages/thread.dart';
+import 'package:chan/models/downloaded_thread.dart';
 import 'package:chan/services/apple.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/persistence.dart';
@@ -23,6 +25,7 @@ import 'package:chan/services/storage.dart';
 import 'package:chan/services/theme.dart';
 import 'package:chan/services/thread_collection_actions.dart' as thread_actions;
 import 'package:chan/services/thread_watcher.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/sites/imageboard_site.dart';
 import 'package:chan/util.dart';
@@ -34,6 +37,7 @@ import 'package:chan/widgets/cupertino_inkwell.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/post_row.dart';
 import 'package:chan/widgets/post_spans.dart';
+import 'package:chan/widgets/notifying_icon.dart';
 import 'package:chan/widgets/refreshable_list.dart';
 import 'package:chan/widgets/media_thumbnail.dart';
 import 'package:chan/widgets/sliver_staggered_grid.dart';
@@ -354,6 +358,8 @@ class _SavedPageState extends State<SavedPage> {
 	Map<(Imageboard, String), List<PostIdentifier>> _yourPostsLists = {};
 	late final ValueNotifier<ImageboardScoped<ThreadOrPostIdentifier>?> _savedThreadsValueInjector;
 	late final ValueNotifier<PostThreadCombo?> _yourPostsValueInjector;
+	late final ValueNotifier<int> _downloadsBadgeNotifier;
+	StreamSubscription? _downloadsBadgeUpdater;
 	bool _lastTickerMode = true;
 
 	@override
@@ -367,11 +373,20 @@ class _SavedPageState extends State<SavedPage> {
 		_removeArchivedHack = EasyListenable();
 		_savedThreadsValueInjector = ValueNotifier(null);
 		_yourPostsValueInjector = ValueNotifier(null);
+		_downloadsBadgeNotifier = ValueNotifier(0);
 		_missingWatchedThreads = ValueNotifier([]);
 		_missingSavedThreads = ValueNotifier([]);
 		_missingSavedPostsThreads = ValueNotifier([]);
 		_missingYourPostsThreads = ValueNotifier([]);
 		_missingSavedAttachments = ValueNotifier([]);
+		_downloadsBadgeUpdater = ThreadDownloadService.instance.watchAllChanges().listen((_) {
+			_downloadsBadgeNotifier.value = ThreadDownloadService.instance.downloadsBox.values
+				.where((t) => !t.isArchivedOnServer && t.status != DownloadStatus.failed && t.status != DownloadStatus.cancelled)
+				.length;
+		});
+		_downloadsBadgeNotifier.value = ThreadDownloadService.instance.downloadsBox.values
+			.where((t) => !t.isArchivedOnServer && t.status != DownloadStatus.failed && t.status != DownloadStatus.cancelled)
+			.length;
 	}
 
 	Future<PostThreadCombo?> _takeYourPost() async {
@@ -576,12 +591,18 @@ class _SavedPageState extends State<SavedPage> {
 						title: const Text('Watched Threads'),
 						actions: [
 							Builder(
-								builder: (context) => CupertinoButton(
-									padding: EdgeInsets.zero,
-									child: const Icon(CupertinoIcons.arrow_down_circle),
-									onPressed: () => Navigator.of(context).push(adaptivePageRoute(
-										builder: (_) => const DownloadedThreadsPage()
-									))
+								builder: (context) => ValueListenableBuilder(
+									valueListenable: _downloadsBadgeNotifier,
+									builder: (context, count, _) => CupertinoButton(
+										padding: EdgeInsets.zero,
+										child: StationaryNotifyingIcon(
+											icon: const Icon(CupertinoIcons.arrow_down_circle),
+											primary: count,
+										),
+										onPressed: () => Navigator.of(context).push(adaptivePageRoute(
+											builder: (_) => const DownloadedThreadsPage()
+										))
+									)
 								)
 							),
 							Builder(
@@ -1819,6 +1840,8 @@ class _SavedPageState extends State<SavedPage> {
 		_missingSavedPostsThreads.dispose();
 		_missingYourPostsThreads.dispose();
 		_missingSavedAttachments.dispose();
+		_downloadsBadgeNotifier.dispose();
+		_downloadsBadgeUpdater?.cancel();
 	}
 }
 

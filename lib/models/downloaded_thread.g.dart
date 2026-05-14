@@ -181,13 +181,14 @@ class DownloadedThreadFields {
     fieldName: 'pendingDeletionAt',
     merger: PrimitiveMerger(),
   );
-  static ThreadStorageLocation getStorageLocation(DownloadedThread x) =>
+  static ThreadStorageLocation? getStorageLocation(DownloadedThread x) =>
       x.storageLocation;
-  static void setStorageLocation(DownloadedThread x, ThreadStorageLocation v) =>
+  static void setStorageLocation(
+          DownloadedThread x, ThreadStorageLocation? v) =>
       x.storageLocation = v;
   static const int kStorageLocation = 16;
   static const storageLocation =
-      HiveFieldAdapter<DownloadedThread, ThreadStorageLocation>(
+      HiveFieldAdapter<DownloadedThread, ThreadStorageLocation?>(
     getter: getStorageLocation,
     setter: setStorageLocation,
     fieldNumber: kStorageLocation,
@@ -272,18 +273,16 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       thumbnailUrl: fields[4] as String?,
       downloadedAt: fields[5] as DateTime,
       status: fields[6] as DownloadStatus,
-      totalFiles: (fields[7] as int?) ?? 0,
-      downloadedFiles: (fields[8] as int?) ?? 0,
+      totalFiles: fields[7] as int,
+      downloadedFiles: fields[8] as int,
       lastUpdatedAt: fields[9] as DateTime?,
-      syncedFiles: (fields[10] as int?) ?? 0,
+      syncedFiles: fields[10] as int,
       lastSyncedAt: fields[11] as DateTime?,
       errorMessage: fields[12] as String?,
       localThumbnailFilename: fields[13] as String?,
-      isArchivedOnServer: (fields[14] as bool?) ?? false,
+      isArchivedOnServer: fields[14] as bool,
       pendingDeletionAt: fields[15] as DateTime?,
-      storageLocation: fields[16] == null
-          ? ThreadStorageLocation.local
-          : fields[16] as ThreadStorageLocation,
+      storageLocation: fields[16] as ThreadStorageLocation?,
       totalSizeBytes: fields[17] as int?,
       storagePreference: fields[18] as ThreadStoragePreference?,
     );

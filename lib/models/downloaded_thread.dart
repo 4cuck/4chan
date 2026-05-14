@@ -86,7 +86,7 @@ class DownloadedThread extends HiveObject {
   @HiveField(15)
   DateTime? pendingDeletionAt;
   @HiveField(16)
-  ThreadStorageLocation storageLocation;
+  ThreadStorageLocation? storageLocation;
   @HiveField(17)
   int? totalSizeBytes;
   @HiveField(18)
@@ -117,13 +117,14 @@ class DownloadedThread extends HiveObject {
   /// Returns the effective storage location, inferring from [syncedFiles] for
   /// records created before field 16 was added (they default to [local]).
   ThreadStorageLocation get effectiveStorageLocation {
-    if (storageLocation == ThreadStorageLocation.local && syncedFiles > 0) {
+    final loc = storageLocation ?? ThreadStorageLocation.local;
+    if (loc == ThreadStorageLocation.local && syncedFiles > 0) {
       if (syncedFiles >= totalFiles && totalFiles > 0) {
         return ThreadStorageLocation.remote;
       }
       return ThreadStorageLocation.mixed;
     }
-    return storageLocation;
+    return loc;
   }
 
   String get boxKey => '${imageboardKey}_${board}_$threadId';

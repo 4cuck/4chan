@@ -1306,6 +1306,12 @@ class SavedSettings extends HiveObject {
   bool copypartyAutoUpload;
   @HiveField(222)
   bool useAlternativeGalleryLayout;
+  @HiveField(223)
+  ThreadSortingMethod downloadedThreadsSortingMethod;
+  @HiveField(224)
+  bool reverseDownloadedThreadsSorting;
+  @HiveField(225)
+  bool showActiveDownloadsAboveArchivedDownloads;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1530,6 +1536,9 @@ class SavedSettings extends HiveObject {
     int? downloadInterFileDelayMs,
     bool? copypartyAutoUpload,
     bool? useAlternativeGalleryLayout,
+    ThreadSortingMethod? downloadedThreadsSortingMethod,
+    bool? reverseDownloadedThreadsSorting,
+    bool? showActiveDownloadsAboveArchivedDownloads,
   })  : autoloadAttachments =
             autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
         theme = theme ?? TristateSystemSetting.system,
@@ -1812,8 +1821,11 @@ class SavedSettings extends HiveObject {
         copypartyDestRoot = copypartyDestRoot ?? '/chan/',
         downloadInterFileDelayMs = downloadInterFileDelayMs ?? 0,
         copypartyAutoUpload = copypartyAutoUpload ?? true,
-        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false {
-    if (!this.appliedMigrations.contains('filters')) {
+        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false,
+        downloadedThreadsSortingMethod = downloadedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
+        reverseDownloadedThreadsSorting = reverseDownloadedThreadsSorting ?? false,
+        showActiveDownloadsAboveArchivedDownloads = showActiveDownloadsAboveArchivedDownloads ?? true {
+        if (!this.appliedMigrations.contains('filters')) {
       this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
           RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
         return '${m.group(1)};save;highlight${m.group(3)}';
@@ -3438,6 +3450,27 @@ class Settings extends ChangeNotifier {
       reverseWatchedThreadsSortingSetting(this);
   set reverseWatchedThreadsSorting(bool setting) =>
       reverseWatchedThreadsSortingSetting.set(this, setting);
+
+  static const downloadedThreadsSortingMethodSetting =
+      SavedSetting(SavedSettingsFields.downloadedThreadsSortingMethod);
+  ThreadSortingMethod get downloadedThreadsSortingMethod =>
+      downloadedThreadsSortingMethodSetting(this);
+  set downloadedThreadsSortingMethod(ThreadSortingMethod setting) =>
+      downloadedThreadsSortingMethodSetting.set(this, setting);
+
+  static const reverseDownloadedThreadsSortingSetting =
+      SavedSetting(SavedSettingsFields.reverseDownloadedThreadsSorting);
+  bool get reverseDownloadedThreadsSorting =>
+      reverseDownloadedThreadsSortingSetting(this);
+  set reverseDownloadedThreadsSorting(bool setting) =>
+      reverseDownloadedThreadsSortingSetting.set(this, setting);
+
+  static const showActiveDownloadsAboveArchivedDownloadsSetting =
+      SavedSetting(SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads);
+  bool get showActiveDownloadsAboveArchivedDownloads =>
+      showActiveDownloadsAboveArchivedDownloadsSetting(this);
+  set showActiveDownloadsAboveArchivedDownloads(bool setting) =>
+      showActiveDownloadsAboveArchivedDownloadsSetting.set(this, setting);
 
   static const thumbnailOpacitySetting =
       SavedSetting(SavedSettingsFields.thumbnailOpacity);
