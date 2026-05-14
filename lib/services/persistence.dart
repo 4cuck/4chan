@@ -18,6 +18,7 @@ import 'package:chan/pages/web_image_picker.dart';
 import 'package:chan/services/bytes.dart';
 import 'package:chan/services/cookies.dart';
 import 'package:chan/services/filtering.dart';
+import 'package:chan/services/kuroba_import.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/incognito.dart';
 import 'package:chan/services/json_cache.dart';
@@ -437,7 +438,7 @@ class Persistence extends ChangeNotifier {
         final containsKey = sharedThreadsBox.containsKey(key);
         debugPrint(
             '[IMPORT_DEBUG] getCachedThread key=$key containsKey=$containsKey');
-        final ret = await sharedThreadsBox.get(key, syncIO: syncIO);
+        Thread? ret = await sharedThreadsBox.get(key, syncIO: syncIO);
         if (ret != null && _kUseSpanCache) {
           final file =
               spanCacheDirectory.dir(imageboardKey).dir(b).file('$id.bin');
@@ -448,6 +449,25 @@ class Persistence extends ChangeNotifier {
               ret.restoreSpans(reader);
             } catch (e, st) {
               Future.error(e, st);
+            }
+          }
+        }
+        // Fallback: check downloaded thread HTML (imported via scan or Kuroba import).
+        // Also persists the parsed thread back to sharedThreadsBox so subsequent
+        // calls hit the box directly and avoid repeated file I/O.
+        if (ret == null) {
+          final htmlFile = File(
+              '${Persistence.downloadsDirectory.path}/$imageboardKey/$b/$id/thread_data.html');
+          if (htmlFile.existsSync()) {
+            try {
+              ret = parseKurobaThreadHtml(imageboardKey, b, id, await htmlFile.readAsString());
+              if (ret != null) {
+                // Cache in Hive so future lookups are instant (no repeated HTML parse).
+                await sharedThreadsBox.put(key, ret!);
+              }
+              debugPrint('[IMPORT_DEBUG] getCachedThread loaded from download HTML: $imageboardKey/$b/$id');
+            } catch (_) {
+              // Corrupt HTML, leave as null
             }
           }
         }
@@ -1863,12 +1883,12 @@ class PersistentThreadState extends EasyListenable
           try {
             await preinitAndWriteSpanCache(thread, catalog: catalog);
           } catch (e, st) {
-            // The thread is corrupt or something
+            // Preinit failed (e.g. span-cache write error, OOM).
+            // Log and continue — DO NOT wipe the thread from Hive.
+            // Losing user-downloaded data is far worse than missing a span cache.
             debugPrint(
                 '[IMPORT_DEBUG] preinitAndWriteSpanCache THREW: $e\n$st');
             Future.error(e, st); // crashlytics
-            await Persistence.setCachedThread(imageboardKey, board, id, null);
-            thread = null;
           }
         }
         _thread = thread;

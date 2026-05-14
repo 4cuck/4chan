@@ -117,6 +117,15 @@ abstract class _SavedThreadsLoader {
 	Future<(PersistentThreadState, Thread)?> takeSavedThread();
 }
 
+/// Returns true if [state] has a locally downloaded complete copy of the thread.
+/// Used to avoid classifying a thread as "missing" when its Hive entry is absent
+/// but a local [thread_data.html] file can still serve the content.
+bool _hasLocalDownload(PersistentThreadState state) {
+	return ThreadDownloadService.instance
+			.getStatus(state.identifier, state.imageboardKey)
+			?.status == DownloadStatus.complete;
+}
+
 sealed class _SavedThreadsLoaderImpl<T> implements _SavedThreadsLoader {
 	final List<T> _list = [];
 	Future<T?> _initializeImpl(PersistentThreadState state);
@@ -134,8 +143,13 @@ sealed class _SavedThreadsLoaderImpl<T> implements _SavedThreadsLoader {
 				continue;
 			}
 			if (!state.isThreadCached) {
-				missing.add(imageboard.scope(state.identifier));
-				continue;
+				// Before declaring missing, check if we have a local downloaded copy.
+				// getCachedThread() can serve from thread_data.html even if the Hive
+				// entry was evicted or never written.
+				if (!_hasLocalDownload(state)) {
+					missing.add(imageboard.scope(state.identifier));
+					continue;
+				}
 			}
 			final entry = await _initializeImpl(state);
 			if (entry != null) {
@@ -265,8 +279,11 @@ class _SavedThreadsByThreadPostTimeLoader implements _SavedThreadsLoader {
 				continue;
 			}
 			if (!state.isThreadCached) {
-				missing.add(imageboard.scope(state.identifier));
-				continue;
+				// Same rationale as _SavedThreadsLoaderImpl: local HTML copy is viable.
+				if (!_hasLocalDownload(state)) {
+					missing.add(imageboard.scope(state.identifier));
+					continue;
+				}
 			}
 			final l = _lists.putIfAbsent((imageboard, state.board), () => []);
 			l.add(state);
@@ -1009,38 +1026,6 @@ class _SavedPageState extends State<SavedPage> {
 							filterableAdapter: (t) => (t.$1.imageboardKey, t.$2),
 							controller: _threadListController,
 							listUpdater: (options) async {
-								if (options.source == RefreshableListUpdateSource.top) {
-									// Refresh threads from network
-									// Lazy, just steal from list
-									for (final item in _threadListController.items) {
-										final (state, thread) = item.item;
-										if (state.useArchive || thread.isArchived) {
-											continue;
-										}
-										// TODO: Put this in a common place. PersistentThreadState. then use it in thread_watcher Persistence.tabs handling, drawer.dart, etc.
-										if (state.imageboard?.site.hasExpiringThreads == false) {
-											// Threads don't go to archived on their own.
-											// So make a judgement call whether it's reasonable to refresh
-											final latestPostTime = thread.posts_.fold<DateTime>(DateTime(2000), (min, post) {
-												if (post.time.isAfter(min)) {
-													return post.time;
-												}
-												return min;
-											});
-											// TODO: Use lastUpdatedTime? But would need to persist it.
-											if (DateTime.now().difference(latestPostTime) > const Duration(days: 7)) {
-												// A week without updates, don't bother
-												continue;
-											}
-										}
-										try {
-											await state.imageboard?.threadWatcher.updateThread(state.identifier, cancelToken: options.cancelToken);
-										}
-										catch (e, st) {
-											Future.error(e, st); // crashlytics it
-										}
-									}
-								}
 								final loader = _savedThreadsLoader = switch (settings.savedThreadsSortingMethod) {
 									ThreadSortingMethod.alphabeticByTitle => _SavedThreadsByTitleLoader(),
 									ThreadSortingMethod.savedTime => _SavedThreadsBySavedTimeLoader(),
@@ -2029,30 +2014,38 @@ class MissingThreadsControls extends StatelessWidget {
 		fixer: (thread) async {
 			try {
 				Thread? newThread;
-				try {
-					newThread = await thread.imageboard.site.getThread(thread.item, priority: RequestPriority.interactive);
+				// First: try local downloaded copy (thread_data.html) before hitting network.
+				// Avoids network failures for archived/dead threads that are downloaded locally.
+				if (_hasLocalDownload(thread.imageboard.persistence.getThreadState(thread.item))) {
+					newThread = await Persistence.getCachedThread(
+							thread.imageboard.key, thread.item.board, thread.item.id);
 				}
-				on ThreadNotFoundException {
+				if (newThread == null) {
 					try {
-						newThread = await thread.imageboard.site.getThreadFromArchive(thread.item, priority: RequestPriority.interactive);
+						newThread = await thread.imageboard.site.getThread(thread.item, priority: RequestPriority.interactive);
+					}
+					on ThreadNotFoundException {
+						try {
+							newThread = await thread.imageboard.site.getThreadFromArchive(thread.item, priority: RequestPriority.interactive);
+						}
+						catch (e) {
+							if (context.mounted) {
+								showToast(
+									context: context,
+									icon: CupertinoIcons.exclamationmark_triangle,
+									message: 'Failed to get ${thread.item} from archive: ${e.toStringDio()}'
+								);
+							}
+						}
 					}
 					catch (e) {
 						if (context.mounted) {
 							showToast(
 								context: context,
 								icon: CupertinoIcons.exclamationmark_triangle,
-								message: 'Failed to get ${thread.item} from archive: ${e.toStringDio()}'
+								message: 'Failed to get ${thread.item}: ${e.toStringDio()}'
 							);
 						}
-					}
-				}
-				catch (e) {
-					if (context.mounted) {
-						showToast(
-							context: context,
-							icon: CupertinoIcons.exclamationmark_triangle,
-							message: 'Failed to get ${thread.item}: ${e.toStringDio()}'
-						);
 					}
 				}
 				if (newThread != null) {

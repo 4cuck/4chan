@@ -1102,6 +1102,11 @@ class ThreadDownloadService {
       // Guard: another operation may have completed before we got the lock
       if (!record.isInBox || record.status == DownloadStatus.complete) return;
 
+      // Track whether this is a re-download of a previously complete thread
+      // (status = updating) vs. an initial download. Used later to decide
+      // whether a transient network error should reset back to complete.
+      final wasUpdating = record.status == DownloadStatus.updating;
+
       print(
           '[ThreadDownloader] START: ${record.boxKey} status=${record.status}');
       final cancelToken = CancelToken();
@@ -1532,33 +1537,52 @@ class ThreadDownloadService {
           record.errorMessage = null;
           print('[ThreadDownloader] CANCELLED: ${record.boxKey}');
         } else {
-          record.status = DownloadStatus.failed;
           final statusCode = e.response?.statusCode;
-          record.errorMessage =
-              statusCode != null ? 'HTTP $statusCode' : e.message;
-          print(
-              '[ThreadDownloader] DioError FAILED: ${record.boxKey} | ${record.errorMessage} | type=${e.type} | url=${e.requestOptions.uri}');
-          // Partial sync may have uploaded and deleted some local files before the
-          // error. Update storageLocation so the icon accurately reflects what is
-          // actually on CopyParty vs disk, preventing findDownloadedFile from
-          // skipping records that still have remote files (F2).
-          if (record.syncedFiles > 0) {
-            final p = record.storagePreference;
-            final cpEnabled = Persistence.settings.copypartyEnabled;
-            final effectiveUpload = cpEnabled &&
-                (p == ThreadStoragePreference.remoteOnly ||
-                    p == ThreadStoragePreference.both ||
-                    (p == null && Persistence.settings.copypartyAutoUpload));
-            final wouldDelete = p != ThreadStoragePreference.both;
-            if (effectiveUpload && wouldDelete) {
-              if (record.syncedFiles >= record.totalFiles &&
-                  record.totalFiles > 0) {
-                record.storageLocation = ThreadStorageLocation.remote;
-              } else {
-                record.storageLocation = ThreadStorageLocation.mixed;
+          // Transient = no HTTP response AND a known network-layer error type.
+          // Deliberately excludes DioErrorType.other to avoid treating parse
+          // or SSL errors as retryable network blips.
+          final isTransientNetworkError = statusCode == null &&
+              (e.error is SocketException ||
+                  e.type == DioErrorType.connectTimeout ||
+                  e.type == DioErrorType.receiveTimeout ||
+                  e.type == DioErrorType.sendTimeout);
+          if (isTransientNetworkError && wasUpdating) {
+            // Transient failure (DNS/TCP) while re-downloading a thread that
+            // was already complete.  The existing local files are intact.
+            // Reset to complete so _onThreadStateUpdated and _autoSync can
+            // retry automatically when connectivity recovers — instead of
+            // permanently stalling updates until the user taps "Update".
+            record.status = DownloadStatus.complete;
+            record.errorMessage = null;
+            print('[ThreadDownloader] TRANSIENT ERROR (will retry): ${record.boxKey} | ${e.message}');
+          } else {
+            record.status = DownloadStatus.failed;
+            record.errorMessage =
+                statusCode != null ? 'HTTP $statusCode' : e.message;
+            print(
+                '[ThreadDownloader] DioError FAILED: ${record.boxKey} | ${record.errorMessage} | type=${e.type} | url=${e.requestOptions.uri}');
+            // Partial sync may have uploaded and deleted some local files before the
+            // error. Update storageLocation so the icon accurately reflects what is
+            // actually on CopyParty vs disk, preventing findDownloadedFile from
+            // skipping records that still have remote files (F2).
+            if (record.syncedFiles > 0) {
+              final p = record.storagePreference;
+              final cpEnabled = Persistence.settings.copypartyEnabled;
+              final effectiveUpload = cpEnabled &&
+                  (p == ThreadStoragePreference.remoteOnly ||
+                      p == ThreadStoragePreference.both ||
+                      (p == null && Persistence.settings.copypartyAutoUpload));
+              final wouldDelete = p != ThreadStoragePreference.both;
+              if (effectiveUpload && wouldDelete) {
+                if (record.syncedFiles >= record.totalFiles &&
+                    record.totalFiles > 0) {
+                  record.storageLocation = ThreadStorageLocation.remote;
+                } else {
+                  record.storageLocation = ThreadStorageLocation.mixed;
+                }
               }
             }
-          }
+          } // end else (non-transient or initial download)
         }
         if (record.isInBox) await record.save();
       } on ThreadNotFoundException {

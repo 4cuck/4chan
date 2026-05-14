@@ -2623,7 +2623,9 @@ class ThreadPageState extends State<ThreadPage> {
                                                                         .disableUpdates ||
                                                                     (downloadStatus
                                                                             ?.isArchivedOnServer ==
-                                                                        true);
+                                                                        true) ||
+                                                                    downloadStatus?.status ==
+                                                                        DownloadStatus.complete;
                                                                 debugPrint(
                                                                     '[IMPORT_DEBUG] listUpdater: thread=${widget.thread} disableUpdates=${persistentState.disableUpdates} downloadStatus=${downloadStatus?.isArchivedOnServer} isOffline=$isOffline');
                                                                 if (isOffline) {
@@ -2669,8 +2671,11 @@ class ThreadPageState extends State<ThreadPage> {
                                                                           null &&
                                                                       downloadStatus !=
                                                                           null &&
-                                                                      downloadStatus
-                                                                          .isArchivedOnServer) {
+                                                                      (downloadStatus
+                                                                              .isArchivedOnServer ||
+                                                                          downloadStatus
+                                                                              .status ==
+                                                                          DownloadStatus.complete)) {
                                                                     // Recovery: re-parse thread_data.html if box entry is missing after restart
                                                                     try {
                                                                       final threadDir = ThreadDownloadService

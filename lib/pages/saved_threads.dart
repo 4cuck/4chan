@@ -183,20 +183,25 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         .where((d) => _threadCache[d.boxKey] == null)
         .toList();
     if (downloads.isEmpty) return;
-    // Load in batches to avoid flooding Hive I/O and triggering per-item rebuilds
+    // Load in batches to avoid flooding Hive I/O
     const batchSize = 10;
     for (var i = 0; i < downloads.length; i += batchSize) {
-      final batch = downloads.skip(i).take(batchSize);
-      final results = await Future.wait(batch.map((d) => _loadThreadData(d)));
-      if (!mounted) return;
-      setState(() {
-        for (var j = 0; j < batch.length; j++) {
-          final d = batch.elementAt(j);
-          _threadCache[d.boxKey] = results[j];
+      final batch = downloads.skip(i).take(batchSize).toList();
+      // Load individually so one failure doesn't kill the whole batch
+      for (final d in batch) {
+        final thread = await _loadThreadData(d)
+            .catchError((e, st) {
+              print('[SavedThreads] Load failed for ${d.board}/${d.threadId}: $e');
+              print(st);
+              return null;
+            });
+        if (!mounted) return;
+        setState(() {
+          _threadCache[d.boxKey] = thread;
           _lastUpdatedAt[d.boxKey] = d.lastUpdatedAt;
-        }
-      });
-      // Yield to event loop so UI stays responsive
+        });
+      }
+      // Yield between batches
       await Future.delayed(Duration.zero);
     }
   }
@@ -205,9 +210,20 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
 
   /// Loads thread data from Hive (with HTML recovery fallback).
   /// Does NOT call setState — the caller batches updates.
+  /// Returns null on any error (Hive model mismatch, corrupt data, etc.)
+  /// so the UI falls back to the simple row instead of crashing.
   Future<Thread?> _loadThreadData(DownloadedThread d) async {
-    Thread? thread = await Persistence.getCachedThread(
-        d.imageboardKey, d.board, d.threadId);
+    Thread? thread;
+    try {
+      thread = await Persistence.getCachedThread(
+          d.imageboardKey, d.board, d.threadId);
+    } catch (e, st) {
+      print('[SavedThreads] Failed to load thread ${d.board}/${d.threadId} from Hive: $e');
+      print(st);
+      // Hive deserialization failed — likely model change with old data.
+      // Don't crash; show fallback row. Thread can be re-downloaded.
+      return null;
+    }
     // Recovery: if thread not in Hive but thread_data.html exists on disk,
     // re-parse and restore it (Fix D: use async read).
     if (thread == null && d.status == DownloadStatus.complete) {
@@ -424,28 +440,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         ],
       ),
     );
-  }
-
-  Future<void> _scan() async {
-    final result =
-        await ThreadDownloadService.instance.scanDownloadsDirectory();
-    if (mounted) {
-      showAdaptiveDialog(
-        context: context,
-        builder: (ctx) => AdaptiveAlertDialog(
-          title: const Text('Scan complete'),
-          content: Text(
-              'Found ${result.found} new thread(s), skipped ${result.skipped} already-known.'),
-          actions: [
-            AdaptiveDialogAction(
-              child: const Text('OK'),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      );
-      setState(_reload);
-    }
   }
 
   void _enterSelectMode(String boxKey) {
@@ -1062,11 +1056,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                     onPressed: _importKuroba,
                     child: const Icon(CupertinoIcons.arrow_down_doc),
                   ),
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: _isImporting ? null : _scan,
-                  child: const Icon(CupertinoIcons.folder_badge_plus),
-                ),
               ],
             ),
       body: Column(
