@@ -48,7 +48,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   StreamSubscription<Object?>? _sub;
   _DownloadSortMethod get _sortMethod {
     final v = Settings.instance.downloadedThreadsSortingMethod;
-    print('[SORT] get _sortMethod: settings=$v');
     switch (v) {
       case ThreadSortingMethod.alphabeticByTitle:
         return _DownloadSortMethod.title;
@@ -57,12 +56,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       case ThreadSortingMethod.threadPostTime:
         return _DownloadSortMethod.threadDate;
       default:
-        print('[SORT] default -> downloadedAt');
         return _DownloadSortMethod.downloadedAt;
     }
   }
   set _sortMethod(_DownloadSortMethod method) {
-    print('[SORT] set _sortMethod: $method');
     switch (method) {
       case _DownloadSortMethod.title:
         Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.alphabeticByTitle;
@@ -73,7 +70,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       default:
         Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.savedTime;
     }
-    print('[SORT] set done, now: ${Settings.instance.downloadedThreadsSortingMethod}');
   }
   bool get _sortReversed => Settings.instance.reverseDownloadedThreadsSorting;
   set _sortReversed(bool v) => Settings.instance.reverseDownloadedThreadsSorting = v;
@@ -91,7 +87,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   @override
   void initState() {
     super.initState();
-    print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
     ThreadDownloadService.instance.purgeSoftDeleted();
     _preloadThreadCache().then((_) {
@@ -110,7 +105,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         setState(() {
           _threadCache.remove(boxKey);
           _lastUpdatedAt.remove(boxKey);
-          print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
         });
       } else if (_threadCache[boxKey] == null) {
@@ -145,7 +139,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   }
 
   void _rebuildSortedList() {
-    print('[SORT] _rebuildSortedList: _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     final list = List<DownloadedThread>.from(_downloads);
     switch (_sortMethod) {
       case _DownloadSortMethod.downloadedAt:
@@ -421,7 +414,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (!mounted) return;
     setState(() {
       _isImporting = false;
-      print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
     });
     showAdaptiveDialog(
@@ -440,6 +432,30 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _scan() async {
+    final result =
+        await ThreadDownloadService.instance.scanDownloadsDirectory();
+    if (mounted) {
+      showAdaptiveDialog(
+        context: context,
+        builder: (ctx) => AdaptiveAlertDialog(
+          title: const Text('Scan complete'),
+          content: Text(
+              'Found ${result.found} new thread(s), skipped ${result.skipped} already-known.'),
+          actions: [
+            AdaptiveDialogAction(
+              child: const Text('OK'),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      );
+      // No setState(_reload) here: each _box.put() in scanDownloadsDirectory
+      // fires watchAllChanges(), which already triggers setState(_reload)
+      // via the subscription listener. Calling it again would be a double reload.
+    }
   }
 
   void _enterSelectMode(String boxKey) {
@@ -519,7 +535,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
       });
     }
@@ -537,7 +552,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
       });
     }
@@ -713,7 +727,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
       });
     }
@@ -888,7 +901,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
       });
     }
@@ -926,7 +938,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
       });
     }
@@ -941,7 +952,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-        print('[SORT] initState, _sortMethod=$_sortMethod, _sortReversed=$_sortReversed');
     _reload();
       });
     }
@@ -1055,6 +1065,11 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                     padding: EdgeInsets.zero,
                     onPressed: _importKuroba,
                     child: const Icon(CupertinoIcons.arrow_down_doc),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _isImporting ? null : _scan,
+                    child: const Icon(CupertinoIcons.folder_badge_plus),
                   ),
               ],
             ),
@@ -1504,6 +1519,20 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
           return Text(label,
               style: const TextStyle(
                   fontSize: 12, color: CupertinoColors.destructiveRed));
+        }
+        // Show transient-error message (e.g. "Network error — retrying").
+        // errorMessage is set when a transient failure occurred during an
+        // update run and is cleared on the next successful completion.
+        if (d.errorMessage != null) {
+          return Row(children: [
+            const Icon(CupertinoIcons.wifi_slash,
+                size: 14, color: CupertinoColors.systemOrange),
+            const SizedBox(width: 4),
+            Flexible(
+                child: Text(d.errorMessage!,
+                    style: const TextStyle(
+                        fontSize: 12, color: CupertinoColors.systemOrange))),
+          ]);
         }
         return _buildStorageIndicator(d);
       case DownloadStatus.failed:

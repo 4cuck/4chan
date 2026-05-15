@@ -154,6 +154,11 @@ sealed class _SavedThreadsLoaderImpl<T> implements _SavedThreadsLoader {
 			final entry = await _initializeImpl(state);
 			if (entry != null) {
 				_list.add(entry);
+			} else if (!state.isThreadCached) {
+				// _hasLocalDownload was true but thread data couldn't be loaded
+				// (HTML missing or corrupt). Fall back to missing so the user can
+				// fix it rather than the thread silently disappearing.
+				missing.add(imageboard.scope(state.identifier));
 			}
 		}
 		_sortImpl(reverse);
@@ -281,6 +286,13 @@ class _SavedThreadsByThreadPostTimeLoader implements _SavedThreadsLoader {
 			if (!state.isThreadCached) {
 				// Same rationale as _SavedThreadsLoaderImpl: local HTML copy is viable.
 				if (!_hasLocalDownload(state)) {
+					missing.add(imageboard.scope(state.identifier));
+					continue;
+				}
+				// _hasLocalDownload true: verify thread data is actually loadable.
+				// If not (HTML missing/corrupt), fall back to missing rather than
+				// silently dropping the thread later in takeSavedThread().
+				if (await state.getThread() == null) {
 					missing.add(imageboard.scope(state.identifier));
 					continue;
 				}

@@ -435,9 +435,6 @@ class Persistence extends ChangeNotifier {
     final key = '$imageboardKey/$b/$id';
     return _loadThreadDebouncer.debounce(key, () async {
       return await _threadsFileLock.protect(key, (_) async {
-        final containsKey = sharedThreadsBox.containsKey(key);
-        debugPrint(
-            '[IMPORT_DEBUG] getCachedThread key=$key containsKey=$containsKey');
         Thread? ret = await sharedThreadsBox.get(key, syncIO: syncIO);
         if (ret != null && _kUseSpanCache) {
           final file =
@@ -464,8 +461,8 @@ class Persistence extends ChangeNotifier {
               if (ret != null) {
                 // Cache in Hive so future lookups are instant (no repeated HTML parse).
                 await sharedThreadsBox.put(key, ret!);
+                debugPrint('[HTML_FALLBACK] getCachedThread loaded from thread_data.html: $imageboardKey/$b/$id');
               }
-              debugPrint('[IMPORT_DEBUG] getCachedThread loaded from download HTML: $imageboardKey/$b/$id');
             } catch (_) {
               // Corrupt HTML, leave as null
             }
@@ -497,13 +494,9 @@ class Persistence extends ChangeNotifier {
       String imageboardKey, String board, int id, Thread? thread) async {
     final b = board.toLowerCase();
     final key = '$imageboardKey/$b/$id';
-    debugPrint(
-        '[IMPORT_DEBUG] setCachedThread key=$key thread=${thread?.posts_.length} posts');
     return _threadsFileLock.protect(key, (_) async {
       if (thread != null) {
         await sharedThreadsBox.put(key, thread);
-        debugPrint(
-            '[IMPORT_DEBUG] setCachedThread PUT done for $key, containsKey=${sharedThreadsBox.containsKey(key)}');
         await _writeSpanCache(imageboardKey, b, id, thread);
       } else {
         await sharedThreadsBox.delete(key);
@@ -1877,8 +1870,6 @@ class PersistentThreadState extends EasyListenable
         // This is to do preinit before setting _thread (which will generate metafilter)
         thread = await Persistence.getCachedThread(imageboardKey, board, id,
             syncIO: syncIO);
-        debugPrint(
-            '[IMPORT_DEBUG] ensureThreadLoaded: getCachedThread($imageboardKey, $board, $id) => ${thread?.posts_.length} posts');
         if (preinit && thread != null) {
           try {
             await preinitAndWriteSpanCache(thread, catalog: catalog);
@@ -1886,8 +1877,6 @@ class PersistentThreadState extends EasyListenable
             // Preinit failed (e.g. span-cache write error, OOM).
             // Log and continue — DO NOT wipe the thread from Hive.
             // Losing user-downloaded data is far worse than missing a span cache.
-            debugPrint(
-                '[IMPORT_DEBUG] preinitAndWriteSpanCache THREW: $e\n$st');
             Future.error(e, st); // crashlytics
           }
         }

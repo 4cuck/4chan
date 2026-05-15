@@ -168,4 +168,111 @@ class CopyPartySyncService {
       return CopyPartySyncResult.networkError;
     }
   }
+
+  /// Fetches the text content of a remote file from CopyParty.
+  /// Returns null on any error.
+  Future<String?> getFileContent({
+    required String remoteUrl,
+    required String password,
+  }) async {
+    final parsedUrl = Uri.tryParse(remoteUrl);
+    if (parsedUrl == null ||
+        (!parsedUrl.isScheme('http') && !parsedUrl.isScheme('https'))) {
+      return null;
+    }
+    try {
+      final response = await _dio.get<String>(
+        remoteUrl,
+        options: Options(
+          headers: {
+            if (password.isNotEmpty) 'Pw': password,
+          },
+          responseType: ResponseType.plain,
+          receiveTimeout: 30000,
+          sendTimeout: 30000,
+          validateStatus: (status) => status != null,
+        ),
+      );
+      if (response.statusCode == null ||
+          response.statusCode! < 200 ||
+          response.statusCode! >= 300) {
+        return null;
+      }
+      return response.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Lists immediate contents of a CopyParty folder using the `?ls` API.
+  /// Returns `null` on any error (auth, network, not found) so callers can
+  /// safely skip without crashing.
+  Future<({List<String> dirs, List<String> files})?> listFolder({
+    required String remoteFolderPath,
+    required String serverUrl,
+    required String password,
+  }) async {
+    final base = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
+    final cleanPath = remoteFolderPath.startsWith('/')
+        ? remoteFolderPath.substring(1)
+        : remoteFolderPath;
+    final cleanNoSlash = cleanPath.endsWith('/')
+        ? cleanPath.substring(0, cleanPath.length - 1)
+        : cleanPath;
+    final url = cleanNoSlash.isEmpty ? '$base?ls' : '$base/$cleanNoSlash?ls';
+    final parsedUrl = Uri.tryParse(url);
+    if (parsedUrl == null ||
+        (!parsedUrl.isScheme('http') && !parsedUrl.isScheme('https'))) {
+      return null;
+    }
+    try {
+      final response = await _dio.get(
+        url,
+        options: Options(
+          headers: {
+            if (password.isNotEmpty) 'Pw': password,
+          },
+          receiveTimeout: 30000,
+          sendTimeout: 30000,
+          validateStatus: (status) => status != null,
+        ),
+      );
+      if (response.statusCode == null ||
+          response.statusCode! < 200 ||
+          response.statusCode! >= 300) {
+        return null;
+      }
+      final data = response.data;
+      final List<String> dirs = [];
+      final List<String> files = [];
+      if (data is Map) {
+        final rawDirs = data['dirs'];
+        if (rawDirs is List) {
+          for (final d in rawDirs) {
+            if (d is String) {
+              dirs.add(d);
+            } else if (d is Map) {
+              // Defensive: some CopyParty builds return dir objects.
+              final name = d['name'] ?? d['href'];
+              if (name is String) dirs.add(name.replaceAll('/', ''));
+            }
+          }
+        }
+        final rawFiles = data['files'];
+        if (rawFiles is List) {
+          for (final f in rawFiles) {
+            if (f is Map) {
+              final name = f['n'];
+              if (name is String) files.add(name);
+            }
+          }
+        }
+      }
+      return (dirs: dirs, files: files);
+    } catch (_) {
+      return null;
+    }
+  }
 }

@@ -539,6 +539,94 @@ class _CopyPartyMigrationDialogState extends State<_CopyPartyMigrationDialog> {
   }
 }
 
+class _CopyPartyImportDialog extends StatefulWidget {
+  const _CopyPartyImportDialog();
+  @override
+  State<_CopyPartyImportDialog> createState() =>
+      _CopyPartyImportDialogState();
+}
+
+class _CopyPartyImportDialogState extends State<_CopyPartyImportDialog> {
+  late final StreamSubscription<ImportFromCopypartyProgress> _sub;
+  ImportFromCopypartyProgress? _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub =
+        ThreadDownloadService.instance.importThreadsFromCopyparty().listen(
+      (p) {
+        if (mounted) setState(() => _progress = p);
+      },
+      onError: (e) {
+        if (mounted) {
+          setState(() => _progress = ImportFromCopypartyProgress(
+                found: _progress?.found ?? 0,
+                skipped: _progress?.skipped ?? 0,
+                errors: (_progress?.errors ?? 0) + 1,
+                isDone: true,
+                errorMessage: e.toString(),
+              ));
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = _progress;
+    final isDone = p?.isDone ?? false;
+    final errMsg = p?.errorMessage;
+
+    return AdaptiveAlertDialog(
+      title: const Text('Import from CopyParty'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (p == null)
+              const Center(child: CircularProgressIndicator.adaptive())
+            else if (errMsg != null)
+              Text(errMsg,
+                  style:
+                      const TextStyle(color: CupertinoColors.destructiveRed))
+            else if (isDone)
+              Text(
+                  'Done \u2014 ${p.found} new thread${p.found == 1 ? '' : 's'} imported, '
+                  '${p.skipped} skipped, ${p.errors} error${p.errors == 1 ? '' : 's'}.')
+            else ...[
+              Text('Scanning\u2026 found ${p.found}, skipped ${p.skipped}${p.errors > 0 ? ', ${p.errors} errors' : ''}'),
+              const SizedBox(height: 10),
+              const LinearProgressIndicator(),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        if (isDone || errMsg != null)
+          AdaptiveDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done'),
+          )
+        else
+          AdaptiveDialogAction(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+      ],
+    );
+  }
+}
+
 final dataSettings = [
   SwitchSettingWidget(
       description: 'Require authentication on launch',
@@ -1061,6 +1149,36 @@ final dataSettings = [
               context: context,
               barrierDismissible: false,
               builder: (context) => const _CopyPartyMigrationDialog(),
+            );
+          },
+        ),
+        SimpleButtonSettingWidget(
+          description: 'Import threads from CopyParty',
+          icon: CupertinoIcons.arrow_down_circle,
+          onPressed: (context) async {
+            final serverUrl = Persistence.settings.copypartyServerUrl;
+            if (serverUrl.isEmpty) {
+              showAdaptiveDialog(
+                context: context,
+                barrierDismissible: true,
+                builder: (context) => AdaptiveAlertDialog(
+                  title: const Text('Server URL not set'),
+                  content: const Text(
+                      'Configure the CopyParty server URL first.'),
+                  actions: [
+                    AdaptiveDialogAction(
+                        isDefaultAction: true,
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('OK'))
+                  ],
+                ),
+              );
+              return;
+            }
+            showAdaptiveDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => const _CopyPartyImportDialog(),
             );
           },
         ),

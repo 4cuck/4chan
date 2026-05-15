@@ -2623,11 +2623,7 @@ class ThreadPageState extends State<ThreadPage> {
                                                                         .disableUpdates ||
                                                                     (downloadStatus
                                                                             ?.isArchivedOnServer ==
-                                                                        true) ||
-                                                                    downloadStatus?.status ==
-                                                                        DownloadStatus.complete;
-                                                                debugPrint(
-                                                                    '[IMPORT_DEBUG] listUpdater: thread=${widget.thread} disableUpdates=${persistentState.disableUpdates} downloadStatus=${downloadStatus?.isArchivedOnServer} isOffline=$isOffline');
+                                                                        true);
                                                                 if (isOffline) {
                                                                   if (_listController
                                                                           .state
@@ -2656,8 +2652,6 @@ class ThreadPageState extends State<ThreadPage> {
                                                                       persistentState
                                                                           .thread
                                                                           ?.posts;
-                                                                  debugPrint(
-                                                                      '[IMPORT_DEBUG] cachedPosts=$cachedPosts (${cachedPosts?.length} posts)');
                                                                   if (cachedPosts !=
                                                                       null) {
                                                                     return cachedPosts;
@@ -2665,17 +2659,12 @@ class ThreadPageState extends State<ThreadPage> {
                                                                   final loaded =
                                                                       await persistentState
                                                                           .ensureThreadLoaded();
-                                                                  debugPrint(
-                                                                      '[IMPORT_DEBUG] ensureThreadLoaded returned: $loaded (posts: ${loaded?.posts.length})');
                                                                   if (loaded ==
                                                                           null &&
                                                                       downloadStatus !=
                                                                           null &&
-                                                                      (downloadStatus
-                                                                              .isArchivedOnServer ||
-                                                                          downloadStatus
-                                                                              .status ==
-                                                                          DownloadStatus.complete)) {
+                                                                      downloadStatus
+                                                                          .isArchivedOnServer) {
                                                                     // Recovery: re-parse thread_data.html if box entry is missing after restart
                                                                     try {
                                                                       final threadDir = ThreadDownloadService
@@ -2703,15 +2692,11 @@ class ThreadPageState extends State<ThreadPage> {
                                                                               recovered);
                                                                           final reloaded =
                                                                               await persistentState.ensureThreadLoaded();
-                                                                          debugPrint(
-                                                                              '[IMPORT_DEBUG] recovery succeeded: ${reloaded?.posts.length} posts');
                                                                           return reloaded
                                                                               ?.posts;
                                                                         }
                                                                       }
                                                                     } catch (e) {
-                                                                      debugPrint(
-                                                                          '[IMPORT_DEBUG] recovery failed: $e');
                                                                     }
                                                                   }
                                                                   return loaded

@@ -8,6 +8,7 @@ import 'package:chan/models/thread.dart';
 import 'package:chan/services/copyparty_sync.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/kuroba_import.dart';
 import 'package:chan/services/thread_html.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/streaming_mp4.dart';
@@ -37,6 +38,21 @@ class MigrationProgress {
     required this.uploadedFiles,
     this.error,
     this.isDone = false,
+  });
+}
+
+class ImportFromCopypartyProgress {
+  final int found;
+  final int skipped;
+  final int errors;
+  final bool isDone;
+  final String? errorMessage;
+  const ImportFromCopypartyProgress({
+    required this.found,
+    required this.skipped,
+    required this.errors,
+    this.isDone = false,
+    this.errorMessage,
   });
 }
 
@@ -645,9 +661,6 @@ class ThreadDownloadService {
     final password = await storage.read(key: 'copypartyPassword') ?? '';
     print(
         '[CopyParty] migrateLocalFilesToCopyparty: password=${password.isNotEmpty ? 'set' : 'empty'}');
-    final base = serverUrl.endsWith('/')
-        ? serverUrl.substring(0, serverUrl.length - 1)
-        : serverUrl;
     final baseRoot = destRoot.endsWith('/')
         ? destRoot.substring(0, destRoot.length - 1)
         : destRoot;
@@ -707,7 +720,11 @@ class ThreadDownloadService {
         bool hasLocalFiles = false;
         if (dir.existsSync()) {
           await for (final entity in dir.list()) {
-            if (entity is File && !entity.path.endsWith('.part')) {
+            if (entity is File &&
+                !entity.path.endsWith('.part') &&
+                // thread_data.html is never deleted (D2) — exclude it so
+                // storageLocation correctly reflects media-file state.
+                entity.uri.pathSegments.last != 'thread_data.html') {
               hasLocalFiles = true;
               break;
             }
@@ -757,6 +774,9 @@ class ThreadDownloadService {
             uploadedFiles: uploaded);
         continue;
       }
+      // Guard: thread_data.html is a metadata artifact — never delete it
+      // locally (D2) and never count it in syncedFiles (D3).
+      final isHtmlBackup = entry.file.uri.pathSegments.last == 'thread_data.html';
       CopyPartySyncResult result;
       try {
         // Skip upload if the file is already present on CopyParty.
@@ -773,7 +793,9 @@ class ThreadDownloadService {
           // Delete the local copy only for remoteOnly / follow-global preferences.
           // Never delete for 'both' (keep-local) or 'localOnly' (guarded above, but
           // defence-in-depth for any code path that reaches here — F1).
-          if (entry.record.storagePreference != ThreadStoragePreference.both &&
+          // thread_data.html is never deleted locally (D2).
+          if (!isHtmlBackup &&
+              entry.record.storagePreference != ThreadStoragePreference.both &&
               entry.record.storagePreference !=
                   ThreadStoragePreference.localOnly) {
             // Capture size before deletion so totalSizeBytes stays accurate (E3).
@@ -790,9 +812,9 @@ class ThreadDownloadService {
             } catch (_) {}
           }
           processed++;
-          entry.record.syncedFiles++;
+          if (!isHtmlBackup) entry.record.syncedFiles++;
           touchedRecords.add(entry.record);
-          uploaded++;
+          if (!isHtmlBackup) uploaded++;
           if (entry.record.isInBox) await entry.record.save();
           yield MigrationProgress(
               totalFiles: total,
@@ -837,17 +859,19 @@ class ThreadDownloadService {
         // Never delete for 'both' (keep-local) or 'localOnly' (preference may have
         // changed mid-run — guarded by the loop re-check above, but defence-in-depth
         // for any race that slips through — F1).
-        if (entry.record.storagePreference != ThreadStoragePreference.both &&
+        // thread_data.html is never deleted locally (D2).
+        if (!isHtmlBackup &&
+            entry.record.storagePreference != ThreadStoragePreference.both &&
             entry.record.storagePreference !=
                 ThreadStoragePreference.localOnly) {
           try {
             await entry.file.delete();
           } catch (_) {}
         }
-        entry.record.syncedFiles++;
+        if (!isHtmlBackup) entry.record.syncedFiles++;
         touchedRecords.add(entry.record);
         if (entry.record.isInBox) await entry.record.save();
-        uploaded++;
+        if (!isHtmlBackup) uploaded++;
         yield MigrationProgress(
             totalFiles: total,
             processedFiles: processed,
@@ -968,10 +992,14 @@ class ThreadDownloadService {
             continue;
           }
 
-          // Async file listing (E3)
+          // Async file listing (E3); exclude thread_data.html — not a media file (D3/N1)
           final files = <File>[];
           await for (final f in threadEntry.list()) {
-            if (f is File && !f.path.endsWith('.part')) files.add(f);
+            if (f is File &&
+                !f.path.endsWith('.part') &&
+                f.uri.pathSegments.last != 'thread_data.html') {
+              files.add(f);
+            }
           }
 
           // E4: skip empty/corrupt directories
@@ -1026,6 +1054,212 @@ class ThreadDownloadService {
       }
     }
     return ImportScanResult(found, skipped);
+  }
+
+  /// Scans CopyParty's destRoot for thread directories absent from the local
+  /// Hive box, downloads their `thread_data.html`, and creates
+  /// `DownloadedThread` records so the threads are immediately viewable offline.
+  ///
+  /// Threads already in the box are skipped without modification. Auth/network
+  /// failures produce a terminal event with [errorMessage] set.
+  Stream<ImportFromCopypartyProgress> importThreadsFromCopyparty() async* {
+    final serverUrl = Persistence.settings.copypartyServerUrl;
+    if (serverUrl.isEmpty) {
+      yield const ImportFromCopypartyProgress(
+        found: 0,
+        skipped: 0,
+        errors: 0,
+        isDone: true,
+        errorMessage: 'CopyParty server URL not configured',
+      );
+      return;
+    }
+    final destRoot = Persistence.settings.copypartyDestRoot;
+    final password = await storage.read(key: 'copypartyPassword') ?? '';
+    final base = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
+    final baseRoot = destRoot.endsWith('/')
+        ? destRoot.substring(0, destRoot.length - 1)
+        : destRoot;
+
+    int found = 0;
+    int skipped = 0;
+    int errors = 0;
+
+    // Level 1: imageboard keys directly under destRoot
+    final ibListing = await CopyPartySyncService.instance.listFolder(
+      remoteFolderPath: baseRoot,
+      serverUrl: serverUrl,
+      password: password,
+    );
+    if (ibListing == null) {
+      yield ImportFromCopypartyProgress(
+        found: found,
+        skipped: skipped,
+        errors: errors,
+        isDone: true,
+        errorMessage:
+            'Could not list CopyParty folder — check server URL and password',
+      );
+      return;
+    }
+
+    for (final imageboardKey in ibListing.dirs) {
+      // Level 2: board names
+      final boardListing = await CopyPartySyncService.instance.listFolder(
+        remoteFolderPath: '$baseRoot/$imageboardKey',
+        serverUrl: serverUrl,
+        password: password,
+      );
+      if (boardListing == null) continue;
+
+      for (final board in boardListing.dirs) {
+        // Level 3: thread IDs
+        final threadListing = await CopyPartySyncService.instance.listFolder(
+          remoteFolderPath: '$baseRoot/$imageboardKey/$board',
+          serverUrl: serverUrl,
+          password: password,
+        );
+        if (threadListing == null) continue;
+
+        for (final threadIdStr in threadListing.dirs) {
+          final threadId = int.tryParse(threadIdStr);
+          if (threadId == null) continue;
+
+          final boxKey =
+              _key(imageboardKey, ThreadIdentifier(board, threadId));
+          if (_box.containsKey(boxKey)) {
+            skipped++;
+            yield ImportFromCopypartyProgress(
+                found: found, skipped: skipped, errors: errors);
+            continue;
+          }
+
+          // Level 4: list thread folder to verify thread_data.html exists
+          // and count remote media files (for totalFiles / syncedFiles).
+          final threadFolderListing =
+              await CopyPartySyncService.instance.listFolder(
+            remoteFolderPath:
+                '$baseRoot/$imageboardKey/$board/$threadIdStr',
+            serverUrl: serverUrl,
+            password: password,
+          );
+          if (threadFolderListing == null ||
+              !threadFolderListing.files.contains('thread_data.html')) {
+            errors++;
+            yield ImportFromCopypartyProgress(
+                found: found, skipped: skipped, errors: errors);
+            continue;
+          }
+
+          // Download thread_data.html
+          final htmlUrl =
+              '$base$baseRoot/$imageboardKey/$board/$threadIdStr/thread_data.html';
+          final htmlContent =
+              await CopyPartySyncService.instance.getFileContent(
+            remoteUrl: htmlUrl,
+            password: password,
+          );
+          if (htmlContent == null) {
+            print(
+                '[ThreadDownloader] import: failed to fetch HTML for $imageboardKey/$board/$threadId');
+            errors++;
+            yield ImportFromCopypartyProgress(
+                found: found, skipped: skipped, errors: errors);
+            continue;
+          }
+
+          // Parse the HTML back into a Thread
+          Thread? thread;
+          try {
+            thread = parseKurobaThreadHtml(
+                imageboardKey, board, threadId, htmlContent);
+          } catch (e) {
+            print(
+                '[ThreadDownloader] import: parse failed for $imageboardKey/$board/$threadId: $e');
+          }
+          if (thread == null) {
+            errors++;
+            yield ImportFromCopypartyProgress(
+                found: found, skipped: skipped, errors: errors);
+            continue;
+          }
+
+          // Write HTML to local disk so getCachedThread fallback works offline
+          try {
+            final threadDir = Directory(
+                '${_downloadsDir.path}/$imageboardKey/$board/$threadId');
+            await threadDir.create(recursive: true);
+            final htmlFile = File('${threadDir.path}/thread_data.html');
+            await htmlFile.writeAsString(htmlContent);
+          } catch (e) {
+            print(
+                '[ThreadDownloader] import: disk write failed for $imageboardKey/$board/$threadId: $e');
+            errors++;
+            yield ImportFromCopypartyProgress(
+                found: found, skipped: skipped, errors: errors);
+            continue;
+          }
+
+          // Cache in the shared threads box for instant opening
+          try {
+            await Persistence.setCachedThread(
+                imageboardKey, board, threadId, thread);
+          } catch (e) {
+            print(
+                '[ThreadDownloader] import: setCachedThread failed for $imageboardKey/$board/$threadId: $e');
+            // Non-fatal — HTML fallback in getCachedThread will re-parse on next open
+          }
+
+          // Metadata from OP post
+          final opPost = thread.posts_.firstOrNull;
+          final rawTitle = thread.title ?? opPost?.text.trim();
+          final title = rawTitle != null && rawTitle.length > 100
+              ? rawTitle.substring(0, 100)
+              : rawTitle;
+          final thumbnailUrl =
+              opPost?.attachments_.firstOrNull?.thumbnailUrl;
+          final localThumbnailFilename = thumbnailUrl != null
+              ? Uri.tryParse(thumbnailUrl)?.pathSegments.lastOrNull
+              : null;
+
+          final record = DownloadedThread(
+            imageboardKey: imageboardKey,
+            board: board,
+            threadId: threadId,
+            title: title,
+            thumbnailUrl: thumbnailUrl,
+            localThumbnailFilename: localThumbnailFilename,
+            downloadedAt: DateTime.now(),
+            lastUpdatedAt: DateTime.now(),
+            status: DownloadStatus.complete,
+            // Local: thread_data.html only. Remote: media files. → mixed / both (D6).
+            storageLocation: ThreadStorageLocation.mixed,
+            storagePreference: ThreadStoragePreference.both,
+            // Media files have not been downloaded yet; _autoSync will fetch
+            // them on the next cycle since storagePreference = both.
+            totalFiles: 0,
+            downloadedFiles: 0,
+            syncedFiles: 0,
+            // Use isArchived from the parsed HTML so we don’t need a live network
+            // call. Live threads stay false so the watcher keeps polling (N3).
+            isArchivedOnServer: thread.isArchived,
+          );
+          await _box.put(boxKey, record);
+          found++;
+          yield ImportFromCopypartyProgress(
+              found: found, skipped: skipped, errors: errors);
+        }
+      }
+    }
+
+    yield ImportFromCopypartyProgress(
+      found: found,
+      skipped: skipped,
+      errors: errors,
+      isDone: true,
+    );
   }
 
   void dispose() {
@@ -1448,6 +1682,47 @@ class ThreadDownloadService {
           record.lastUpdatedAt = DateTime.now();
           print(
               '[ThreadDownloader] COMPLETE: ${record.boxKey} downloaded=${record.downloadedFiles}/${record.totalFiles}');
+          // Write thread_data.html for offline fallback and CopyParty backup.
+          // Always overwrite so updates include new posts. Errors are non-fatal (D1).
+          try {
+            final htmlContent = generateThreadHtml(thread);
+            final htmlFile = File('${threadDir.path}/thread_data.html');
+            await htmlFile.writeAsString(htmlContent);
+          } catch (e) {
+            print('[ThreadDownloader] thread_data.html write failed: $e');
+          }
+          // Upload thread_data.html to CopyParty. Never delete the local copy (D2).
+          // Re-upload every run so the remote copy always reflects the latest posts.
+          if (shouldUpload &&
+              serverUrl.isNotEmpty &&
+              !copypartyAuthFailed &&
+              !copypartyServerFailed) {
+            try {
+              final htmlFile = File('${threadDir.path}/thread_data.html');
+              if (htmlFile.existsSync()) {
+                final remotePath =
+                    '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/thread_data.html';
+                final htmlResult =
+                    await CopyPartySyncService.instance.putFile(
+                  file: htmlFile,
+                  remoteRelativePath: remotePath,
+                  serverUrl: serverUrl,
+                  password: password,
+                );
+                if (htmlResult == CopyPartySyncResult.authFailed) {
+                  copypartyAuthFailed = true;
+                  // Mirror the error message set by the media upload loop
+                  // so the user sees auth failure even when all media succeeded.
+                  record.errorMessage =
+                      'CopyParty: auth failed — check password in settings';
+                }
+                print(
+                    '[ThreadDownloader] thread_data.html upload: $htmlResult for ${record.boxKey}');
+              }
+            } catch (e) {
+              print('[ThreadDownloader] thread_data.html upload error: $e');
+            }
+          }
           // Re-read pref: user may have changed preference mid-run (F1).
           final finalPref = record.storagePreference;
           // Delete CopyParty folder for localOnly threads regardless of
@@ -1526,6 +1801,12 @@ class ThreadDownloadService {
             }
             if (actualSize > 0) record.totalSizeBytes = actualSize;
           }
+          // Clear transient-error message only when the run fully succeeded
+          // (no CopyParty auth/server errors). Auth/server failure messages
+          // set during the loop must be preserved so the user knows to act.
+          if (!copypartyAuthFailed && !copypartyServerFailed) {
+            record.errorMessage = null;
+          }
         } else {
           record.status = DownloadStatus.cancelled;
           record.errorMessage = null;
@@ -1539,21 +1820,48 @@ class ThreadDownloadService {
         } else {
           final statusCode = e.response?.statusCode;
           // Transient = no HTTP response AND a known network-layer error type.
-          // Deliberately excludes DioErrorType.other to avoid treating parse
-          // or SSL errors as retryable network blips.
+          // HttpException covers "connection reset by peer" / early close (L1).
+          // DioErrorType.other is intentionally excluded — covers SSL / parse
+          // errors which are not safely retryable.
           final isTransientNetworkError = statusCode == null &&
               (e.error is SocketException ||
+                  e.error is HttpException ||
                   e.type == DioErrorType.connectTimeout ||
                   e.type == DioErrorType.receiveTimeout ||
                   e.type == DioErrorType.sendTimeout);
-          if (isTransientNetworkError && wasUpdating) {
+          // F2: archived threads have no auto-retry path (_onThreadStateUpdated
+          // and _autoSync both skip isArchivedOnServer). Resetting to complete
+          // would leave them silently incomplete forever — keep as failed so
+          // the user sees the error and can manually retry.
+          final canAutoRetry = wasUpdating && !record.isArchivedOnServer;
+          if (isTransientNetworkError && canAutoRetry) {
             // Transient failure (DNS/TCP) while re-downloading a thread that
-            // was already complete.  The existing local files are intact.
-            // Reset to complete so _onThreadStateUpdated and _autoSync can
-            // retry automatically when connectivity recovers — instead of
-            // permanently stalling updates until the user taps "Update".
+            // was already complete. Existing local files are intact.
+            // Reset to complete so _onThreadStateUpdated and _autoSync retry
+            // automatically when connectivity recovers.
             record.status = DownloadStatus.complete;
-            record.errorMessage = null;
+            // D2: keep a visible message so the UI shows the download is
+            // incomplete and awaiting retry (cleared on next successful run).
+            record.errorMessage = 'Network error — retrying automatically';
+            // D3: recalculate storageLocation — some files may have been
+            // deleted after upload before the error hit.
+            if (record.syncedFiles > 0) {
+              final p = record.storagePreference;
+              final cpEnabled = Persistence.settings.copypartyEnabled;
+              final effectiveUpload = cpEnabled &&
+                  (p == ThreadStoragePreference.remoteOnly ||
+                      p == ThreadStoragePreference.both ||
+                      (p == null && Persistence.settings.copypartyAutoUpload));
+              final wouldDelete = p != ThreadStoragePreference.both;
+              if (effectiveUpload && wouldDelete) {
+                if (record.syncedFiles >= record.totalFiles &&
+                    record.totalFiles > 0) {
+                  record.storageLocation = ThreadStorageLocation.remote;
+                } else {
+                  record.storageLocation = ThreadStorageLocation.mixed;
+                }
+              }
+            }
             print('[ThreadDownloader] TRANSIENT ERROR (will retry): ${record.boxKey} | ${e.message}');
           } else {
             record.status = DownloadStatus.failed;
