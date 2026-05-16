@@ -374,20 +374,27 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (mounted) setState(_reload);
   }
 
-  /// Pull-to-refresh handler: triggers a media-download update for every live
-  /// (complete, non-archived, non-locked) thread in the list, then scans the
-  /// downloads directory for any manually-copied folders not yet registered.
+  /// Pull-to-refresh handler: triggers a media-download update for every
+  /// retryable thread in the list (complete or failed, non-archived), then
+  /// scans the downloads directory for any manually-copied folders not yet
+  /// registered.
   Future<void> _refreshAll() async {
-    // 1. Kick off media-download updates for all live threads (fire-and-forget;
-    //    rows update via watchAllChanges() as each download progresses).
-    final live = _downloads
+    // 1. Kick off media-download updates for all retryable threads
+    //    (fire-and-forget; rows update via watchAllChanges() as each
+    //    download progresses).
+    //    • complete: normal re-check for new posts / missing files.
+    //    • failed: retry so transient errors clear on the next pull.
+    //    isLockedOnServer only gates complete threads — a failed thread
+    //    should always be retried regardless of cached lock state.
+    final toUpdate = _downloads
         .where((d) =>
-            d.status == DownloadStatus.complete &&
             !d.isArchivedOnServer &&
-            !d.isLockedOnServer &&
-            d.pendingDeletionAt == null)
+            d.pendingDeletionAt == null &&
+            (d.status == DownloadStatus.complete
+                ? !d.isLockedOnServer
+                : d.status == DownloadStatus.failed))
         .toList();
-    for (final d in live) {
+    for (final d in toUpdate) {
       final imageboard =
           ImageboardRegistry.instance.getImageboard(d.imageboardKey);
       if (imageboard == null) continue;

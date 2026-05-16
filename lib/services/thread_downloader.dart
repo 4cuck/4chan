@@ -1390,24 +1390,24 @@ class ThreadDownloadService {
         await Persistence.setCachedThread(
             record.imageboardKey, record.board, record.threadId, thread);
 
-        // Update locked status so the badge and auto-sync stay accurate.
+        // Sync locked + archived status from the live API response in one save.
+        // isLockedOnServer: used for badge filtering — cached from previous session,
+        //   must not gate live checks (see _autoSync).
+        // isArchivedOnServer: set when the API confirms the thread is in the archive
+        //   (thread.isArchived=true). Treats archive-accessible threads the same as
+        //   404'd threads: no new content can arrive, transient errors use
+        //   canStayComplete, _autoSync skips them, badge excludes them.
+        //   One-directional: only ever set true, never cleared (archived is permanent).
+        bool _statusChanged = false;
         if (record.isLockedOnServer != thread.isLocked) {
           record.isLockedOnServer = thread.isLocked;
-          if (record.isInBox) await record.save();
+          _statusChanged = true;
         }
-
-        // Sync archived status from the live API response.
-        // 4chan (and most imageboards) set thread.isArchived=true while the
-        // thread is still accessible in their archive (before the final 404).
-        // Once archived, no new posts or attachments can arrive, so we treat
-        // it the same as a confirmed 404 for the download record:
-        //  • _autoSync will skip it (no wasted requests)
-        //  • transient network errors use canStayComplete (no false 'failed' state)
-        //  • the badge no longer counts it as live
         if (thread.isArchived && !record.isArchivedOnServer) {
           record.isArchivedOnServer = true;
-          if (record.isInBox) await record.save();
+          _statusChanged = true;
         }
+        if (_statusChanged && record.isInBox) await record.save();
 
         // 2. Update metadata from thread
         final opPost = thread.posts_.firstOrNull;
@@ -2061,11 +2061,29 @@ class ThreadDownloadService {
         }
         if (record.isInBox) await record.save();
       } catch (e, st) {
-        record.status = DownloadStatus.failed;
-        record.errorMessage = e.toString();
+        // A raw SocketException or HttpException that escaped Dio wrapping
+        // (e.g. from non-Dio code paths inside site.getThread() on some
+        // imageboard implementations) must get the same transient-error
+        // treatment as the DioError handler above — not a hard 'failed'.
+        final isRawTransient =
+            (e is SocketException || e is HttpException) && wasUpdating;
+        if (isRawTransient && !record.isArchivedOnServer) {
+          record.status = DownloadStatus.complete;
+          record.errorMessage = 'Network error — retrying automatically';
+          print(
+              '[ThreadDownloader] RAW TRANSIENT ERROR (will retry): ${record.boxKey} | $e');
+        } else if (isRawTransient && record.isArchivedOnServer) {
+          record.status = DownloadStatus.complete;
+          record.errorMessage = null;
+          print(
+              '[ThreadDownloader] RAW TRANSIENT ERROR on archived (staying complete): ${record.boxKey} | $e');
+        } else {
+          record.status = DownloadStatus.failed;
+          record.errorMessage = e.toString();
+          print(
+              '[ThreadDownloader] EXCEPTION FAILED: ${record.boxKey} | $e\n$st');
+        }
         if (record.isInBox) await record.save();
-        print(
-            '[ThreadDownloader] EXCEPTION FAILED: ${record.boxKey} | $e\n$st');
       } finally {
         _cancelTokens.remove(key);
         _pendingCancels.remove(key);
