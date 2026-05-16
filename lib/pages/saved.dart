@@ -126,6 +126,31 @@ bool _hasLocalDownload(PersistentThreadState state) {
 			?.status == DownloadStatus.complete;
 }
 
+/// Returns true if [t] should count towards the downloads badge.
+/// A thread is "live" if it is not archived, not locked, not failed, and not
+/// cancelled — i.e., it can still receive new posts.
+///
+/// Checks both the persisted [DownloadedThread.isLockedOnServer] flag AND the
+/// in-memory [PersistentThreadState.thread] so the badge is accurate even for
+/// records where the HiveField hasn’t been written yet (old data).
+bool _isLiveDownload(DownloadedThread t) {
+	if (t.isArchivedOnServer) return false;
+	if (t.status == DownloadStatus.failed ||
+	    t.status == DownloadStatus.cancelled) return false;
+	if (t.isLockedOnServer) return false;
+	// Fallback: check the in-memory cached thread for records where
+	// isLockedOnServer is still null (pre-field-19 records not yet backfilled).
+	if (t.rawIsLockedOnServer == null) {
+		final tsKey =
+				'${t.imageboardKey}/${t.board.toLowerCase()}/${t.threadId}';
+		if (Persistence.sharedThreadStateBox.get(tsKey)?.thread?.isLocked ==
+				true) {
+			return false;
+		}
+	}
+	return true;
+}
+
 sealed class _SavedThreadsLoaderImpl<T> implements _SavedThreadsLoader {
 	final List<T> _list = [];
 	Future<T?> _initializeImpl(PersistentThreadState state);
@@ -410,11 +435,11 @@ class _SavedPageState extends State<SavedPage> {
 		_missingSavedAttachments = ValueNotifier([]);
 		_downloadsBadgeUpdater = ThreadDownloadService.instance.watchAllChanges().listen((_) {
 			_downloadsBadgeNotifier.value = ThreadDownloadService.instance.downloadsBox.values
-				.where((t) => !t.isArchivedOnServer && t.status != DownloadStatus.failed && t.status != DownloadStatus.cancelled)
+				.where(_isLiveDownload)
 				.length;
 		});
 		_downloadsBadgeNotifier.value = ThreadDownloadService.instance.downloadsBox.values
-			.where((t) => !t.isArchivedOnServer && t.status != DownloadStatus.failed && t.status != DownloadStatus.cancelled)
+			.where(_isLiveDownload)
 			.length;
 	}
 

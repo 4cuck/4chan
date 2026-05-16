@@ -357,6 +357,31 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (mounted) setState(_reload);
   }
 
+  /// Pull-to-refresh handler: triggers a media-download update for every live
+  /// (complete, non-archived, non-locked) thread in the list, then scans the
+  /// downloads directory for any manually-copied folders not yet registered.
+  Future<void> _refreshAll() async {
+    // 1. Kick off media-download updates for all live threads (fire-and-forget;
+    //    rows update via watchAllChanges() as each download progresses).
+    final live = _downloads
+        .where((d) =>
+            d.status == DownloadStatus.complete &&
+            !d.isArchivedOnServer &&
+            !d.isLockedOnServer &&
+            d.pendingDeletionAt == null)
+        .toList();
+    for (final d in live) {
+      final imageboard =
+          ImageboardRegistry.instance.getImageboard(d.imageboardKey);
+      if (imageboard == null) continue;
+      ThreadDownloadService.instance
+          .updateThread(d.identifier, imageboard.site, d.imageboardKey);
+    }
+    // 2. Scan the downloads directory for folders that exist on disk but have
+    //    no Hive record (manually copied, backup-restored, etc.).
+    await ThreadDownloadService.instance.scanDownloadsDirectory();
+  }
+
   void _openThread(DownloadedThread d) {
     final imageboard =
         ImageboardRegistry.instance.getImageboard(d.imageboardKey);
@@ -432,30 +457,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         ],
       ),
     );
-  }
-
-  Future<void> _scan() async {
-    final result =
-        await ThreadDownloadService.instance.scanDownloadsDirectory();
-    if (mounted) {
-      showAdaptiveDialog(
-        context: context,
-        builder: (ctx) => AdaptiveAlertDialog(
-          title: const Text('Scan complete'),
-          content: Text(
-              'Found ${result.found} new thread(s), skipped ${result.skipped} already-known.'),
-          actions: [
-            AdaptiveDialogAction(
-              child: const Text('OK'),
-              onPressed: () => Navigator.pop(ctx),
-            ),
-          ],
-        ),
-      );
-      // No setState(_reload) here: each _box.put() in scanDownloadsDirectory
-      // fires watchAllChanges(), which already triggers setState(_reload)
-      // via the subscription listener. Calling it again would be a double reload.
-    }
   }
 
   void _enterSelectMode(String boxKey) {
@@ -1066,11 +1067,6 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                     onPressed: _importKuroba,
                     child: const Icon(CupertinoIcons.arrow_down_doc),
                   ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _isImporting ? null : _scan,
-                    child: const Icon(CupertinoIcons.folder_badge_plus),
-                  ),
               ],
             ),
       body: Column(
@@ -1091,13 +1087,23 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
               ),
             ),
           Expanded(
-            child: _downloads.isEmpty
-                ? const Center(child: Text('No downloaded threads'))
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: EdgeInsets.only(
-                        bottom: MediaQuery.viewPaddingOf(context).bottom),
-                    itemCount: _cachedSortedDownloads.length,
+            child: RefreshIndicator(
+              onRefresh: _refreshAll,
+              child: _downloads.isEmpty
+                  ? const CustomScrollView(
+                      physics: AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        SliverFillRemaining(
+                            child: Center(
+                                child: Text('No downloaded threads')))
+                      ],
+                    )
+                  : ListView.builder(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.only(
+                          bottom: MediaQuery.viewPaddingOf(context).bottom),
+                      itemCount: _cachedSortedDownloads.length,
                     itemBuilder: (context, i) {
                       final d = _sortedDownloads[i];
                       return _DownloadedThreadRow(
@@ -1131,6 +1137,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                       );
                     },
                   ),
+            ),
           ),
         ],
       ),

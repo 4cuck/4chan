@@ -2702,6 +2702,22 @@ class ThreadPageState extends State<ThreadPage> {
                                                                   return loaded
                                                                       ?.posts;
                                                                 }
+                                                                // Manual pull-to-refresh on a live downloaded thread: kick off
+                                                                // a media download in the background so new/missing attachments
+                                                                // are fetched without waiting for the next _autoSync cycle.
+                                                                // Guard status == complete so we don’t fire a second site.getThread
+                                                                // concurrently when a download is already in progress.
+                                                                if (options.source.manual &&
+                                                                    downloadStatus != null &&
+                                                                    downloadStatus.status == DownloadStatus.complete &&
+                                                                    !downloadStatus.isArchivedOnServer &&
+                                                                    !downloadStatus.isLockedOnServer) {
+                                                                  ThreadDownloadService.instance
+                                                                      .updateThread(
+                                                                          widget.thread,
+                                                                          imageboard.site,
+                                                                          imageboard.key);
+                                                                }
                                                                 return (await _getUpdatedThread(
                                                                         options
                                                                             .cancelToken))

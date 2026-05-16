@@ -220,6 +220,18 @@ class DownloadedThreadFields {
     fieldName: 'storagePreference',
     merger: PrimitiveMerger(),
   );
+
+  static bool? getIsLockedOnServer(DownloadedThread x) => x._isLockedOnServer;
+  static void setIsLockedOnServer(DownloadedThread x, bool? v) =>
+      x._isLockedOnServer = v;
+  static const int kIsLockedOnServer = 19;
+  static const isLockedOnServer = HiveFieldAdapter<DownloadedThread, bool?>(
+    getter: getIsLockedOnServer,
+    setter: setIsLockedOnServer,
+    fieldNumber: kIsLockedOnServer,
+    fieldName: 'isLockedOnServer',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
@@ -251,13 +263,14 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
     15: DownloadedThreadFields.pendingDeletionAt,
     16: DownloadedThreadFields.storageLocation,
     17: DownloadedThreadFields.totalSizeBytes,
-    18: DownloadedThreadFields.storagePreference
+    18: DownloadedThreadFields.storagePreference,
+    19: DownloadedThreadFields.isLockedOnServer,
   };
 
   @override
   DownloadedThread read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(19, null);
+    final List<dynamic> fields = List.filled(20, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -285,13 +298,14 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       storageLocation: fields[16] as ThreadStorageLocation?,
       totalSizeBytes: fields[17] as int?,
       storagePreference: fields[18] as ThreadStoragePreference?,
+      isLockedOnServer: fields[19] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, DownloadedThread obj) {
     writer
-      ..writeByte(19)
+      ..writeByte(20)
       ..writeByte(0)
       ..write(obj.imageboardKey)
       ..writeByte(1)
@@ -329,7 +343,9 @@ class DownloadedThreadAdapter extends TypeAdapter<DownloadedThread> {
       ..writeByte(17)
       ..write(obj.totalSizeBytes)
       ..writeByte(18)
-      ..write(obj.storagePreference);
+      ..write(obj.storagePreference)
+      ..writeByte(19)
+      ..write(obj._isLockedOnServer);
   }
 
   @override

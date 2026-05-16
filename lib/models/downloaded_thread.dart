@@ -92,6 +92,17 @@ class DownloadedThread extends HiveObject {
   @HiveField(18)
   ThreadStoragePreference? storagePreference;
 
+  // Field 19: nullable per Hive evolution rule — null on old records = not locked.
+  @HiveField(19)
+  bool? _isLockedOnServer;
+  /// Whether the thread was locked on the server at the time of last check.
+  /// Old records (null) are treated as not locked.
+  bool get isLockedOnServer => _isLockedOnServer ?? false;
+  set isLockedOnServer(bool v) => _isLockedOnServer = v;
+  /// Raw nullable value — null means the field has never been written (old record).
+  /// Use [isLockedOnServer] for boolean comparisons.
+  bool? get rawIsLockedOnServer => _isLockedOnServer;
+
   DownloadedThread({
     required this.imageboardKey,
     required this.board,
@@ -112,7 +123,8 @@ class DownloadedThread extends HiveObject {
     this.storageLocation = ThreadStorageLocation.local,
     this.totalSizeBytes,
     this.storagePreference,
-  });
+    bool? isLockedOnServer,
+  }) : _isLockedOnServer = isLockedOnServer;
 
   /// Returns the effective storage location, inferring from [syncedFiles] for
   /// records created before field 16 was added (they default to [local]).
