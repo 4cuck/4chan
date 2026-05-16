@@ -1396,6 +1396,19 @@ class ThreadDownloadService {
           if (record.isInBox) await record.save();
         }
 
+        // Sync archived status from the live API response.
+        // 4chan (and most imageboards) set thread.isArchived=true while the
+        // thread is still accessible in their archive (before the final 404).
+        // Once archived, no new posts or attachments can arrive, so we treat
+        // it the same as a confirmed 404 for the download record:
+        //  • _autoSync will skip it (no wasted requests)
+        //  • transient network errors use canStayComplete (no false 'failed' state)
+        //  • the badge no longer counts it as live
+        if (thread.isArchived && !record.isArchivedOnServer) {
+          record.isArchivedOnServer = true;
+          if (record.isInBox) await record.save();
+        }
+
         // 2. Update metadata from thread
         final opPost = thread.posts_.firstOrNull;
         final rawTitle = thread.title ?? opPost?.text.trim();
