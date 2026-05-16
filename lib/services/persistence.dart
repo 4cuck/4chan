@@ -457,11 +457,13 @@ class Persistence extends ChangeNotifier {
               '${Persistence.downloadsDirectory.path}/$imageboardKey/$b/$id/thread_data.html');
           if (htmlFile.existsSync()) {
             try {
-              ret = parseKurobaThreadHtml(imageboardKey, b, id, await htmlFile.readAsString());
+              ret = parseKurobaThreadHtml(
+                  imageboardKey, b, id, await htmlFile.readAsString());
               if (ret != null) {
                 // Cache in Hive so future lookups are instant (no repeated HTML parse).
-                await sharedThreadsBox.put(key, ret!);
-                debugPrint('[HTML_FALLBACK] getCachedThread loaded from thread_data.html: $imageboardKey/$b/$id');
+                await sharedThreadsBox.put(key, ret);
+                debugPrint(
+                    '[HTML_FALLBACK] getCachedThread loaded from thread_data.html: $imageboardKey/$b/$id');
               }
             } catch (_) {
               // Corrupt HTML, leave as null

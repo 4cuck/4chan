@@ -171,8 +171,10 @@ class ThreadDownloadService {
     final key = _key(state.imageboardKey, state.identifier);
     final record = _box.get(key);
     if (record == null || record.status != DownloadStatus.complete) return;
-    // Archived or locked threads can't receive new posts — skip.
-    if (record.isArchivedOnServer || record.isLockedOnServer) return;
+    // Only skip threads confirmed 404’d by the server. isLockedOnServer is a
+    // cached value from a previous session and must not gate live checks — a
+    // locked thread may still have final attachments we haven’t downloaded yet.
+    if (record.isArchivedOnServer) return;
     final thread = state.thread;
     if (thread == null) return;
 
@@ -204,14 +206,12 @@ class ThreadDownloadService {
     }
     for (final record in _box.values) {
       if (record.status != DownloadStatus.complete) continue;
+      // Only skip threads the server has confirmed are gone (404).
+      // isLockedOnServer is stale session data — relying on it to skip the
+      // 30-minute check creates a window where final posts before archiving
+      // are missed. The cost of checking a locked thread is one lightweight
+      // site.getThread() call; with _didWork the rest of the loop is instant.
       if (record.isArchivedOnServer) continue;
-      // Locked threads can’t receive new posts — skip for 24 h.
-      // After 24 h we re-run once so an unlocked thread is detected and
-      // isLockedOnServer is cleared by _runDownload automatically.
-      if (record.isLockedOnServer) {
-        final lastUpdate = record.lastUpdatedAt ?? record.downloadedAt;
-        if (DateTime.now().difference(lastUpdate).inHours < 24) continue;
-      }
       if (record.pendingDeletionAt != null) {
         continue; // skip pending-deletion threads
       }
@@ -805,7 +805,8 @@ class ThreadDownloadService {
       }
       // Guard: thread_data.html is a metadata artifact — never delete it
       // locally (D2) and never count it in syncedFiles (D3).
-      final isHtmlBackup = entry.file.uri.pathSegments.last == 'thread_data.html';
+      final isHtmlBackup =
+          entry.file.uri.pathSegments.last == 'thread_data.html';
       CopyPartySyncResult result;
       try {
         // Skip upload if the file is already present on CopyParty.
@@ -1156,8 +1157,7 @@ class ThreadDownloadService {
           final threadId = int.tryParse(threadIdStr);
           if (threadId == null) continue;
 
-          final boxKey =
-              _key(imageboardKey, ThreadIdentifier(board, threadId));
+          final boxKey = _key(imageboardKey, ThreadIdentifier(board, threadId));
           if (_box.containsKey(boxKey)) {
             skipped++;
             yield ImportFromCopypartyProgress(
@@ -1169,8 +1169,7 @@ class ThreadDownloadService {
           // and count remote media files (for totalFiles / syncedFiles).
           final threadFolderListing =
               await CopyPartySyncService.instance.listFolder(
-            remoteFolderPath:
-                '$baseRoot/$imageboardKey/$board/$threadIdStr',
+            remoteFolderPath: '$baseRoot/$imageboardKey/$board/$threadIdStr',
             serverUrl: serverUrl,
             password: password,
           );
@@ -1247,8 +1246,7 @@ class ThreadDownloadService {
           final title = rawTitle != null && rawTitle.length > 100
               ? rawTitle.substring(0, 100)
               : rawTitle;
-          final thumbnailUrl =
-              opPost?.attachments_.firstOrNull?.thumbnailUrl;
+          final thumbnailUrl = opPost?.attachments_.firstOrNull?.thumbnailUrl;
           final localThumbnailFilename = thumbnailUrl != null
               ? Uri.tryParse(thumbnailUrl)?.pathSegments.lastOrNull
               : null;
@@ -1376,14 +1374,17 @@ class ThreadDownloadService {
       _cancelTokens[key] = cancelToken;
 
       try {
-        final _runStart = DateTime.now();
+        final runStart = DateTime.now();
         // 1. Fetch full thread
         final thread = await site.getThread(
           record.identifier,
           priority: RequestPriority.lowest,
           cancelToken: cancelToken,
         );
-        if (kDebugMode) print('[ThreadDownloader][TIMING] getThread: ${DateTime.now().difference(_runStart).inMilliseconds}ms for ${record.boxKey}');
+        if (kDebugMode) {
+          print(
+              '[ThreadDownloader][TIMING] getThread: ${DateTime.now().difference(runStart).inMilliseconds}ms for ${record.boxKey}');
+        }
 
         // 1b. Persist thread data so offline viewer can display it without network
         await Persistence.setCachedThread(
@@ -1470,14 +1471,17 @@ class ThreadDownloadService {
         if (shouldUpload && serverUrl.isNotEmpty) {
           final remoteFolderPath =
               '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}';
-          final _listStart = DateTime.now();
+          final listStart = DateTime.now();
           final listing = await CopyPartySyncService.instance.listFolder(
             remoteFolderPath: remoteFolderPath,
             serverUrl: serverUrl,
             password: password,
           );
           remoteFilesOnServer = listing?.files.toSet();
-          if (kDebugMode) print('[ThreadDownloader][TIMING] listFolder: ${DateTime.now().difference(_listStart).inMilliseconds}ms (${remoteFilesOnServer?.length ?? 'null'} files) for ${record.boxKey}');
+          if (kDebugMode) {
+            print(
+                '[ThreadDownloader][TIMING] listFolder: ${DateTime.now().difference(listStart).inMilliseconds}ms (${remoteFilesOnServer?.length ?? 'null'} files) for ${record.boxKey}');
+          }
         }
 
         // Pre-scan the local thread directory once so we can answer
@@ -1486,7 +1490,7 @@ class ThreadDownloadService {
         // On Android external storage each existsSync() takes ~50-100ms
         // (FUSE/MediaStore overhead), so for a 444-slot thread this shaves
         // ~33 seconds off every update run where all files are already present.
-        final _scanStart = DateTime.now();
+        final scanStart = DateTime.now();
         final existingLocalFiles = <String>{};
         if (threadDir.existsSync()) {
           await for (final entity in threadDir.list()) {
@@ -1500,7 +1504,10 @@ class ThreadDownloadService {
             }
           }
         }
-        if (kDebugMode) print('[ThreadDownloader][TIMING] local dir scan: ${DateTime.now().difference(_scanStart).inMilliseconds}ms (${existingLocalFiles.length} files) for ${record.boxKey}');
+        if (kDebugMode) {
+          print(
+              '[ThreadDownloader][TIMING] local dir scan: ${DateTime.now().difference(scanStart).inMilliseconds}ms (${existingLocalFiles.length} files) for ${record.boxKey}');
+        }
 
         for (final attachment in attachments) {
           if (cancelToken.isCancelled) break;
@@ -1508,7 +1515,7 @@ class ThreadDownloadService {
           // (download from CDN or upload to CopyParty). The inter-file delay
           // only fires when true — it guards against CDN rate-limiting, not
           // against iterating a list of already-present files.
-          bool _didWork = false;
+          bool didWork = false;
 
           // Main file
           final mainFilename =
@@ -1535,12 +1542,13 @@ class ThreadDownloadService {
                 !record.board.contains('..')) {
               final remoteCheckPath =
                   '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$mainFilename';
-              mainAlreadyOnServer = remoteFilesOnServer?.contains(mainFilename) ??
-                  await CopyPartySyncService.instance.fileExists(
-                    remoteRelativePath: remoteCheckPath,
-                    serverUrl: serverUrl,
-                    password: password,
-                  );
+              mainAlreadyOnServer =
+                  remoteFilesOnServer?.contains(mainFilename) ??
+                      await CopyPartySyncService.instance.fileExists(
+                        remoteRelativePath: remoteCheckPath,
+                        serverUrl: serverUrl,
+                        password: password,
+                      );
             }
             // For remoteOnly: skip download when already on server (no local copy needed).
             // For 'both': always download even if on server, to get the local copy.
@@ -1551,7 +1559,8 @@ class ThreadDownloadService {
                 if (!cached) {
                   await _downloadFile(
                       attachment.url, mainFile, cancelToken, site);
-                  _didWork = true; // actual CDN request — rate-limit delay applies
+                  didWork =
+                      true; // actual CDN request — rate-limit delay applies
                 }
                 mainOk = mainFile.existsSync();
               } on DioError catch (e) {
@@ -1609,7 +1618,7 @@ class ThreadDownloadService {
                   serverUrl: serverUrl,
                   password: password,
                 );
-                _didWork = true; // CopyParty upload made
+                didWork = true; // CopyParty upload made
                 if (result == CopyPartySyncResult.ok) {
                   record.syncedFiles++;
                   // Re-read pref: user may have changed to localOnly/both mid-run (F1).
@@ -1658,12 +1667,13 @@ class ThreadDownloadService {
                 !record.board.contains('..')) {
               final remoteCheckPath =
                   '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/$thumbFilename';
-              thumbAlreadyOnServer = remoteFilesOnServer?.contains(thumbFilename) ??
-                  await CopyPartySyncService.instance.fileExists(
-                    remoteRelativePath: remoteCheckPath,
-                    serverUrl: serverUrl,
-                    password: password,
-                  );
+              thumbAlreadyOnServer =
+                  remoteFilesOnServer?.contains(thumbFilename) ??
+                      await CopyPartySyncService.instance.fileExists(
+                        remoteRelativePath: remoteCheckPath,
+                        serverUrl: serverUrl,
+                        password: password,
+                      );
             }
             if (!thumbOk &&
                 !(thumbAlreadyOnServer && shouldDeleteAfterUpload)) {
@@ -1673,7 +1683,8 @@ class ThreadDownloadService {
                 if (!cached) {
                   await _downloadFile(
                       attachment.thumbnailUrl, thumbFile, cancelToken, site);
-                  _didWork = true; // actual CDN request — rate-limit delay applies
+                  didWork =
+                      true; // actual CDN request — rate-limit delay applies
                 }
                 thumbOk = thumbFile.existsSync();
               } on DioError catch (e) {
@@ -1727,7 +1738,7 @@ class ThreadDownloadService {
                   serverUrl: serverUrl,
                   password: password,
                 );
-                _didWork = true; // CopyParty upload made
+                didWork = true; // CopyParty upload made
                 if (result == CopyPartySyncResult.ok) {
                   record.syncedFiles++;
                   // Re-read pref: user may have changed to localOnly/both mid-run (F1).
@@ -1762,12 +1773,12 @@ class ThreadDownloadService {
           } on TypeError {
             delayMs = 0;
           }
-          if (!cancelToken.isCancelled && delayMs > 0 && _didWork) {
+          if (!cancelToken.isCancelled && delayMs > 0 && didWork) {
             await Future.delayed(Duration(milliseconds: delayMs));
           }
         }
 
-        final _loopEnd = DateTime.now();
+        final loopEnd = DateTime.now();
 
         if (!cancelToken.isCancelled) {
           record.status = DownloadStatus.complete;
@@ -1855,21 +1866,25 @@ class ThreadDownloadService {
         // Save immediately so the row drops the progress bar without waiting
         // for the HTML write + CopyParty upload that follow.
         if (record.isInBox) await record.save();
-        if (kDebugMode) print('[ThreadDownloader][TIMING] record.save (row update): '
-            '${DateTime.now().difference(_loopEnd).inMilliseconds}ms '
-            'since loop end for ${record.boxKey}');
+        if (kDebugMode) {
+          print('[ThreadDownloader][TIMING] record.save (row update): '
+              '${DateTime.now().difference(loopEnd).inMilliseconds}ms '
+              'since loop end for ${record.boxKey}');
+        }
 
         // Post-save: write thread_data.html and upload to CopyParty.
         // Intentionally after record.save() so the progress bar vanishes
         // before the (potentially slow) network upload.
         if (!cancelToken.isCancelled) {
-          final _htmlWriteStart = DateTime.now();
+          final htmlWriteStart = DateTime.now();
           try {
             final htmlContent = generateThreadHtml(thread);
             final htmlFile = File('${threadDir.path}/thread_data.html');
             await htmlFile.writeAsString(htmlContent);
-            if (kDebugMode) print('[ThreadDownloader][TIMING] HTML write: '
-                '${DateTime.now().difference(_htmlWriteStart).inMilliseconds}ms for ${record.boxKey}');
+            if (kDebugMode) {
+              print('[ThreadDownloader][TIMING] HTML write: '
+                  '${DateTime.now().difference(htmlWriteStart).inMilliseconds}ms for ${record.boxKey}');
+            }
           } catch (e) {
             print('[ThreadDownloader] thread_data.html write failed: $e');
           }
@@ -1877,21 +1892,23 @@ class ThreadDownloadService {
               serverUrl.isNotEmpty &&
               !copypartyAuthFailed &&
               !copypartyServerFailed) {
-            final _htmlUploadStart = DateTime.now();
+            final htmlUploadStart = DateTime.now();
             try {
               final htmlFile = File('${threadDir.path}/thread_data.html');
               if (htmlFile.existsSync()) {
                 final remotePath =
                     '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/thread_data.html';
-                final htmlResult =
-                    await CopyPartySyncService.instance.putFile(
+                final htmlResult = await CopyPartySyncService.instance.putFile(
                   file: htmlFile,
                   remoteRelativePath: remotePath,
                   serverUrl: serverUrl,
                   password: password,
                 );
-                if (kDebugMode) print('[ThreadDownloader][TIMING] HTML upload: $htmlResult in '
-                    '${DateTime.now().difference(_htmlUploadStart).inMilliseconds}ms for ${record.boxKey}');
+                if (kDebugMode) {
+                  print(
+                      '[ThreadDownloader][TIMING] HTML upload: $htmlResult in '
+                      '${DateTime.now().difference(htmlUploadStart).inMilliseconds}ms for ${record.boxKey}');
+                }
                 if (htmlResult == CopyPartySyncResult.authFailed) {
                   copypartyAuthFailed = true;
                   record.errorMessage =
@@ -1925,7 +1942,13 @@ class ThreadDownloadService {
           // and _autoSync both skip isArchivedOnServer). Resetting to complete
           // would leave them silently incomplete forever — keep as failed so
           // the user sees the error and can manually retry.
+          // Exception: transient network errors on archived threads. The local
+          // data is fully intact (we already knew the thread was 404’d). A
+          // SocketException / timeout just means the server was unreachable —
+          // it is not an error state for the download record itself.
           final canAutoRetry = wasUpdating && !record.isArchivedOnServer;
+          final canStayComplete =
+              isTransientNetworkError && wasUpdating && record.isArchivedOnServer;
           if (isTransientNetworkError && canAutoRetry) {
             // Transient failure (DNS/TCP) while re-downloading a thread that
             // was already complete. Existing local files are intact.
@@ -1954,7 +1977,16 @@ class ThreadDownloadService {
                 }
               }
             }
-            print('[ThreadDownloader] TRANSIENT ERROR (will retry): ${record.boxKey} | ${e.message}');
+            print(
+                '[ThreadDownloader] TRANSIENT ERROR (will retry): ${record.boxKey} | ${e.message}');
+          } else if (canStayComplete) {
+            // Transient network error on an archived thread: the 4chan server was
+            // unreachable but all local data is intact. Stay complete and clear
+            // any stale error from a previous failed run.
+            record.status = DownloadStatus.complete;
+            record.errorMessage = null;
+            print(
+                '[ThreadDownloader] TRANSIENT ERROR on archived (staying complete): ${record.boxKey} | ${e.message}');
           } else {
             record.status = DownloadStatus.failed;
             record.errorMessage =
@@ -1991,6 +2023,10 @@ class ThreadDownloadService {
           // Keep the data intact — just mark archived so the UI can open it offline.
           record.isArchivedOnServer = true;
           record.status = DownloadStatus.complete;
+          // Clear any stale error message (e.g. a previous SocketException from
+          // an earlier failed update run — the data is intact and the 404 is
+          // expected now, so the error is no longer meaningful).
+          record.errorMessage = null;
           record.lastUpdatedAt = DateTime.now();
           print('[ThreadDownloader] ARCHIVED: ${record.boxKey}');
           // If the user explicitly switched to localOnly (download-first path),

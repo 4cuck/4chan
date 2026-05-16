@@ -59,20 +59,27 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         return _DownloadSortMethod.downloadedAt;
     }
   }
+
   set _sortMethod(_DownloadSortMethod method) {
     switch (method) {
       case _DownloadSortMethod.title:
-        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.alphabeticByTitle;
+        Settings.instance.downloadedThreadsSortingMethod =
+            ThreadSortingMethod.alphabeticByTitle;
       case _DownloadSortMethod.lastUpdatedAt:
-        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.lastPostTime;
+        Settings.instance.downloadedThreadsSortingMethod =
+            ThreadSortingMethod.lastPostTime;
       case _DownloadSortMethod.threadDate:
-        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.threadPostTime;
+        Settings.instance.downloadedThreadsSortingMethod =
+            ThreadSortingMethod.threadPostTime;
       default:
-        Settings.instance.downloadedThreadsSortingMethod = ThreadSortingMethod.savedTime;
+        Settings.instance.downloadedThreadsSortingMethod =
+            ThreadSortingMethod.savedTime;
     }
   }
+
   bool get _sortReversed => Settings.instance.reverseDownloadedThreadsSorting;
-  set _sortReversed(bool v) => Settings.instance.reverseDownloadedThreadsSorting = v;
+  set _sortReversed(bool v) =>
+      Settings.instance.reverseDownloadedThreadsSorting = v;
   bool _isImporting = false;
   int _importCurrent = 0;
   int _importTotal = 0;
@@ -80,6 +87,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   final Set<String> _selectedBoxKeys = {};
   final ScrollController _scrollController = ScrollController();
   final Map<String, Thread?> _threadCache = {};
+
   /// Tracks the last known lastUpdatedAt per boxKey so we know when thread
   /// content actually changed (vs a status-only box write).
   final Map<String, DateTime?> _lastUpdatedAt = {};
@@ -105,28 +113,33 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         setState(() {
           _threadCache.remove(boxKey);
           _lastUpdatedAt.remove(boxKey);
-    _reload();
+          _reload();
         });
       } else if (_threadCache[boxKey] == null) {
         // New record (or previously null cache entry) — reload list then load
         // this thread from Hive.
         setState(_reload);
         final d = _downloads.firstWhereOrNull((d) => d.boxKey == boxKey);
-        if (d != null) _loadOneThread(d).then((_) {
-          if (mounted) setState(_rebuildSortedList);
-        });
+        if (d != null) {
+          _loadOneThread(d).then((_) {
+            if (mounted) setState(_rebuildSortedList);
+          });
+        }
       } else {
         // Existing record — only re-read thread content if lastUpdatedAt
         // changed (i.e. new posts arrived). Status-only updates (syncedFiles,
         // progress, etc.) are ignored for the thread cache.
-        final newRecord =
-            event.value is DownloadedThread ? event.value as DownloadedThread : null;
+        final newRecord = event.value is DownloadedThread
+            ? event.value as DownloadedThread
+            : null;
         if (newRecord?.lastUpdatedAt != _lastUpdatedAt[boxKey]) {
           _lastUpdatedAt[boxKey] = newRecord?.lastUpdatedAt;
           final d = _downloads.firstWhereOrNull((d) => d.boxKey == boxKey);
-          if (d != null) _loadOneThread(d).then((_) {
-          if (mounted) setState(_rebuildSortedList);
-        });
+          if (d != null) {
+            _loadOneThread(d).then((_) {
+              if (mounted) setState(_rebuildSortedList);
+            });
+          }
         }
         setState(_reload);
       }
@@ -159,14 +172,18 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     }
     _cachedSortedDownloads = _sortReversed ? list.reversed.toList() : list;
     if (Settings.instance.showActiveDownloadsAboveArchivedDownloads) {
-      final active = _cachedSortedDownloads.where((t) =>
-          t.status == DownloadStatus.downloading ||
-          t.status == DownloadStatus.updating ||
-          t.status == DownloadStatus.pending).toList();
-      final archived = _cachedSortedDownloads.where((t) =>
-          t.status == DownloadStatus.complete ||
-          t.status == DownloadStatus.failed ||
-          t.status == DownloadStatus.cancelled).toList();
+      final active = _cachedSortedDownloads
+          .where((t) =>
+              t.status == DownloadStatus.downloading ||
+              t.status == DownloadStatus.updating ||
+              t.status == DownloadStatus.pending)
+          .toList();
+      final archived = _cachedSortedDownloads
+          .where((t) =>
+              t.status == DownloadStatus.complete ||
+              t.status == DownloadStatus.failed ||
+              t.status == DownloadStatus.cancelled)
+          .toList();
       _cachedSortedDownloads = [...active, ...archived];
     }
   }
@@ -182,12 +199,11 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       final batch = downloads.skip(i).take(batchSize).toList();
       // Load individually so one failure doesn't kill the whole batch
       for (final d in batch) {
-        final thread = await _loadThreadData(d)
-            .catchError((e, st) {
-              print('[SavedThreads] Load failed for ${d.board}/${d.threadId}: $e');
-              print(st);
-              return null;
-            });
+        final thread = await _loadThreadData(d).catchError((e, st) {
+          print('[SavedThreads] Load failed for ${d.board}/${d.threadId}: $e');
+          print(st);
+          return null;
+        });
         if (!mounted) return;
         setState(() {
           _threadCache[d.boxKey] = thread;
@@ -211,7 +227,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       thread = await Persistence.getCachedThread(
           d.imageboardKey, d.board, d.threadId);
     } catch (e, st) {
-      print('[SavedThreads] Failed to load thread ${d.board}/${d.threadId} from Hive: $e');
+      print(
+          '[SavedThreads] Failed to load thread ${d.board}/${d.threadId} from Hive: $e');
       print(st);
       // Hive deserialization failed — likely model change with old data.
       // Don't crash; show fallback row. Thread can be re-downloaded.
@@ -279,32 +296,32 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                     },
                   )),
           AdaptiveActionSheetAction(
-            onPressed: () {
-              Navigator.of(ctx, rootNavigator: true).pop();
-              setState(() {
-                _sortReversed = !_sortReversed;
-                _rebuildSortedList();
-              });
-            },
-            trailing: _sortReversed
-                ? const Icon(CupertinoIcons.checkmark_square)
-                : const Icon(CupertinoIcons.square),
-            child: const Text('Reverse order')
-          ),
+              onPressed: () {
+                Navigator.of(ctx, rootNavigator: true).pop();
+                setState(() {
+                  _sortReversed = !_sortReversed;
+                  _rebuildSortedList();
+                });
+              },
+              trailing: _sortReversed
+                  ? const Icon(CupertinoIcons.checkmark_square)
+                  : const Icon(CupertinoIcons.square),
+              child: const Text('Reverse order')),
           AdaptiveActionSheetAction(
-            onPressed: () {
-              Navigator.of(ctx, rootNavigator: true).pop();
-              setState(() {
-                Settings.instance.showActiveDownloadsAboveArchivedDownloads =
-                    !Settings.instance.showActiveDownloadsAboveArchivedDownloads;
-                _rebuildSortedList();
-              });
-            },
-            trailing: Settings.instance.showActiveDownloadsAboveArchivedDownloads
-                ? const Icon(CupertinoIcons.checkmark_square)
-                : const Icon(CupertinoIcons.square),
-            child: const Text('Active downloads above archived')
-          ),
+              onPressed: () {
+                Navigator.of(ctx, rootNavigator: true).pop();
+                setState(() {
+                  Settings.instance.showActiveDownloadsAboveArchivedDownloads =
+                      !Settings
+                          .instance.showActiveDownloadsAboveArchivedDownloads;
+                  _rebuildSortedList();
+                });
+              },
+              trailing:
+                  Settings.instance.showActiveDownloadsAboveArchivedDownloads
+                      ? const Icon(CupertinoIcons.checkmark_square)
+                      : const Icon(CupertinoIcons.square),
+              child: const Text('Active downloads above archived')),
         ],
         cancelButton: AdaptiveActionSheetAction(
           child: const Text('Cancel'),
@@ -439,7 +456,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (!mounted) return;
     setState(() {
       _isImporting = false;
-    _reload();
+      _reload();
     });
     showAdaptiveDialog(
       context: context,
@@ -536,7 +553,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-    _reload();
+        _reload();
       });
     }
   }
@@ -553,7 +570,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-    _reload();
+        _reload();
       });
     }
   }
@@ -728,7 +745,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-    _reload();
+        _reload();
       });
     }
   }
@@ -902,7 +919,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-    _reload();
+        _reload();
       });
     }
   }
@@ -939,7 +956,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-    _reload();
+        _reload();
       });
     }
   }
@@ -953,7 +970,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       setState(() {
         _selectedBoxKeys.clear();
         _isSelecting = false;
-    _reload();
+        _reload();
       });
     }
   }
@@ -1094,8 +1111,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                       physics: AlwaysScrollableScrollPhysics(),
                       slivers: [
                         SliverFillRemaining(
-                            child: Center(
-                                child: Text('No downloaded threads')))
+                            child: Center(child: Text('No downloaded threads')))
                       ],
                     )
                   : ListView.builder(
@@ -1104,39 +1120,39 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                       padding: EdgeInsets.only(
                           bottom: MediaQuery.viewPaddingOf(context).bottom),
                       itemCount: _cachedSortedDownloads.length,
-                    itemBuilder: (context, i) {
-                      final d = _sortedDownloads[i];
-                      return _DownloadedThreadRow(
-                        download: d,
-                        preloadedThread: _threadCache[d.boxKey],
-                        onTap: _isSelecting
-                            ? () => _toggleSelect(d.boxKey)
-                            : () => _openThread(d),
-                        onDelete: () => _delete(d),
-                        onUpdate: () => _update(d),
-                        onExport: () => _exportSingle(d),
-                        onSoftDelete: () => _softDeleteSingle(d),
-                        onPermanentDelete: () => _permanentDeleteSingle(d),
-                        onUndoSoftDelete: () => _undoSoftDeleteSingle(d),
-                        onMigrate: () async {
-                          await showAdaptiveDialog(
-                            context: context,
-                            builder: (ctx) =>
-                                _MigrateSelectedDialog(records: [d]),
-                          );
-                          if (mounted) setState(_reload);
-                        },
-                        onCancel: () {
-                          ThreadDownloadService.instance
-                              .cancelDownload(d.identifier, d.imageboardKey);
-                          setState(_reload);
-                        },
-                        onSelect: () => _enterSelectMode(d.boxKey),
-                        isSelecting: _isSelecting,
-                        isSelected: _selectedBoxKeys.contains(d.boxKey),
-                      );
-                    },
-                  ),
+                      itemBuilder: (context, i) {
+                        final d = _sortedDownloads[i];
+                        return _DownloadedThreadRow(
+                          download: d,
+                          preloadedThread: _threadCache[d.boxKey],
+                          onTap: _isSelecting
+                              ? () => _toggleSelect(d.boxKey)
+                              : () => _openThread(d),
+                          onDelete: () => _delete(d),
+                          onUpdate: () => _update(d),
+                          onExport: () => _exportSingle(d),
+                          onSoftDelete: () => _softDeleteSingle(d),
+                          onPermanentDelete: () => _permanentDeleteSingle(d),
+                          onUndoSoftDelete: () => _undoSoftDeleteSingle(d),
+                          onMigrate: () async {
+                            await showAdaptiveDialog(
+                              context: context,
+                              builder: (ctx) =>
+                                  _MigrateSelectedDialog(records: [d]),
+                            );
+                            if (mounted) setState(_reload);
+                          },
+                          onCancel: () {
+                            ThreadDownloadService.instance
+                                .cancelDownload(d.identifier, d.imageboardKey);
+                            setState(_reload);
+                          },
+                          onSelect: () => _enterSelectMode(d.boxKey),
+                          isSelecting: _isSelecting,
+                          isSelected: _selectedBoxKeys.contains(d.boxKey),
+                        );
+                      },
+                    ),
             ),
           ),
         ],
@@ -1839,7 +1855,8 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     // state fields immediately. Live remoteOnly threads returned early above;
     // their state is cleaned up by _runDownload on completion.
     final hadRemoteFiles = pref == ThreadStoragePreference.localOnly &&
-        (d.syncedFiles > 0 || d.effectiveStorageLocation != ThreadStorageLocation.local);
+        (d.syncedFiles > 0 ||
+            d.effectiveStorageLocation != ThreadStorageLocation.local);
     // Fire-and-forget BEFORE zeroing fields — the guard inside
     // _deleteCopypartyFolder checks syncedFiles/storageLocation synchronously,
     // so it must run while they still reflect the old remote state.
