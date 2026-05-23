@@ -16,6 +16,7 @@ import 'package:chan/services/util.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/thread_row.dart';
+import 'package:chan/widgets/util.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -1121,7 +1122,9 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                             child: Center(child: Text('No downloaded threads')))
                       ],
                     )
-                  : ListView.builder(
+                  : MaybeScrollbar(
+                      controller: _scrollController,
+                      child: ListView.builder(
                       controller: _scrollController,
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: EdgeInsets.only(
@@ -1159,7 +1162,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                           isSelected: _selectedBoxKeys.contains(d.boxKey),
                         );
                       },
-                    ),
+                    )),
             ),
           ),
         ],

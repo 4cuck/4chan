@@ -2030,7 +2030,8 @@ class ThreadPageState extends State<ThreadPage> {
                                       }
                                     }),
                               if (Settings.instance.showImages(context, widget.thread.board) &&
-                                  _listController.items.any((p) => p.item.attachments.any((a) => a.type != AttachmentType.url)))
+                                  (_listController.items.any((p) => p.item.attachments.any((a) => a.type != AttachmentType.url)) ||
+                                   (bestEffortThread?.imageCount ?? 0) > 0))
                                 AdaptiveIconButton(
                                     icon: const Icon(CupertinoIcons.square_grid_2x2),
                                     onPressed: () => _showGalleryFromNextImage(initiallyShowGrid: true)),
