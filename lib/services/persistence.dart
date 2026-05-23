@@ -1020,7 +1020,8 @@ class Persistence extends ChangeNotifier {
   }
 
   static Future<void> cleanupThreads(
-      List<Imageboard> imageboards, Duration olderThan) async {
+      List<Imageboard> imageboards, Duration olderThan,
+      {Set<String> extraPreserveKeys = const {}}) async {
     final deadline = DateTime.now().subtract(olderThan);
     final toPreserve = imageboards
         .expand((imageboard) => imageboard.persistence.savedPosts.values.map((v) =>
@@ -1029,6 +1030,7 @@ class Persistence extends ChangeNotifier {
     toPreserve.addAll(imageboards.expand((imageboard) => imageboard
         .persistence.browserState.threadWatches.keys
         .map((v) => '${imageboard.key}/${v.board.toLowerCase()}/${v.id}')));
+
     final toDelete = sharedThreadStateBox.mapEntries
         .where((entry) {
           final ts = entry.value;
@@ -1037,6 +1039,10 @@ class Persistence extends ChangeNotifier {
               ts.lastOpenedTime.isBefore(deadline) // not opened recently
               &&
               (ts.savedTime == null) // not saved
+              &&
+              (!ts.isDownloaded) // not a downloaded thread
+              &&
+              (!extraPreserveKeys.contains(entry.key)) // startup-race guard
               &&
               (!toPreserve.contains(
                   entry.key)); // connect to a saved post or thread watch
@@ -1809,6 +1815,14 @@ class PersistentThreadState extends EasyListenable
   DraftPost? draft;
   @HiveField(32)
   String? translatedTitle;
+  // Field 33: nullable per Hive evolution rule — null on old records = not a download.
+  @HiveField(33)
+  bool? _isDownloaded;
+  /// Whether this thread was explicitly downloaded by the user.
+  /// Prevents cleanupThreads from evicting the Hive cache — downloaded threads
+  /// have no network fallback once isArchivedOnServer=true.
+  bool get isDownloaded => _isDownloaded ?? false;
+  set isDownloaded(bool v) => _isDownloaded = v;
 
   Imageboard? get imageboard =>
       ImageboardRegistry.instance.getImageboard(imageboardKey);

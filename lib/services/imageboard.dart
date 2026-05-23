@@ -13,6 +13,7 @@ import 'package:chan/services/captcha.dart';
 import 'package:chan/services/notifications.dart';
 import 'package:chan/services/outbox.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/share.dart';
 import 'package:chan/services/thread_watcher.dart';
@@ -638,7 +639,15 @@ class ImageboardRegistry extends ChangeNotifier {
 				await Future.wait(initializations);
 				if (Persistence.settings.automaticCacheClearDays < 100000) {
 					await dev?._initializedCompleter.future;
-					await Persistence.cleanupThreads(imageboardsIncludingDev.toList(), Duration(days: Persistence.settings.automaticCacheClearDays));
+					await Persistence.cleanupThreads(
+						imageboardsIncludingDev.toList(),
+						Duration(days: Persistence.settings.automaticCacheClearDays),
+						// Guard against the startup race where _backfillIsDownloaded
+						// (fire-and-forget in resumePending) hasn't run yet.
+						// On second+ launch all records already have isDownloaded=true
+						// so this set is redundant but cheap.
+						extraPreserveKeys: ThreadDownloadService.instance.allDownloadedStateKeys,
+					);
 				}
 				final initialTabsLength = Persistence.tabs.length;
 				final initialTab = Persistence.tabs[Persistence.currentTabIndex];

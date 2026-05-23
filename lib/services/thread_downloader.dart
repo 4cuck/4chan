@@ -133,7 +133,7 @@ class ThreadDownloadService {
   Future<void> resumePending() async {
     final pending = _box.values
         .where((r) => r.status == DownloadStatus.pending)
-        .toList(); // snapshot — box may change during processing
+        .toList(); // snapshot - box may change during processing
     for (final record in pending) {
       if (record.status != DownloadStatus.pending) {
         continue; // may have changed since snapshot
@@ -146,9 +146,42 @@ class ThreadDownloadService {
     // Backfill isLockedOnServer for records that pre-date field 19.
     // Runs fire-and-forget so it never delays the launch critical path.
     unawaited(_populateLockedStatus());
+    // Backfill isDownloaded flag for threads that pre-date this fix.
+    // Prevents cleanupThreads from evicting their cached posts on restart.
+    unawaited(_backfillIsDownloaded());
   }
 
-  /// One-time startup pass: reads each DownloadedThread’s cached Thread from
+  /// One-time startup backfill: sets isDownloaded=true on PersistentThreadState
+  /// for every downloaded thread that pre-dates this fix. Prevents cleanupThreads
+  /// from evicting their Hive cache — downloaded threads have no network fallback
+  /// once isArchivedOnServer=true, causing "listUpdater returned null".
+  Future<void> _backfillIsDownloaded() async {
+    for (final record in _box.values) {
+      try {
+        final imageboard = ImageboardRegistry.instance.getImageboard(record.imageboardKey);
+        if (imageboard == null) {
+          // Imageboard not (yet) registered — extraPreserveKeys in cleanupThreads
+          // already guards the box key for this launch; flag will be set on a
+          // subsequent launch once the imageboard is registered.
+          print('[ThreadDownloader] _backfillIsDownloaded: imageboard not found for ${record.imageboardKey}/${record.board}/${record.threadId}');
+          continue;
+        }
+        final id = ThreadIdentifier(record.board, record.threadId);
+        // getThreadState creates a state if missing — ensuring the key survives
+        // the second pass of cleanupThreads (sharedThreadsBox orphan sweep).
+        final ts = imageboard.persistence.getThreadState(id);
+        if (ts.isDownloaded != true) {
+          ts.isDownloaded = true;
+          await ts.save();
+        }
+      } catch (e, st) {
+        // Non-fatal — extraPreserveKeys guards this key for the current launch.
+        print('[ThreadDownloader] _backfillIsDownloaded error for ${record.imageboardKey}/${record.board}/${record.threadId}: $e\n$st');
+      }
+    }
+  }
+
+  /// One-time startup pass: reads each DownloadedThread's cached Thread from
   /// the lazy Hive box and sets isLockedOnServer if the field is still null.
   /// Skips records already populated. Non-fatal on any read error.
   Future<void> _populateLockedStatus() async {
@@ -162,7 +195,7 @@ class ThreadDownloadService {
           if (record.isInBox) await record.save();
         }
       } catch (_) {
-        // Non-fatal — record keeps its null default (treated as false)
+        // Non-fatal - record keeps its null default (treated as false)
       }
     }
   }
@@ -171,9 +204,9 @@ class ThreadDownloadService {
     final key = _key(state.imageboardKey, state.identifier);
     final record = _box.get(key);
     if (record == null || record.status != DownloadStatus.complete) return;
-    // Only skip threads confirmed 404’d by the server. isLockedOnServer is a
-    // cached value from a previous session and must not gate live checks — a
-    // locked thread may still have final attachments we haven’t downloaded yet.
+    // Only skip threads confirmed 404'd by the server. isLockedOnServer is a
+    // cached value from a previous session and must not gate live checks - a
+    // locked thread may still have final attachments we haven't downloaded yet.
     if (record.isArchivedOnServer) return;
     final thread = state.thread;
     if (thread == null) return;
@@ -207,7 +240,7 @@ class ThreadDownloadService {
     for (final record in _box.values) {
       if (record.status != DownloadStatus.complete) continue;
       // Only skip threads the server has confirmed are gone (404).
-      // isLockedOnServer is stale session data — relying on it to skip the
+      // isLockedOnServer is stale session data - relying on it to skip the
       // 30-minute check creates a window where final posts before archiving
       // are missed. The cost of checking a locked thread is one lightweight
       // site.getThread() call; with _didWork the rest of the loop is instant.
@@ -243,15 +276,42 @@ class ThreadDownloadService {
         status: DownloadStatus.pending,
       );
       await _box.put(key, record);
+      // Mark the PersistentThreadState as a download so cleanupThreads never
+      // evicts it. Downloaded threads have no network fallback once archived,
+      // so losing the Hive cache entry causes "listUpdater returned null".
+      final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+      if (imageboard != null) {
+        final ts = imageboard.persistence.getThreadState(id);
+        if (ts.isDownloaded != true) {
+          ts.isDownloaded = true;
+          await ts.save();
+        }
+      } else {
+        // Unlikely: imageboard deregistered between UI tap and this call.
+        // extraPreserveKeys + backfill will protect on next launch.
+        print('[ThreadDownloader] downloadThread: imageboard not found for $imageboardKey');
+      }
     } else if (record.status == DownloadStatus.downloading ||
         record.status == DownloadStatus.updating ||
         record.status == DownloadStatus.pending) {
       return; // Already in progress
     } else {
-      // failed or cancelled — retry
+      // failed or cancelled - retry
       record.status = DownloadStatus.pending;
       record.errorMessage = null;
       if (record.isInBox) await record.save();
+      // Also ensure isDownloaded is set — may be missing if the state was
+      // evicted and recreated between the original attempt and this retry.
+      final retryImageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+      if (retryImageboard != null) {
+        final ts = retryImageboard.persistence.getThreadState(id);
+        if (ts.isDownloaded != true) {
+          ts.isDownloaded = true;
+          await ts.save();
+        }
+      } else {
+        print('[ThreadDownloader] downloadThread retry: imageboard not found for $imageboardKey');
+      }
     }
 
     _runDownload(record, site); // fire and forget
@@ -307,6 +367,15 @@ class ThreadDownloadService {
         await dir.delete(recursive: true);
       }
       await _box.delete(key);
+      // Clear isDownloaded so cleanupThreads can evict the state normally.
+      final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+      if (imageboard != null) {
+        final ts = imageboard.persistence.getThreadStateIfExists(id);
+        if (ts != null && ts.isDownloaded == true) {
+          ts.isDownloaded = false;
+          await ts.save();
+        }
+      }
     });
     _pendingCancels.remove(key);
     _mutexes.remove(key);
@@ -316,6 +385,13 @@ class ThreadDownloadService {
   DownloadedThread? getStatus(ThreadIdentifier id, String imageboardKey) {
     return _box.get(_key(imageboardKey, id));
   }
+
+  /// The set of sharedThreadStateBox keys for all currently downloaded threads.
+  /// Used by cleanupThreads as a startup-race guard before _backfillIsDownloaded
+  /// has had a chance to set isDownloaded=true on PersistentThreadState.
+  Set<String> get allDownloadedStateKeys => _box.values
+      .map((r) => '${r.imageboardKey}/${r.board.toLowerCase()}/${r.threadId}')
+      .toSet();
 
   /// Registers an externally-imported thread (e.g. from a KurobaEx ZIP) as a
   /// completed download. Idempotent: no-op if a complete record already exists.
@@ -379,6 +455,15 @@ class ThreadDownloadService {
       totalSizeBytes: sizeBytes > 0 ? sizeBytes : null,
     );
     await _box.put(key, record);
+    // Same isDownloaded protection as downloadThread.
+    final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+    if (imageboard != null) {
+      final ts = imageboard.persistence.getThreadState(ThreadIdentifier(board, threadId));
+      if (ts.isDownloaded != true) {
+        ts.isDownloaded = true;
+        await ts.save();
+      }
+    }
     return true;
   }
 
@@ -413,7 +498,7 @@ class ThreadDownloadService {
           r.status == DownloadStatus.failed) {
         continue;
       }
-      // Skip records known to have no local files — all content is on Copyparty.
+      // Skip records known to have no local files - all content is on Copyparty.
       if (r.effectiveStorageLocation == ThreadStorageLocation.remote) continue;
       // Verify imageboard matches: check against both the site base URL and the CDN
       // image URL, since some sites (e.g. 4chan) serve media from a different host
@@ -444,7 +529,7 @@ class ThreadDownloadService {
     if (threadId == null) return null;
     final thumbUrl = attachment.thumbnailUrl;
     if (thumbUrl.isEmpty) return null;
-    // Re-use the same host check as findDownloadedFile — thumbnail is served from same CDN host
+    // Re-use the same host check as findDownloadedFile - thumbnail is served from same CDN host
     final thumbHost = Uri.tryParse(thumbUrl)?.host;
     for (final r in _box.values) {
       if (r.board != attachment.board || r.threadId != threadId) continue;
@@ -452,7 +537,7 @@ class ThreadDownloadService {
           r.status == DownloadStatus.failed) {
         continue;
       }
-      // Skip records known to have no local files — all content is on Copyparty.
+      // Skip records known to have no local files - all content is on Copyparty.
       if (r.effectiveStorageLocation == ThreadStorageLocation.remote) continue;
       if (thumbHost != null) {
         final imageboard =
@@ -496,7 +581,7 @@ class ThreadDownloadService {
     for (final r in _box.values) {
       if (r.board != attachment.board || r.threadId != threadId) continue;
       if (r.status != DownloadStatus.complete) continue;
-      // Skip records known to have no files on Copyparty — all content is local.
+      // Skip records known to have no files on Copyparty - all content is local.
       if (r.effectiveStorageLocation == ThreadStorageLocation.local) continue;
       if (attachmentHost != null) {
         final imageboard =
@@ -546,7 +631,7 @@ class ThreadDownloadService {
     }
 
     if (_migrationRunning) {
-      // Already busy — queue and show spinner so the row gives immediate feedback.
+      // Already busy - queue and show spinner so the row gives immediate feedback.
       _migrationQueue.addAll(newRecords);
       activeMigrations.value = {...current, ...newRecords.map((r) => r.boxKey)};
       return;
@@ -562,7 +647,7 @@ class ThreadDownloadService {
   /// the row UI stays in sync (L1 fix).
   Stream<MigrationProgress> runForegroundMigration(
       List<DownloadedThread> records) async* {
-    // Remove from background queue — these will be handled by this foreground run.
+    // Remove from background queue - these will be handled by this foreground run.
     _migrationQueue
         .removeWhere((r) => records.any((req) => req.boxKey == r.boxKey));
 
@@ -572,7 +657,7 @@ class ThreadDownloadService {
         .where((r) => !activeMigrations.value.contains(r.boxKey))
         .toList();
     if (runRecords.isEmpty) {
-      // Nothing to run — all records are handled by the background batch.
+      // Nothing to run - all records are handled by the background batch.
       // Yield a terminal event so the dialog can show "Done" instead of
       // getting stuck with a spinner (N1).
       yield const MigrationProgress(
@@ -665,7 +750,7 @@ class ThreadDownloadService {
 
   /// Scans all [complete] thread directories for local files and uploads each to
   /// CopyParty, deleting the local copy only after a confirmed [CopyPartySyncResult.ok].
-  /// Any auth or server failure stops the migration immediately — unprocessed files
+  /// Any auth or server failure stops the migration immediately - unprocessed files
   /// remain on disk. Yields [MigrationProgress] snapshots throughout.
   Stream<MigrationProgress> migrateLocalFilesToCopyparty(
       {List<DownloadedThread>? only}) async* {
@@ -751,7 +836,7 @@ class ThreadDownloadService {
           await for (final entity in dir.list()) {
             if (entity is File &&
                 !entity.path.endsWith('.part') &&
-                // thread_data.html is never deleted (D2) — exclude it so
+                // thread_data.html is never deleted (D2) - exclude it so
                 // storageLocation correctly reflects media-file state.
                 entity.uri.pathSegments.last != 'thread_data.html') {
               hasLocalFiles = true;
@@ -760,7 +845,7 @@ class ThreadDownloadService {
           }
         }
         if (r.storagePreference == ThreadStoragePreference.both) {
-          // Files intentionally kept locally — always mixed if synced.
+          // Files intentionally kept locally - always mixed if synced.
           r.storageLocation = r.syncedFiles > 0
               ? ThreadStorageLocation.mixed
               : ThreadStorageLocation.local;
@@ -785,7 +870,7 @@ class ThreadDownloadService {
       if (entry.record.status != DownloadStatus.complete) continue;
       // Re-check: storagePreference may have been changed to localOnly since the
       // Phase 1 snapshot. Never delete files for a record that now explicitly wants
-      // local storage (F1 — prevents migration continuing after pref change mid-run).
+      // local storage (F1 - prevents migration continuing after pref change mid-run).
       if (entry.record.storagePreference == ThreadStoragePreference.localOnly) {
         processed++;
         yield MigrationProgress(
@@ -794,7 +879,7 @@ class ThreadDownloadService {
             uploadedFiles: uploaded);
         continue;
       }
-      // File may have been deleted by concurrent _runDownload since Phase 1 snapshot — skip safely
+      // File may have been deleted by concurrent _runDownload since Phase 1 snapshot - skip safely
       if (!entry.file.existsSync()) {
         processed++;
         yield MigrationProgress(
@@ -803,7 +888,7 @@ class ThreadDownloadService {
             uploadedFiles: uploaded);
         continue;
       }
-      // Guard: thread_data.html is a metadata artifact — never delete it
+      // Guard: thread_data.html is a metadata artifact - never delete it
       // locally (D2) and never count it in syncedFiles (D3).
       final isHtmlBackup =
           entry.file.uri.pathSegments.last == 'thread_data.html';
@@ -822,7 +907,7 @@ class ThreadDownloadService {
               '[CopyParty] migrateLocalFilesToCopyparty: already exists, skipping ${entry.remotePath}');
           // Delete the local copy only for remoteOnly / follow-global preferences.
           // Never delete for 'both' (keep-local) or 'localOnly' (guarded above, but
-          // defence-in-depth for any code path that reaches here — F1).
+          // defence-in-depth for any code path that reaches here - F1).
           // thread_data.html is never deleted locally (D2).
           if (!isHtmlBackup &&
               entry.record.storagePreference != ThreadStoragePreference.both &&
@@ -869,7 +954,7 @@ class ThreadDownloadService {
             processedFiles: processed,
             uploadedFiles: uploaded,
             error:
-                'Unexpected error: $e — migration stopped, remaining files are safe',
+                'Unexpected error: $e - migration stopped, remaining files are safe',
             isDone: true);
         return;
       }
@@ -887,8 +972,8 @@ class ThreadDownloadService {
         } catch (_) {}
         // Delete local file only for remoteOnly / follow-global preferences.
         // Never delete for 'both' (keep-local) or 'localOnly' (preference may have
-        // changed mid-run — guarded by the loop re-check above, but defence-in-depth
-        // for any race that slips through — F1).
+        // changed mid-run - guarded by the loop re-check above, but defence-in-depth
+        // for any race that slips through - F1).
         // thread_data.html is never deleted locally (D2).
         if (!isHtmlBackup &&
             entry.record.storagePreference != ThreadStoragePreference.both &&
@@ -914,11 +999,11 @@ class ThreadDownloadService {
             totalFiles: total,
             processedFiles: processed,
             uploadedFiles: uploaded,
-            error: 'Authentication failed — check password in settings',
+            error: 'Authentication failed - check password in settings',
             isDone: true);
         return;
       } else {
-        // serverError or networkError — stop, leave remaining files safe
+        // serverError or networkError - stop, leave remaining files safe
         try {
           await flushTouched();
         } catch (_) {}
@@ -927,7 +1012,7 @@ class ThreadDownloadService {
             processedFiles: processed,
             uploadedFiles: uploaded,
             error:
-                'Server unreachable or returned an error — migration stopped, remaining files are safe',
+                'Server unreachable or returned an error - migration stopped, remaining files are safe',
             isDone: true);
         return;
       }
@@ -1022,7 +1107,7 @@ class ThreadDownloadService {
             continue;
           }
 
-          // Async file listing (E3); exclude thread_data.html — not a media file (D3/N1)
+          // Async file listing (E3); exclude thread_data.html - not a media file (D3/N1)
           final files = <File>[];
           await for (final f in threadEntry.list()) {
             if (f is File &&
@@ -1079,6 +1164,19 @@ class ThreadDownloadService {
                 0, (sum, f) => sum + (f.existsSync() ? f.lengthSync() : 0)),
           );
           await _box.put(key, record);
+          // Protect from cleanupThreads eviction on next cold launch.
+          final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+          if (imageboard != null) {
+            final ts = imageboard.persistence.getThreadState(
+                ThreadIdentifier(board, threadId));
+            if (ts.isDownloaded != true) {
+              ts.isDownloaded = true;
+              await ts.save();
+            }
+          } else {
+            // extraPreserveKeys + backfill will protect on next launch.
+            print('[ThreadDownloader] scanDownloadsDirectory: imageboard not found for $imageboardKey');
+          }
           found++;
         }
       }
@@ -1130,7 +1228,7 @@ class ThreadDownloadService {
         errors: errors,
         isDone: true,
         errorMessage:
-            'Could not list CopyParty folder — check server URL and password',
+            'Could not list CopyParty folder - check server URL and password',
       );
       return;
     }
@@ -1237,7 +1335,7 @@ class ThreadDownloadService {
           } catch (e) {
             print(
                 '[ThreadDownloader] import: setCachedThread failed for $imageboardKey/$board/$threadId: $e');
-            // Non-fatal — HTML fallback in getCachedThread will re-parse on next open
+            // Non-fatal - HTML fallback in getCachedThread will re-parse on next open
           }
 
           // Metadata from OP post
@@ -1269,11 +1367,24 @@ class ThreadDownloadService {
             totalFiles: 0,
             downloadedFiles: 0,
             syncedFiles: 0,
-            // Use isArchived from the parsed HTML so we don’t need a live network
+            // Use isArchived from the parsed HTML so we don't need a live network
             // call. Live threads stay false so the watcher keeps polling (N3).
             isArchivedOnServer: thread.isArchived,
           );
           await _box.put(boxKey, record);
+          // Protect from cleanupThreads eviction on next cold launch.
+          final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+          if (imageboard != null) {
+            final ts = imageboard.persistence.getThreadState(
+                ThreadIdentifier(board, threadId));
+            if (ts.isDownloaded != true) {
+              ts.isDownloaded = true;
+              await ts.save();
+            }
+          } else {
+            // extraPreserveKeys + backfill will protect on next launch.
+            print('[ThreadDownloader] importThreadsFromCopyparty: imageboard not found for $imageboardKey');
+          }
           found++;
           yield ImportFromCopypartyProgress(
               found: found, skipped: skipped, errors: errors);
@@ -1338,7 +1449,7 @@ class ThreadDownloadService {
         return dest.existsSync();
       }
     } catch (_) {
-      // Race: file evicted or I/O error — fall through to network download
+      // Race: file evicted or I/O error - fall through to network download
     }
     return false;
   }
@@ -1349,7 +1460,7 @@ class ThreadDownloadService {
     final mutex = _mutexFor(key);
 
     await mutex.protect(() async {
-      // Check pending cancel set — user cancelled before we got the lock
+      // Check pending cancel set - user cancelled before we got the lock
       if (_pendingCancels.contains(key)) {
         _pendingCancels.remove(key);
         if (record.isInBox) {
@@ -1391,7 +1502,7 @@ class ThreadDownloadService {
             record.imageboardKey, record.board, record.threadId, thread);
 
         // Sync locked + archived status from the live API response in one save.
-        // isLockedOnServer: used for badge filtering — cached from previous session,
+        // isLockedOnServer: used for badge filtering - cached from previous session,
         //   must not gate live checks (see _autoSync).
         // isArchivedOnServer: set when the API confirms the thread is in the archive
         //   (thread.isArchived=true). Treats archive-accessible threads the same as
@@ -1509,7 +1620,7 @@ class ThreadDownloadService {
           await for (final entity in threadDir.list()) {
             if (entity is File) {
               final name = entity.uri.pathSegments.last;
-              // Exclude partial downloads and the HTML metadata file —
+              // Exclude partial downloads and the HTML metadata file -
               // they are never looked up as attachment filenames.
               if (!name.endsWith('.part') && name != 'thread_data.html') {
                 existingLocalFiles.add(name);
@@ -1526,7 +1637,7 @@ class ThreadDownloadService {
           if (cancelToken.isCancelled) break;
           // Tracks whether this iteration actually made a network request
           // (download from CDN or upload to CopyParty). The inter-file delay
-          // only fires when true — it guards against CDN rate-limiting, not
+          // only fires when true - it guards against CDN rate-limiting, not
           // against iterating a list of already-present files.
           bool didWork = false;
 
@@ -1539,7 +1650,7 @@ class ThreadDownloadService {
             bool mainOk = mainPreExisted;
             // HEAD check for all shouldUpload threads:
             // - remoteOnly (shouldDeleteAfterUpload=true): skip download + upload
-            //   if already on server — no local copy needed.
+            //   if already on server - no local copy needed.
             // - 'both' (shouldDeleteAfterUpload=false): skip the re-upload only;
             //   still download to ensure a local copy exists.
             bool mainAlreadyOnServer = false;
@@ -1573,7 +1684,7 @@ class ThreadDownloadService {
                   await _downloadFile(
                       attachment.url, mainFile, cancelToken, site);
                   didWork =
-                      true; // actual CDN request — rate-limit delay applies
+                      true; // actual CDN request - rate-limit delay applies
                 }
                 mainOk = mainFile.existsSync();
               } on DioError catch (e) {
@@ -1615,7 +1726,7 @@ class ThreadDownloadService {
               // For 'both' preference, file is kept locally after upload. On
               // subsequent update runs the file pre-exists locally. Skip the
               // upload (and the existence HEAD check) if this is a pre-existing
-              // file that we would keep anyway — it's already on the server.
+              // file that we would keep anyway - it's already on the server.
               // Also skip if the HEAD check above confirmed the file is already
               // on the server (remoteOnly thread on a subsequent update run).
               final skipUpload = (mainPreExisted && !shouldDeleteAfterUpload) ||
@@ -1647,11 +1758,11 @@ class ThreadDownloadService {
                 } else if (result == CopyPartySyncResult.authFailed) {
                   copypartyAuthFailed = true;
                   record.errorMessage =
-                      'CopyParty: auth failed — check password in settings';
+                      'CopyParty: auth failed - check password in settings';
                 } else {
                   copypartyServerFailed = true;
                   record.errorMessage ??=
-                      'CopyParty sync incomplete — server unreachable or error';
+                      'CopyParty sync incomplete - server unreachable or error';
                 }
               }
             }
@@ -1666,7 +1777,7 @@ class ThreadDownloadService {
             final thumbFile = _fileForName(record, thumbFilename);
             final thumbPreExisted = existingLocalFiles.contains(thumbFilename);
             bool thumbOk = thumbPreExisted;
-            // Same HEAD check as main file — covers both remoteOnly and 'both'.
+            // Same HEAD check as main file - covers both remoteOnly and 'both'.
             bool thumbAlreadyOnServer = false;
             if (!thumbOk &&
                 shouldUpload &&
@@ -1697,7 +1808,7 @@ class ThreadDownloadService {
                   await _downloadFile(
                       attachment.thumbnailUrl, thumbFile, cancelToken, site);
                   didWork =
-                      true; // actual CDN request — rate-limit delay applies
+                      true; // actual CDN request - rate-limit delay applies
                 }
                 thumbOk = thumbFile.existsSync();
               } on DioError catch (e) {
@@ -1767,11 +1878,11 @@ class ThreadDownloadService {
                 } else if (result == CopyPartySyncResult.authFailed) {
                   copypartyAuthFailed = true;
                   record.errorMessage =
-                      'CopyParty: auth failed — check password in settings';
+                      'CopyParty: auth failed - check password in settings';
                 } else {
                   copypartyServerFailed = true;
                   record.errorMessage ??=
-                      'CopyParty sync incomplete — server unreachable or error';
+                      'CopyParty sync incomplete - server unreachable or error';
                 }
               }
             }
@@ -1801,7 +1912,7 @@ class ThreadDownloadService {
           // Re-read pref: user may have changed preference mid-run (F1).
           final finalPref = record.storagePreference;
           // Delete CopyParty folder for localOnly threads regardless of
-          // copypartyEnabled guard — the guard is for upload decisions, not
+          // copypartyEnabled guard - the guard is for upload decisions, not
           // for deletion intent set by the user.
           // Also covers legacy records where storageLocation==local but
           // syncedFiles>0 indicates remote files exist (pre-field-16 records).
@@ -1925,7 +2036,7 @@ class ThreadDownloadService {
                 if (htmlResult == CopyPartySyncResult.authFailed) {
                   copypartyAuthFailed = true;
                   record.errorMessage =
-                      'CopyParty: auth failed — check password in settings';
+                      'CopyParty: auth failed - check password in settings';
                   if (record.isInBox) await record.save();
                 }
               }
@@ -1943,7 +2054,7 @@ class ThreadDownloadService {
           final statusCode = e.response?.statusCode;
           // Transient = no HTTP response AND a known network-layer error type.
           // HttpException covers "connection reset by peer" / early close (L1).
-          // DioErrorType.other is intentionally excluded — covers SSL / parse
+          // DioErrorType.other is intentionally excluded - covers SSL / parse
           // errors which are not safely retryable.
           final isTransientNetworkError = statusCode == null &&
               (e.error is SocketException ||
@@ -1953,11 +2064,11 @@ class ThreadDownloadService {
                   e.type == DioErrorType.sendTimeout);
           // F2: archived threads have no auto-retry path (_onThreadStateUpdated
           // and _autoSync both skip isArchivedOnServer). Resetting to complete
-          // would leave them silently incomplete forever — keep as failed so
+          // would leave them silently incomplete forever - keep as failed so
           // the user sees the error and can manually retry.
           // Exception: transient network errors on archived threads. The local
-          // data is fully intact (we already knew the thread was 404’d). A
-          // SocketException / timeout just means the server was unreachable —
+          // data is fully intact (we already knew the thread was 404'd). A
+          // SocketException / timeout just means the server was unreachable -
           // it is not an error state for the download record itself.
           final canAutoRetry = wasUpdating && !record.isArchivedOnServer;
           final canStayComplete =
@@ -1970,8 +2081,8 @@ class ThreadDownloadService {
             record.status = DownloadStatus.complete;
             // D2: keep a visible message so the UI shows the download is
             // incomplete and awaiting retry (cleared on next successful run).
-            record.errorMessage = 'Network error — retrying automatically';
-            // D3: recalculate storageLocation — some files may have been
+            record.errorMessage = 'Network error - retrying automatically';
+            // D3: recalculate storageLocation - some files may have been
             // deleted after upload before the error hit.
             if (record.syncedFiles > 0) {
               final p = record.storagePreference;
@@ -2033,11 +2144,11 @@ class ThreadDownloadService {
       } on ThreadNotFoundException {
         if (record.status == DownloadStatus.updating) {
           // Thread was deleted/archived server-side during an update run.
-          // Keep the data intact — just mark archived so the UI can open it offline.
+          // Keep the data intact - just mark archived so the UI can open it offline.
           record.isArchivedOnServer = true;
           record.status = DownloadStatus.complete;
           // Clear any stale error message (e.g. a previous SocketException from
-          // an earlier failed update run — the data is intact and the 404 is
+          // an earlier failed update run - the data is intact and the 404 is
           // expected now, so the error is no longer meaningful).
           record.errorMessage = null;
           record.lastUpdatedAt = DateTime.now();
@@ -2064,12 +2175,12 @@ class ThreadDownloadService {
         // A raw SocketException or HttpException that escaped Dio wrapping
         // (e.g. from non-Dio code paths inside site.getThread() on some
         // imageboard implementations) must get the same transient-error
-        // treatment as the DioError handler above — not a hard 'failed'.
+        // treatment as the DioError handler above - not a hard 'failed'.
         final isRawTransient =
             (e is SocketException || e is HttpException) && wasUpdating;
         if (isRawTransient && !record.isArchivedOnServer) {
           record.status = DownloadStatus.complete;
-          record.errorMessage = 'Network error — retrying automatically';
+          record.errorMessage = 'Network error - retrying automatically';
           print(
               '[ThreadDownloader] RAW TRANSIENT ERROR (will retry): ${record.boxKey} | $e');
         } else if (isRawTransient && record.isArchivedOnServer) {
@@ -2116,7 +2227,7 @@ class ThreadDownloadService {
     } on DioError catch (e) {
       if (e.type == DioErrorType.cancel) return;
 
-      // 416: stale .part — delete and retry without Range header
+      // 416: stale .part - delete and retry without Range header
       if (e.response?.statusCode == 416) {
         try {
           await partialFile.delete();
@@ -2132,7 +2243,7 @@ class ThreadDownloadService {
         return;
       }
 
-      // Other HTTP errors: server wrote error body to .part — delete it.
+      // Other HTTP errors: server wrote error body to .part - delete it.
       // Network drops (no response) keep .part intact for valid resume.
       final statusCode = e.response?.statusCode;
       if (statusCode != null && statusCode >= 400) {
@@ -2214,6 +2325,15 @@ class ThreadDownloadService {
         await dir.delete(recursive: true);
       }
       await _box.delete(key);
+      // Clear isDownloaded so cleanupThreads can evict the state normally.
+      final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+      if (imageboard != null) {
+        final ts = imageboard.persistence.getThreadStateIfExists(thread);
+        if (ts != null && ts.isDownloaded == true) {
+          ts.isDownloaded = false;
+          await ts.save();
+        }
+      }
     }
     await Persistence.setCachedThread(
         imageboardKey, thread.board, thread.id, null);

@@ -440,6 +440,18 @@ class PersistentThreadStateFields {
     fieldName: 'translatedTitle',
     merger: PrimitiveMerger(),
   );
+  static bool? getIsDownloaded(PersistentThreadState x) => x._isDownloaded;
+  static void setIsDownloaded(PersistentThreadState x, bool? v) =>
+      x._isDownloaded = v;
+  static const int kIsDownloaded = 33;
+  static const isDownloaded =
+      HiveFieldAdapter<PersistentThreadState, bool?>(
+    getter: getIsDownloaded,
+    setter: setIsDownloaded,
+    fieldNumber: kIsDownloaded,
+    fieldName: 'isDownloaded',
+    merger: PrimitiveMerger(),
+  );
   static String getBoard(PersistentThreadState x) => x.board;
   static void setBoard(PersistentThreadState x, String v) => x.board = v;
   static const int kBoard = 19;
@@ -503,6 +515,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
     30: PersistentThreadStateFields.treeSplitId,
     31: PersistentThreadStateFields.draft,
     32: PersistentThreadStateFields.translatedTitle,
+    33: PersistentThreadStateFields.isDownloaded,
     19: PersistentThreadStateFields.board,
     20: PersistentThreadStateFields.id
   };
@@ -510,7 +523,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
   @override
   PersistentThreadState read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(33, null);
+    final List<dynamic> fields = List.filled(34, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -562,13 +575,14 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
           fields[28] == null ? [] : (fields[28] as List).cast<int>()
       ..deprecatedReplyOptions = fields[29] as String?
       ..treeSplitId = fields[30] as int?
-      ..translatedTitle = fields[32] as String?;
+      ..translatedTitle = fields[32] as String?
+      .._isDownloaded = fields[33] as bool?;
   }
 
   @override
   void write(BinaryWriter writer, PersistentThreadState obj) {
     writer
-      ..writeByte(32)
+      ..writeByte(33)
       ..writeByte(0)
       ..write(obj.lastSeenPostId)
       ..writeByte(1)
@@ -629,6 +643,8 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       ..write(obj.draft)
       ..writeByte(32)
       ..write(obj.translatedTitle)
+      ..writeByte(33)
+      ..write(obj._isDownloaded)
       ..writeByte(19)
       ..write(obj.board)
       ..writeByte(20)
