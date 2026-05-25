@@ -3643,6 +3643,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                                 PostsPage(
                                                     zone: widget.zone,
                                                     postsIdsToShow: youIds,
+                                                    header: null,
                                                     onTap: (post) {
                                                       widget.listController
                                                           .animateTo((p) =>
@@ -3666,6 +3667,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                                 PostsPage(
                                                     zone: widget.zone,
                                                     postsIdsToShow: _youIds,
+                                                    header: null,
                                                     onTap: (post) {
                                                       widget.listController
                                                           .animateTo((p) =>
