@@ -1621,36 +1621,63 @@ class PersistentBrowserStateAdapter
     _readHookPersistentBrowserStateFields(fields);
     return PersistentBrowserState(
       deprecatedTabs: (fields[0] as List).cast<PersistentBrowserTab>(),
-      hiddenIds: (fields[2] as Map).map((dynamic k, dynamic v) =>
-          MapEntry(k as BoardKey, (v as List).cast<int>())),
-      favouriteBoards: (fields[3] as List).cast<BoardKey>(),
-      autosavedIds: (fields[5] as Map).map((dynamic k, dynamic v) =>
-          MapEntry(k as BoardKey, (v as List).cast<int>())),
-      autowatchedIds: (fields[27] as Map).map((dynamic k, dynamic v) =>
-          MapEntry(k as BoardKey, (v as List).cast<int>())),
-      deprecatedHiddenImageMD5s: (fields[6] as Set).cast<String>(),
-      loginFields: (fields[7] as Map).cast<String, String>(),
+      hiddenIds: fields[2] == null
+          ? {}
+          : (fields[2] as Map).map((dynamic k, dynamic v) =>
+              MapEntry(k as BoardKey, (v as List).cast<int>())),
+      favouriteBoards:
+          fields[3] == null ? [] : (fields[3] as List).cast<BoardKey>(),
+      autosavedIds: fields[5] == null
+          ? {}
+          : (fields[5] as Map).map((dynamic k, dynamic v) =>
+              MapEntry(k as BoardKey, (v as List).cast<int>())),
+      autowatchedIds: fields[27] == null
+          ? {}
+          : (fields[27] as Map).map((dynamic k, dynamic v) =>
+              MapEntry(k as BoardKey, (v as List).cast<int>())),
+      deprecatedHiddenImageMD5s:
+          fields[6] == null ? {} : (fields[6] as Set).cast<String>(),
+      loginFields:
+          fields[7] == null ? {} : (fields[7] as Map).cast<String, String>(),
       notificationsId: fields[8] as String?,
-      deprecatedThreadWatches: (fields[10] as List).cast<ThreadWatch>(),
-      threadWatches: (fields[23] as Map).cast<ThreadIdentifier, ThreadWatch>(),
-      boardWatches: (fields[11] as List).cast<BoardWatch>(),
-      notificationsMigrated: fields[12] as bool,
-      deprecatedBoardSortingMethods:
-          (fields[13] as Map).cast<String, ThreadSortingMethod>(),
-      deprecatedBoardReverseSortings: (fields[14] as Map).cast<String, bool>(),
-      catalogVariants: (fields[17] as Map).cast<BoardKey, CatalogVariant>(),
-      postingNames: (fields[18] as Map).cast<BoardKey, String>(),
+      deprecatedThreadWatches:
+          fields[10] == null ? [] : (fields[10] as List).cast<ThreadWatch>(),
+      threadWatches: fields[23] == null
+          ? {}
+          : (fields[23] as Map).cast<ThreadIdentifier, ThreadWatch>(),
+      boardWatches:
+          fields[11] == null ? [] : (fields[11] as List).cast<BoardWatch>(),
+      notificationsMigrated: fields[12] == null ? false : fields[12] as bool,
+      deprecatedBoardSortingMethods: fields[13] == null
+          ? {}
+          : (fields[13] as Map).cast<String, ThreadSortingMethod>(),
+      deprecatedBoardReverseSortings:
+          fields[14] == null ? {} : (fields[14] as Map).cast<String, bool>(),
+      catalogVariants: fields[17] == null
+          ? {}
+          : (fields[17] as Map).cast<BoardKey, CatalogVariant>(),
+      postingNames: fields[18] == null
+          ? {}
+          : (fields[18] as Map).cast<BoardKey, String>(),
       useTree: fields[16] as bool?,
-      treeModeInitiallyCollapseSecondLevelReplies: fields[19] as bool,
-      treeModeCollapsedPostsShowBody: fields[20] as bool,
-      treeModeRepliesToOPAreTopLevel: fields[24] as bool,
+      treeModeInitiallyCollapseSecondLevelReplies:
+          fields[19] == null ? false : fields[19] as bool,
+      treeModeCollapsedPostsShowBody:
+          fields[20] == null ? false : fields[20] as bool,
+      treeModeRepliesToOPAreTopLevel:
+          fields[24] == null ? true : fields[24] as bool,
       useCatalogGrid: fields[21] as bool?,
-      useCatalogGridPerBoard: (fields[22] as Map).cast<BoardKey, bool>(),
-      overrideShowIds: (fields[25] as Map).map((dynamic k, dynamic v) =>
-          MapEntry(k as BoardKey, (v as List).cast<int>())),
-      treeModeNewRepliesAreLinear: fields[26] as bool,
-      outbox: (fields[28] as List).cast<DraftPost>(),
-      disabledArchiveNames: (fields[29] as Set).cast<String>(),
+      useCatalogGridPerBoard:
+          fields[22] == null ? {} : (fields[22] as Map).cast<BoardKey, bool>(),
+      overrideShowIds: fields[25] == null
+          ? {}
+          : (fields[25] as Map).map((dynamic k, dynamic v) =>
+              MapEntry(k as BoardKey, (v as List).cast<int>())),
+      treeModeNewRepliesAreLinear:
+          fields[26] == null ? false : fields[26] as bool,
+      outbox: fields[28] == null ? [] : (fields[28] as List).cast<DraftPost>(),
+      disabledArchiveNames:
+          fields[29] == null ? {} : (fields[29] as Set).cast<String>(),
       postSortingMethod: fields[30] as PostSortingMethod?,
       postSortingMethodPerBoard: fields[31] == null
           ? {}
