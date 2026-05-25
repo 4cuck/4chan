@@ -47,6 +47,7 @@ import 'package:chan/widgets/widget_decoration.dart';
 import 'package:csslib/visitor.dart';
 import 'package:extended_image/extended_image.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:chan/widgets/util.dart';
@@ -436,12 +437,22 @@ class _PostWrapperSpan extends PostTerminalSpan {
 	void dump(BytesBuilder builder, {bool writeTypeId = true}) => throw PostSpanDumpException('Can\'t encode _PostWrapperSpan($span)');
 	@override
 	void _estimateHeight(_HeightEstimator estimator) {
-		switch (span) {
-			case WidgetSpan(child: SizedBox(width: final width?, height: final height?)):
-				estimator.addRect(Size(width, height));
-			default:
-				estimator.addPlaintext(span.toPlainText());
+		void descend(InlineSpan span) {
+			switch (span) {
+				case WidgetSpan(child: SizedBox(width: final width?, height: final height?)):
+					estimator.addRect(Size(width, height));
+				case WidgetSpan(child: Container(constraints: final constraints?)) when constraints.isTight:
+					estimator.addRect(Size(constraints.maxWidth, constraints.maxHeight));
+				case TextSpan(text: final text, children: final children):
+					if (text != null) {
+						estimator.addPlaintext(text);
+					}
+					children?.forEach(descend);
+				default:
+					estimator.addPlaintext(span.toPlainText());
+			}
 		}
+		descend(span);
 	}
 }
 
@@ -1209,6 +1220,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 				if (!settings.mouseSettings.supportMouse || settings.mouseModeQuoteLinkBehavior == MouseModeQuoteLinkBehavior.popupPostsPage) {
 					zone.highlightQuoteLinkId = postId;
 					await WeakNavigator.push(context, PostsPage(
+						header: null,
 						zone: zone.childZoneFor(postId),
 						postsIdsToShow: [postId],
 						postIdForBackground: zone.stackIds.last,
@@ -1832,43 +1844,85 @@ class PostLinkSpan extends PostTerminalSpan {
 		if (embedData?.thumbnailWidget != null) {
 			throw PostSpanDumpException('embedData.thumbnailWidget ${embedData?.thumbnailWidget} not supported');
 		}
-		if (embedData?.imageboardTarget != null) {
-			throw PostSpanDumpException('embedData.imageboardTarget ${embedData?.imageboardTarget} not supported');
-		}
 		if (embedData?.attachments != null) {
 			throw PostSpanDumpException('embedData.attachments ${embedData?.attachments} not supported');
 		}
 		if (writeTypeId) builder.addByte(kTypeId);
 		builder.addString(url);
 		builder.addStringNullable(name);
-		builder.addBool(embedData != null);
+		if (embedData?.imageboardTarget != null) {
+			builder.addByte(0x02);
+		}
+		else if (embedData != null) {
+			builder.addByte(0x01);
+		}
+		else {
+			builder.addByte(0x00);
+		}
 		if (embedData != null) {
 			builder.addStringNullable(embedData?.title);
 			builder.addStringNullable(embedData?.provider);
 			builder.addStringNullable(embedData?.author);
 			builder.addStringNullable(embedData?.thumbnailUrl);
+			if (embedData?.imageboardTarget case final target?) {
+				builder.addStringNullable(target.$1);
+				builder.addString(target.$2.board);
+				builder.addIntVarNullable(target.$2.threadId);
+				builder.addIntVarNullable(target.$2.postId);
+				builder.addStringNullable(target.$3);
+			}
 		}
 	}
 	static PostLinkSpan read(ByteReader buffer) {
 		final url = buffer.takeString();
 		final name = buffer.takeStringNullable();
 		EmbedData? embedData;
-		if (buffer.takeBool()) {
+		final byte = buffer.takeUint8();
+		if (byte > 0) {
 			final title = buffer.takeStringNullable();
 			final provider = buffer.takeStringNullable();
 			final author = buffer.takeStringNullable();
 			final thumbnailUrl = buffer.takeStringNullable();
+			(String? imageboardKey, BoardThreadOrPostIdentifier target, String? useArchive)? imageboardTarget;
+			if (byte > 1) {
+				final imageboardKey = buffer.takeStringNullable();
+				final board = buffer.takeString();
+				final threadId = buffer.takeIntVarNullable();
+				final postId = buffer.takeIntVarNullable();
+				final useArchive = buffer.takeStringNullable();
+				imageboardTarget = (imageboardKey, BoardThreadOrPostIdentifier(board, threadId, postId), useArchive);
+			}
 			embedData = EmbedData(
 				title: title,
 				provider: provider,
 				author: author,
-				thumbnailUrl: thumbnailUrl
+				thumbnailUrl: thumbnailUrl,
+				imageboardTarget: imageboardTarget
 			);
 		}
 		return PostLinkSpan(url, name: name, embedData: embedData);
 	}
 
 	static final _trailingJunkPattern = RegExp(r'(\.[A-Za-z0-9\-._~]+)[^A-Za-z0-9\-._~\.\/?]+$');
+
+	AsyncSnapshot<EmbedData?>? _getSnapshot(PostSpanZoneData zone, bool showEmbeds) {
+		if (embedData != null) {
+			return AsyncSnapshot.withData(ConnectionState.done, embedData);
+		}
+		else if (showEmbeds) {
+			final check = zone.getFutureForComputation(
+				id: 'embedcheck $url',
+				work: () => SynchronousFuture(embedPossible(url))
+			).data;
+			if (check == true) {
+				return zone.getFutureForComputation(
+					id: 'noembed $url',
+					work: () => loadEmbedData(url, highQuality: false)
+				);
+			}
+		}
+		return null;
+	}
 
 	@override
 	build(context, post, zone, settings, theme, options) {
@@ -1879,28 +1933,7 @@ class PostLinkSpan extends PostTerminalSpan {
 		);
 		final cleanedUri = Uri.tryParse(cleanedUrl);
 		if (!options.showRawSource && settings.useEmbeds) {
-			final AsyncSnapshot<EmbedData?>? snapshot;
-			if (embedData != null) {
-				snapshot = AsyncSnapshot.withData(ConnectionState.done, embedData);
-			}
-			else if (options.showEmbeds) {
-				final check = zone.getFutureForComputation(
-					id: 'embedcheck $url',
-					work: () => embedPossible(url)
-				);
-				if (check.data == true) {
-					snapshot = zone.getFutureForComputation(
-						id: 'noembed $url',
-						work: () => loadEmbedData(url, highQuality: false)
-					);
-				}
-				else {
-					snapshot = null;
-				}
-			}
-			else {
-				snapshot = null;
-			}
+			final snapshot = _getSnapshot(zone, options.showEmbeds);
 			if (snapshot != null) {
 				EmbedData? data = snapshot.data;
 				if (data?.attachments?.imageboard.key == zone.imageboard.key && (data?.attachments?.item.every((a) => post.attachments.any((b) => b.url == a.url)) ?? false)) {
@@ -1909,7 +1942,7 @@ class PostLinkSpan extends PostTerminalSpan {
 					data = null;
 				}
 				final imageboardTarget = data?.imageboardTarget;
-				if (imageboardTarget != null && imageboardTarget.$1.key == zone.imageboard.key) {
+				if (imageboardTarget != null && (imageboardTarget.$1 ?? zone.imageboard.key) == zone.imageboard.key) {
 					final thread = imageboardTarget.$2.threadIdentifier;
 					if (thread != null) {
 						if (zone.imageboard.site.explicitIds) {
@@ -2099,7 +2132,7 @@ class PostLinkSpan extends PostTerminalSpan {
 					}
 					if (tapChildChild == null && data?.imageboardTarget != null) {
 						tapChildChild = ImageboardIcon(
-							imageboardKey: data?.imageboardTarget?.$1.key,
+							imageboardKey: (data?.imageboardTarget?.$1 ?? zone.imageboard.key),
 							boardName: data?.imageboardTarget?.$2.board
 						);
 					}
@@ -2139,11 +2172,11 @@ class PostLinkSpan extends PostTerminalSpan {
 						);
 					}
 					onTap() {
-						final imageboardTarget = snapshot?.data?.imageboardTarget;
+						final imageboardTarget = snapshot.data?.imageboardTarget;
 						if (imageboardTarget != null) {
-							openImageboardTarget(context, imageboardTarget);
+							openImageboardTarget(context, (ImageboardRegistry.instance.getImageboard(imageboardTarget.$1) ?? zone.imageboard, imageboardTarget.$2, imageboardTarget.$3));
 						}
-						else if (snapshot?.data?.attachments case final attachments?) {
+						else if (snapshot.data?.attachments case final attachments?) {
 							final stackIds = zone.stackIds.toList();
 							if (stackIds.isNotEmpty) {
 								stackIds.removeLast();
@@ -2203,9 +2236,20 @@ class PostLinkSpan extends PostTerminalSpan {
 
 	@override
 	void _estimateHeight(_HeightEstimator estimator) {
-		// Complete hack
-		final id = 'noembed $url';
-		if ((estimator.zone?._futures[id]?.data ?? PostSpanZoneData._globalFutures[id]?.data) case EmbedData data when data.thumbnailUrl != null || data.thumbnailWidget != null || data.imageboardTarget != null) {
+		final snapshot = switch (estimator.zone) {
+			_ when !Settings.instance.useEmbeds => null,
+			final zone? => _getSnapshot(zone, true /* assumption */)?.data,
+			null when embedData != null => embedData,
+			null when embedPossible(url) => const EmbedData(
+				// Just some dummy values that will render a minimum size button
+				title: '',
+				provider: '',
+				author: null,
+				thumbnailUrl: ''
+			),
+			_ => null
+		};
+		if (snapshot case final data? when data.thumbnailUrl != null || data.thumbnailWidget != null || data.imageboardTarget != null) {
 			final Size imageSize;
 			if (data.thumbnailUrl != null) {
 				imageSize = const Size(75, 75);
@@ -2744,7 +2788,9 @@ class PostTableSpan extends PostSpan {
 				scrollDirection: Axis.horizontal,
 				physics: const BouncingScrollPhysics(),
 				child: Table(
-					defaultColumnWidth: IntrinsicColumnWidthWithMaxWidth(
+					defaultColumnWidth: (!options.shrinkWrap && rows.every((r) => r.length == 1)) ? FixedColumnWidth(
+						maxWidth
+					) : IntrinsicColumnWidthWithMaxWidth(
 						flex: null,
 						maxWidth: maxWidth
 					),
@@ -2757,7 +2803,7 @@ class PostTableSpan extends PostSpan {
 								padding: const EdgeInsets.all(4),
 								child: Text.rich(
 									col.build(context, post, zone, settings, theme, options),
-									textAlign: TextAlign.left,
+									textAlign: !options.shrinkWrap && row.length == 1 ? TextAlign.center : TextAlign.left,
 									textScaler: TextScaler.noScaling
 								)
 							)
@@ -2784,6 +2830,7 @@ class PostTableSpan extends PostSpan {
 	@override
 	void _estimateHeight(_HeightEstimator estimator) {
 		// Horizontally scrolling
+		estimator.addHardLineBreak();
 		for (final _ in rows) {
 			estimator.addHardLineBreak();
 		}
@@ -3252,19 +3299,27 @@ abstract class PostSpanZoneData extends ChangeNotifier {
 		}
 		if (!_futures.containsKey(id)) {
 			_futures[id] = AsyncSnapshot<T>.waiting();
-			() async {
-				try {
-					final data = await work();
-					_futures[id] = AsyncSnapshot<T>.withData(ConnectionState.done, data);
-				}
-				catch (e) {
-					_futures[id] = AsyncSnapshot<T>.withError(ConnectionState.done, e);
-				}
-				_globalFutures[id] = _futures[id]!;
-				if (!disposed) {
-					notifyListeners();
-				}
-			}();
+			final future = work();
+			if (future is SynchronousFuture<T>) {
+				future.then((data) {
+					_globalFutures[id] = _futures[id] = AsyncSnapshot<T>.withData(ConnectionState.done, data);
+				});
+			}
+			else {
+				() async {
+					try {
+						final data = await future;
+						_futures[id] = AsyncSnapshot<T>.withData(ConnectionState.done, data);
+					}
+					catch (e) {
+						_futures[id] = AsyncSnapshot<T>.withError(ConnectionState.done, e);
+					}
+					_globalFutures[id] = _futures[id]!;
+					if (!disposed) {
+						notifyListeners();
+					}
+				}();
+			}
 		}
 		return _futures[id] as AsyncSnapshot<T>;
 	}
@@ -4110,6 +4165,17 @@ TextSpan buildPostInfoRow({
 						}
 						else {
 							WeakNavigator.push(context, PostsPage(
+								header: Container(
+									color: theme.barColor,
+									padding: const EdgeInsets.all(16),
+									alignment: Alignment.center,
+									child: Text.rich(TextSpan(
+										children: [
+											TextSpan(text: '${describeCount(postIdsToShow.length, 'post')} from '),
+											IDSpan(id: post.posterId!, onPressed: null)
+										]
+									))
+								),
 								postsIdsToShow: postIdsToShow,
 								onThumbnailTap: propagatedOnThumbnailTap,
 								zone: zone

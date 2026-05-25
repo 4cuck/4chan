@@ -1861,7 +1861,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 			// It can't be done, layout breaks down
 			dummy = false;
 		}
-		if (_refreshableTreeItems._dummyCache[value._key] case _DummyStatus(type: _DummyStatusType.previously, height: final height) when !dummy) {
+		if (_refreshableTreeItems._dummyCache[value._key] case _DummyStatus(type: _DummyStatusType.now, height: final height) when !dummy) {
 			_refreshableTreeItems._dummyCache[value._key] = _DummyStatus(_DummyStatusType.previously, height);
 		}
 		if (dummy) {
@@ -3830,7 +3830,7 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 	}
 	void invalidateAfter(RefreshableListItem<T> item, bool looseEquality) {
 		final index = looseEquality ?
-			_items.indexWhere((i) => i.item.item == item.item) :
+			_items.indexWhere((i) => i.item.item == item.item && i.item.representsStubChildren == item.representsStubChildren) :
 			_items.indexWhere((i) => i.item == item);
 		if (index == -1) {
 			print('Could not find $item in list to invalidate after');
@@ -3895,6 +3895,13 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 		for (final item in _items) {
 			if (item.context?.mounted == false) {
 				item.context = null;
+			}
+		}
+		if (_lastLaidOutRange case final range?) {
+			for (int i = range.$1; i < range.$2 && i < _items.length; i++) {
+				if (_items[i].cachedHeight == null) {
+					_tryCachingItem(i);
+				}
 			}
 		}
 	}
@@ -4036,7 +4043,11 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 				}
 			}
 		}
-		double estimate = _items[nearestIndex].cachedOffset!;
+		final estimate0 = _items[nearestIndex].cachedOffset;
+		if (estimate0 == null) {
+			return null;
+		}
+		double estimate = estimate0;
 		if (targetIndex > nearestIndex) {
 			for (int j = nearestIndex; j < targetIndex; j++) {
 				estimate += _items[j].cachedHeight ?? averageItemHeight;
@@ -4147,6 +4158,7 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 				useDummyItemsInRange = null;
 				state?._rebuild();
 				await SchedulerBinding.instance.endOfFrame;
+				await SchedulerBinding.instance.endOfFrame;
 			}
 			finally {
 				_unlockSliverList();
@@ -4155,8 +4167,8 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 		else {
 			// Just to be safe
 			useDummyItemsInRange = null;
-			await _animateToIndex(targetIndex, alignment: alignment, duration: duration, curve: curve, startPixels: startPixels, revealIfHidden: revealIfHidden);
 		}
+		await _animateToIndex(targetIndex, alignment: alignment, duration: duration, curve: curve, startPixels: startPixels, revealIfHidden: revealIfHidden);
 	}
 	void _lockSliverListAtIndex(int index) {
 		assert(index >= 0);
@@ -4256,6 +4268,9 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 			if (targetIndex == _items.length - 1) {
 				// add offset to reveal the full footer
 				atAlignment0 += 110;
+				if (state?.filteredValues.isNotEmpty ?? false) {
+					atAlignment0 += 50;
+				}
 			}
 			else if (targetIndex == 0 && state?.widget.filterableAdapter != null && alignment >= 0) {
 				// subtract offset to reveal the search bar
@@ -4284,7 +4299,8 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 			double maxScrollExtent;
 			if (_items.last.cachedHeight != null && _items.last.cachedOffset != null) {
 				final footerHeight = state?.widget.footer != null ? 56 : 0; // Lazy estimate
-				maxScrollExtent = _items.last.cachedHeight! + _items.last.cachedOffset! + footerHeight - scrollController!.position.viewportDimension + bottomOffset + topOffset;
+				final filteredItemsHeight = (state?.filteredValues.isNotEmpty ?? false) ? 50 : 0;
+				maxScrollExtent = _items.last.cachedHeight! + _items.last.cachedOffset! + filteredItemsHeight + footerHeight - scrollController!.position.viewportDimension + bottomOffset + topOffset;
 			}
 			else {
 				maxScrollExtent = scrollController!.position.maxScrollExtent - (state?.updatingNow.value != null ? 64 : 0);

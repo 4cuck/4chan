@@ -725,6 +725,7 @@ class ChanTabs extends ChangeNotifier {
 		_onImageboardRegistryUpdate();
 		for (final tab in Persistence.tabs) {
 			tab.addListener(_onTabUpdate);
+			tab.threadForPullTab = tab.thread;
 		}
 		_lastHomeBoard = (Settings.instance.homeImageboardKey, Settings.instance.homeBoardName);
 		Settings.instance.addListener(_onSettingsUpdate);
@@ -772,6 +773,7 @@ class ChanTabs extends ChangeNotifier {
 		if (newHomeBoard != _lastHomeBoard) {
 			if (Persistence.tabs.first.imageboardKey == _lastHomeBoard.$1
 			 		&& Persistence.tabs.first.board == _lastHomeBoard.$2
+					&& !Persistence.tabs.first.incognito
 			) {
 				if (newHomeBoard.$1 != null) {
 					// Edit existing tab
@@ -798,6 +800,7 @@ class ChanTabs extends ChangeNotifier {
 				&& !(Persistence.tabs.first.imageboardKey == newHomeBoard.$1
 							&& Persistence.tabs.first.board == newHomeBoard.$2
 							&& Persistence.tabs.first.thread == null
+							&& !Persistence.tabs.first.incognito
 				)
 			) {
 				// Insert new tab
@@ -1728,7 +1731,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		super.initState();
 		_tabs = ChanTabs._(this);
 		_tabs.addListener(_tabsListener);
-		_showTabPopup = ValueNotifier(Persistence.settings.showTabPopup)
+		_showTabPopup = ValueNotifier(false)
 			..addListener(_setAdditionalSafeAreaInsets)
 			..addListener(() {
 				Persistence.settings.showTabPopup = _showTabPopup.value;
@@ -1737,6 +1740,13 @@ class _ChanHomePageState extends State<ChanHomePage> {
 					Future.microtask(() => _tabs._animateTabList(duration: Duration.zero));
 				}
 			});
+		if (Persistence.settings.showTabPopup) {
+			Future.delayed(const Duration(milliseconds: 50), () {
+				SchedulerBinding.instance.addPostFrameCallback((_) {
+					_showTabPopup.value = true;
+				});
+			});
+		}
 		// Set initial tab list up right
 		Future.microtask(() => _tabs._animateTabList(duration: Duration.zero));
 		_setAdditionalSafeAreaInsets();

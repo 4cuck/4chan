@@ -12,13 +12,14 @@ import 'package:chan/util.dart';
 import 'package:chan/widgets/saved_theme_thumbnail.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:linkify/linkify.dart';
 
 final _youtubeShortsRegex = RegExp(r'youtube.com\/shorts\/([^?]+)');
 
-Future<bool> embedPossible(String url) async {
+bool embedPossible(String url) {
 	final embedRegexes = Settings.instance.embedRegexes;
 	if (url.startsWith('chance://site/') || url.startsWith('chance://theme')) {
 		return true;
@@ -34,7 +35,7 @@ Future<bool> embedPossible(String url) async {
 		return true;
 	}
 	final uri = Uri.parse(url);
-	if (await ImageboardRegistry.instance.decodeUrl(uri) != null) {
+	if (ImageboardRegistry.instance.decodeUrlPossible(uri)) {
 		return true;
 	}
 	if (ImageboardRegistry.instance.embedPossible(uri)) {
@@ -43,13 +44,13 @@ Future<bool> embedPossible(String url) async {
 	return embedRegexes.matches(url);
 }
 
-Future<String?>? findEmbedUrl(String text) async {
+String? findEmbedUrl(String text) {
 	for (final element in linkify(text, linkifiers: const [LooseUrlLinkifier(fillInProtocol: true)], options: const LinkifyOptions(
 		defaultToHttps: true,
 		humanize: false
 	))) {
 		if (element is UrlElement) {
-			if (await embedPossible(element.url)) {
+			if (embedPossible(element.url)) {
 				return element.url;
 			}
 		}
@@ -64,7 +65,7 @@ class EmbedData {
 	final String? author;
 	final String? thumbnailUrl;
 	final Widget? thumbnailWidget;
-	final (Imageboard imageboard, BoardThreadOrPostIdentifier target, String? useArchive)? imageboardTarget;
+	final (String? imageboardKey, BoardThreadOrPostIdentifier target, String? useArchive)? imageboardTarget;
 	final ImageboardScoped<List<Attachment>>? attachments;
 
 	const EmbedData({
@@ -76,6 +77,14 @@ class EmbedData {
 		this.imageboardTarget,
 		this.attachments
 	});
+	const EmbedData.empty() :
+			title = null,
+			provider = null,
+			author = null,
+			thumbnailUrl = null,
+			thumbnailWidget = null,
+			imageboardTarget = null,
+			attachments = null;
 
 	@override
 	String toString() => 'EmbedData(title: $title, provider: $provider, author: $author, thumbnailUrl: $thumbnailUrl, thumbnailWidget: $thumbnailWidget, imageboardTarget: $imageboardTarget, attachments: $attachments)';
@@ -142,7 +151,7 @@ String? _getPossibleHigherQualityThumbnailUrl(String? url) {
 	return null;
 }
 
-Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) async {
+Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) {
 	if (url.startsWith('chance://site/')) {
 		try {
 			Map? data = JsonCache.instance.sites.value?[Uri.parse(url).pathSegments.tryFirst];
@@ -150,28 +159,28 @@ Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) async 
 				throw Exception('No such site ${Uri.parse(url).pathSegments}');
 			}
 			final site = makeSite(data);
-			return EmbedData(
+			return SynchronousFuture(EmbedData(
 				title: site.name,
 				provider: site.baseUrl,
 				author: null,
 				thumbnailUrl: site.iconUrl?.toString(),
 				thumbnailWidget: site.iconUrl == null ? const Icon(CupertinoIcons.globe) : null
-			);
+			));
 		}
 		catch (e) {
-			return EmbedData(
+			return SynchronousFuture(EmbedData(
 				title: 'Unsupported site: ${url.substring(14)}',
 				provider: e.toStringDio(),
 				author: null,
 				thumbnailUrl: null,
 				thumbnailWidget: const Icon(CupertinoIcons.exclamationmark_triangle_fill)
-			);
+			));
 		}
 	}
 	else if (url.startsWith('chance://theme')) {
 		final uri = Uri.parse(url);
 		final theme = SavedTheme.decode(uri.queryParameters['data']!);
-		return EmbedData(
+		return SynchronousFuture(EmbedData(
 			title: uri.queryParameters['name']!,
 			provider: 'Chance Theme',
 			author: null,
@@ -183,9 +192,9 @@ Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) async 
 					theme: theme
 				)
 			)
-		);
+		));
 	}
-	else {
+	return () async {
 		final twitterMatch = _twitterPattern.firstMatch(url);
 		if (twitterMatch != null) {
 			return _loadTwitter(twitterMatch.group(1)!, highQuality);
@@ -214,7 +223,7 @@ Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) async 
 					provider: target.$1.site.name,
 					author: target.$1.site.formatUsername(post.name),
 					thumbnailUrl: post.attachments.tryFirst?.thumbnailUrl ?? thread.attachments.tryFirst?.thumbnailUrl,
-					imageboardTarget: target
+					imageboardTarget: (target.$1.key, target.$2, target.$3)
 				);
 			}
 			String title = thread.title ?? thread.posts_.first.buildText();
@@ -227,7 +236,7 @@ Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) async 
 				provider: '${target.$1.site.name} (${target.$1.site.formatBoardName(thread.board)})',
 				author: target.$1.site.formatUsername(post.name),
 				thumbnailUrl: post.attachments.tryFirst?.thumbnailUrl ?? thread.attachments.tryFirst?.thumbnailUrl,
-				imageboardTarget: target
+				imageboardTarget: (target.$1.key, target.$2, target.$3)
 			);
 		}
 		final attachments = await ImageboardRegistry.instance.loadEmbedData(uri);
@@ -276,6 +285,6 @@ Future<EmbedData?> loadEmbedData(String url, {required bool highQuality}) async 
 				thumbnailUrl: thumbnailUrl
 			);
 		}
-	}
-	return null;
+		return null;
+	}();
 }

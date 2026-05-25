@@ -2029,12 +2029,17 @@ class ThreadPageState extends State<ThreadPage> {
                                         setState(() {});
                                       }
                                     }),
-                              if (Settings.instance.showImages(context, widget.thread.board) &&
-                                  (_listController.items.any((p) => p.item.attachments.any((a) => a.type != AttachmentType.url)) ||
-                                   (bestEffortThread?.imageCount ?? 0) > 0))
+                              if (Settings.instance.showImages(
+                                      context, widget.thread.board) &&
+                                  (_listController.items.any((p) =>
+                                          p.item.attachments.any((a) =>
+                                              a.type != AttachmentType.url)) ||
+                                      (bestEffortThread?.imageCount ?? 0) > 0))
                                 AdaptiveIconButton(
-                                    icon: const Icon(CupertinoIcons.square_grid_2x2),
-                                    onPressed: () => _showGalleryFromNextImage(initiallyShowGrid: true)),
+                                    icon: const Icon(
+                                        CupertinoIcons.square_grid_2x2),
+                                    onPressed: () => _showGalleryFromNextImage(
+                                        initiallyShowGrid: true)),
                               Builder(
                                   builder: (context) => AdaptiveIconButton(
                                       key: _shareButtonKey,
@@ -2702,8 +2707,7 @@ class ThreadPageState extends State<ThreadPage> {
                                                                               ?.posts;
                                                                         }
                                                                       }
-                                                                    } catch (e) {
-                                                                    }
+                                                                    } catch (e) {}
                                                                   }
                                                                   return loaded
                                                                       ?.posts;
@@ -2713,16 +2717,26 @@ class ThreadPageState extends State<ThreadPage> {
                                                                 // are fetched without waiting for the next _autoSync cycle.
                                                                 // Guard status == complete so we don’t fire a second site.getThread
                                                                 // concurrently when a download is already in progress.
-                                                                if (options.source.manual &&
-                                                                    downloadStatus != null &&
-                                                                    downloadStatus.status == DownloadStatus.complete &&
-                                                                    !downloadStatus.isArchivedOnServer &&
-                                                                    !downloadStatus.isLockedOnServer) {
-                                                                  ThreadDownloadService.instance
-                                                                      .updateThread(
-                                                                          widget.thread,
-                                                                          imageboard.site,
-                                                                          imageboard.key);
+                                                                if (options
+                                                                        .source
+                                                                        .manual &&
+                                                                    downloadStatus !=
+                                                                        null &&
+                                                                    downloadStatus
+                                                                            .status ==
+                                                                        DownloadStatus
+                                                                            .complete &&
+                                                                    !downloadStatus
+                                                                        .isArchivedOnServer &&
+                                                                    !downloadStatus
+                                                                        .isLockedOnServer) {
+                                                                  ThreadDownloadService.instance.updateThread(
+                                                                      widget
+                                                                          .thread,
+                                                                      imageboard
+                                                                          .site,
+                                                                      imageboard
+                                                                          .key);
                                                                 }
                                                                 return (await _getUpdatedThread(
                                                                         options

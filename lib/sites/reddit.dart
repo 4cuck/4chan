@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:chan/models/flag.dart';
 import 'package:chan/models/parent_and_child.dart';
 import 'package:chan/models/search.dart';
+import 'package:chan/services/embed.dart';
 import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/linkifier.dart';
 import 'package:chan/services/persistence.dart';
@@ -285,7 +286,7 @@ class SiteReddit extends ImageboardSite {
 	}
 
 	static int? fromRedditId(String id) {
-		return int.parse(id, radix: 36);
+		return int.tryParse(id, radix: 36);
 	}
 
 	static final _inlineImagePattern = RegExp(r'https:\/\/(?:preview|i)\.redd\.it\/[^\r\n\t\f\v\) ]+');
@@ -371,7 +372,11 @@ class SiteReddit extends ImageboardSite {
 								yield PostUserLinkSpan(Uri.decodeComponent(username));
 							}
 							else {
-								yield PostLinkSpan(href, name: node.text.nonEmptyOrNull);
+								yield PostLinkSpan(
+									href, name: node.text.nonEmptyOrNull,
+									// Force no embed by giving junk data
+									embedData: node.attributes.containsKey('noembed') ? const EmbedData.empty() : null
+								);
 							}
 						}
 						else {
@@ -408,7 +413,14 @@ class SiteReddit extends ImageboardSite {
 						}
 					}
 					else if (node.localName == 'table') {
-						yield PostTableSpan(node.querySelectorAll('tr').map((tr) => tr.querySelectorAll('td,th').map((td) => PostNodeSpan(visit(td.nodes).toList())).toList()).toList());
+						yield PostTableSpan(
+							node.querySelectorAll('tr')
+								.map((tr) => tr.querySelectorAll('td,th')
+									.map((td) => PostNodeSpan(visit(td.nodes).toList(growable: false))
+								).toList(growable: false))
+								.where((r) => r.any((e) => e.children.isNotEmpty))
+								.toList()
+						);
 					}
 					else if (node.localName == 'hr') {
 						yield const PostDividerSpan();
@@ -440,11 +452,34 @@ class SiteReddit extends ImageboardSite {
 						yield PostCodeSpan(node.text);
 					}
 					else if (node.localName == 'crosspostparent') {
-						yield PostQuoteLinkSpan(
-							board: node.attributes['board']!,
-							threadId: fromRedditId(node.attributes['id']!)!,
-							postId: fromRedditId(node.attributes['id']!)!
-						);
+						if (node.attributes case {
+							'board': String board,
+							'id': String id,
+							'title': String title,
+							'author': String author
+						}) {
+							yield PostLinkSpan(
+								'https://reddit.com/r/$board/comments/$id/_/$id',
+								embedData: EmbedData(
+									title: title,
+									provider: '/r/$board - Reddit',
+									author: '/u/$author',
+									thumbnailUrl: null, // It will already be shown on the actual Post
+									imageboardTarget: (null, BoardThreadOrPostIdentifier(
+										board,
+										fromRedditId(id),
+										fromRedditId(id)
+									), null)
+								)
+							);
+						}
+						else {
+							yield PostQuoteLinkSpan(
+								board: node.attributes['board']!,
+								threadId: fromRedditId(node.attributes['id']!)!,
+								postId: fromRedditId(node.attributes['id']!)!
+							);
+						}
 					}
 					else if (node.localName == _kSubredditLinkLocalName) {
 						yield PostBoardLinkSpan(node.text);
@@ -581,6 +616,20 @@ class SiteReddit extends ImageboardSite {
 
 	static final _linkPattern = RegExp(r'^\/r\/([^\/\n]+)(?:\/comments\/([^\/\n]+)(?:\/[^\/\n]+\/([^?\/\n]+))?)?');
 	static final _redditProtocolPattern = RegExp(r'reddit:\/\/([^ ]+)');
+
+	@override
+	bool decodeUrlPossible(Uri url) {
+		if (_isShareLink(url) || _isCommentsLink(url)) {
+			return true;
+		}
+		if (url.host.endsWith(baseUrl)) {
+			final match = _linkPattern.firstMatch(url.path);
+			if (match != null) {
+				return true;
+			}
+		}
+		return false;
+	}
 
 	@override
 	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
@@ -1015,7 +1064,7 @@ class SiteReddit extends ImageboardSite {
 			if (queryPosition != -1 && max(30, queryPosition) < title.length * 0.65) {
 				title = title.substring(0, queryPosition);
 			}
-			text = '[$title]($url)';
+			text = '<a href="${const HtmlEscape(HtmlEscapeMode.attribute).convert(url)}" noembed>${const HtmlEscape(HtmlEscapeMode.element).convert(title)}</a>';
 			if ((data['selftext'] as String? ?? '').isNotEmpty) {
 				text += '\n\n${data['selftext']}';
 			}
@@ -1028,7 +1077,12 @@ class SiteReddit extends ImageboardSite {
 				data: crosspostParent,
 				cancelToken: cancelToken
 			);
-			text = '<crosspostparent board="${crosspostParent['subreddit']}" id="${crosspostParent['id']}"></crosspostparent>\n$text';
+			final elem = dom.Element.tag('crosspostparent');
+			elem.attributes['board'] = crosspostParent['subreddit'] as String;
+			elem.attributes['id'] = crosspostParent['id'] as String;
+			elem.attributes['title'] = crosspostParent['title'] as String;
+			elem.attributes['author'] = crosspostParent['author'] as String;
+			text = elem.outerHtml;
 		}
 		if (attachments.isEmpty) {
 			await _dumpAttachments(

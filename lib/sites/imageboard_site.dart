@@ -487,7 +487,7 @@ enum CatalogVariant {
 	postsPerMinuteWithNewThreadsAtTopReversed;
 }
 
-extension CatalogVariantMetadata on CatalogVariant {
+extension CatalogVariantMetadata on CatalogVariant? {
 	ThreadSortingMethod? get sortingMethod {
 		switch (this) {
 			case CatalogVariant.lastPostTime:
@@ -592,6 +592,7 @@ extension CatalogVariantMetadata on CatalogVariant {
 		CatalogVariant.postsPerMinuteWithNewThreadsAtTopReversed: CupertinoIcons.speedometer,
 	}[this];
 	String get name => const {
+		null: 'No order',
 		CatalogVariant.unsorted: 'Bump order',
 		CatalogVariant.unsortedReversed: 'Reverse bump order',
 		CatalogVariant.lastPostTime: 'Latest reply first',
@@ -648,6 +649,7 @@ extension CatalogVariantMetadata on CatalogVariant {
 	}
 	String get dataId {
 		switch (this) {
+			case null:
 			case CatalogVariant.unsorted:
 			case CatalogVariant.unsortedReversed:
 			case CatalogVariant.lastPostTime:
@@ -1746,8 +1748,8 @@ abstract class ImageboardSiteArchive {
 		/// 15 seconds should be well long enough for initial TCP handshake
 		connectTimeout: 15000
 	));
-	final Map<String, Map<String?, Catalog>> _catalogCache = {};
-	final Map<String, Map<String?, CatalogPageMap>> _catalogPageMapCache = {};
+	final Map<String, Map<String, Catalog>> _catalogCache = {};
+	final Map<String, Map<String, CatalogPageMap>> _catalogPageMapCache = {};
 	final Map<ThreadIdentifier, _TemporaryThread> _temporaryThreadCache = {};
 	static const _kCacheLifetime = Duration(minutes: 10);
 	Timer? _cacheGarbageCollectionTimer;
@@ -1810,7 +1812,7 @@ abstract class ImageboardSiteArchive {
 	/// Exported to handle pageMap with same request as catalog, when pageMap is requested first
 	@protected
 	void insertCatalogIntoCache(String board, CatalogVariant? variant, Catalog catalog) {
-		final oldCatalog = _catalogCache[board]?[variant?.dataId];
+		final oldCatalog = _catalogCache[board]?[variant.dataId];
 		if (oldCatalog != null) {
 			for (final oldThread in oldCatalog.threads.values) {
 				if (!catalog.threads.containsKey(oldThread.id)) {
@@ -1819,7 +1821,7 @@ abstract class ImageboardSiteArchive {
 				}
 			}
 		}
-		(_catalogCache[board] ??= {})[variant?.dataId] = catalog;
+		(_catalogCache[board] ??= {})[variant.dataId] = catalog;
 	}
 	void ensureCatalogCached(Thread thread, DateTime fetchedTime) {
 		if (_catalogCache[thread.board]?.values.any((c) => c.threads.containsKey(thread.id)) ?? false) {
@@ -1840,7 +1842,7 @@ abstract class ImageboardSiteArchive {
 		CancelToken? cancelToken
 	}) async {
 		return runEphemerallyLocked('getCatalog($name,$board)', (_) async {
-			final entry = _catalogCache[board]?[variant?.dataId];
+			final entry = _catalogCache[board]?[variant.dataId];
 			if (acceptCached != null && entry != null && entry.satisfiesConstraints(acceptCached)) {
 				return entry;
 			}
@@ -1858,6 +1860,16 @@ abstract class ImageboardSiteArchive {
 			insertCatalogIntoCache(board, variant, catalog);
 			return catalog;
 		});
+	}
+	Catalog? getCatalogFromCatalogCache(String? board, {CatalogVariant? variant, CacheConstraints? constraints}) {
+		if (board == null) {
+			return null;
+		}
+		final catalog = _catalogCache[board]?[variant.dataId];
+		if (constraints == null || catalog == null || catalog.satisfiesConstraints(constraints)) {
+			return catalog;
+		}
+		return null;
 	}
 	/// By default, always fetch the catalog
 	Future<Catalog?> getCatalogIfModifiedSince(String board, DateTime lastModified, {
@@ -1912,13 +1924,13 @@ abstract class ImageboardSiteArchive {
 		CancelToken? cancelToken
 	}) async {
 		return runEphemerallyLocked('getCatalogPageMap($name,$board)', (_) async {
-			final entry = _catalogPageMapCache[board]?[variant?.dataId];
+			final entry = _catalogPageMapCache[board]?[variant.dataId];
 			if (acceptCached != null) {
 				if (entry != null && entry.satisfiesConstraints(acceptCached)) {
 					return entry;
 				}
 				// Try to steal from getCatalog() caching
-				final catalogEntry = _catalogCache[board]?[variant?.dataId];
+				final catalogEntry = _catalogCache[board]?[variant.dataId];
 				if (catalogEntry != null && catalogEntry.satisfiesConstraints(acceptCached)) {
 					return CatalogPageMap(
 						pageMap: {
@@ -1942,7 +1954,7 @@ abstract class ImageboardSiteArchive {
 				);
 			}
 			pageMap ??= await getCatalogPageMapImpl(board, variant: variant, priority: priority, cancelToken: cancelToken);
-			(_catalogPageMapCache[board] ??= {})[variant?.dataId] = pageMap;
+			(_catalogPageMapCache[board] ??= {})[variant.dataId] = pageMap;
 			return pageMap;
 		});
 	}
@@ -1952,7 +1964,7 @@ abstract class ImageboardSiteArchive {
 	Future<List<Thread>> getMoreCatalog(String board, Thread after, {CatalogVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
 		final fetchedTime = DateTime.now();
 		final moreCatalog = await getMoreCatalogImpl(board, after, variant: variant, priority: priority, cancelToken: cancelToken);
-		final entry = (_catalogCache[board] ??= {})[variant?.dataId] ??= Catalog(
+		final entry = (_catalogCache[board] ??= {})[variant.dataId] ??= Catalog(
 			threads: LinkedHashMap(),
 			lastModified: null,
 			fetchedTime: fetchedTime
@@ -1967,15 +1979,8 @@ abstract class ImageboardSiteArchive {
 		if (identifier == null) {
 			return null;
 		}
-		final caches = _catalogCache[identifier.board];
-		if (caches == null) {
-			final temporary = _temporaryThreadCache[identifier];
-			if (temporary != null && (constraints == null || temporary.satisfiesConstraints(constraints))) {
-				return temporary.thread;
-			}
-			return null;
-		}
-		for (final cache in caches.values) {
+		final caches = _catalogCache[identifier.board]?.values ?? [];
+		for (final cache in caches) {
 			if (constraints != null && !cache.satisfiesConstraints(constraints)) {
 				continue;
 			}
@@ -1984,13 +1989,17 @@ abstract class ImageboardSiteArchive {
 				return thread;
 			}
 		}
+		final temporary = _temporaryThreadCache[identifier];
+		if (temporary != null && (constraints == null || temporary.satisfiesConstraints(constraints))) {
+			return temporary.thread;
+		}
 		return null;
 	}
 	@protected
 	void bumpCatalogInCache(String board, CatalogVariant? variant, DateTime fetchedTime, DateTime? lastModified) {
-		final oldCatalog = _catalogCache[board]?[variant?.dataId];
+		final oldCatalog = _catalogCache[board]?[variant.dataId];
 		if (oldCatalog != null && oldCatalog.fetchedTime.isBefore(fetchedTime) && oldCatalog.lastModified == lastModified) {
-			(_catalogCache[board] ??= {})[variant?.dataId] = Catalog(
+			(_catalogCache[board] ??= {})[variant.dataId] = Catalog(
 				threads: oldCatalog.threads,
 				lastModified: oldCatalog.lastModified,
 				fetchedTime: fetchedTime
@@ -2010,6 +2019,7 @@ abstract class ImageboardSiteArchive {
 		return getWebUrlImpl(board, threadId, postId);
 	}
 	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url);
+	bool decodeUrlPossible(Uri url);
 	int placeOrphanPost(List<Post> posts, Post post) {
 		final index = posts.indexWhere((p) => p.id > post.id);
 		// Make a copy so that filtering WeakMaps will see it as new

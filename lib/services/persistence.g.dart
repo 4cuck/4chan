@@ -444,8 +444,7 @@ class PersistentThreadStateFields {
   static void setIsDownloaded(PersistentThreadState x, bool? v) =>
       x._isDownloaded = v;
   static const int kIsDownloaded = 33;
-  static const isDownloaded =
-      HiveFieldAdapter<PersistentThreadState, bool?>(
+  static const isDownloaded = HiveFieldAdapter<PersistentThreadState, bool?>(
     getter: getIsDownloaded,
     setter: setIsDownloaded,
     fieldNumber: kIsDownloaded,
@@ -532,10 +531,10 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       }
     }
     return PersistentThreadState(
-      imageboardKey: fields[18] == null ? '' : fields[18] as String,
-      board: fields[19] == null ? '' : fields[19] as String,
-      id: fields[20] == null ? 0 : fields[20] as int,
-      showInHistory: fields[22] == null ? true : fields[22] as bool?,
+      imageboardKey: fields[18] as String,
+      board: fields[19] as String,
+      id: fields[20] as int,
+      showInHistory: fields[22] as bool?,
       unseenPostIds: fields[24] as EfficientlyStoredIntSet?,
       postSortingMethod: fields[26] as PostSortingMethod?,
       postIdsToStartRepliesAtBottom: fields[27] as EfficientlyStoredIntSet?,
@@ -547,32 +546,23 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       ..receipts = (fields[3] as List).cast<PostReceipt>()
       .._deprecatedThread = fields[4] as Thread?
       ..useArchive = fields[5] as bool
-      ..postsMarkedAsYou =
-          fields[7] == null ? [] : (fields[7] as List).cast<int>()
-      ..hiddenPostIds = fields[8] == null ? [] : (fields[8] as List).cast<int>()
+      ..postsMarkedAsYou = (fields[7] as List).cast<int>()
+      ..hiddenPostIds = (fields[8] as List).cast<int>()
       ..deprecatedDraftReply = fields[9] as String?
-      ..treeHiddenPostIds =
-          fields[10] == null ? [] : (fields[10] as List).cast<int>()
-      ..hiddenPosterIds =
-          fields[11] == null ? [] : (fields[11] as List).cast<String>()
-      ..translatedPosts =
-          fields[12] == null ? {} : (fields[12] as Map).cast<int, Post>()
-      ..autoTranslate = fields[13] == null ? false : fields[13] as bool
+      ..treeHiddenPostIds = (fields[10] as List).cast<int>()
+      ..hiddenPosterIds = (fields[11] as List).cast<String>()
+      ..translatedPosts = (fields[12] as Map).cast<int, Post>()
+      ..autoTranslate = fields[13] as bool
       ..useTree = fields[14] as bool?
       ..variant = fields[15] as ThreadVariant?
-      ..collapsedItems = fields[16] == null
-          ? []
-          : (fields[16] as List)
-              .map((dynamic e) => (e as List).cast<int>())
-              .toList()
-      ..downloadedAttachmentIds =
-          fields[17] == null ? [] : (fields[17] as List).cast<String>()
-      ..primarySubtreeParents =
-          fields[21] == null ? {} : (fields[21] as Map).cast<int, int>()
+      ..collapsedItems = (fields[16] as List)
+          .map((dynamic e) => (e as List).cast<int>())
+          .toList()
+      ..downloadedAttachmentIds = (fields[17] as List).cast<String>()
+      ..primarySubtreeParents = (fields[21] as Map).cast<int, int>()
       ..firstVisiblePostId = fields[23] as int?
       ..firstVisiblePostAlignment = fields[25] as double?
-      ..overrideShowPostIds =
-          fields[28] == null ? [] : (fields[28] as List).cast<int>()
+      ..overrideShowPostIds = (fields[28] as List).cast<int>()
       ..deprecatedReplyOptions = fields[29] as String?
       ..treeSplitId = fields[30] as int?
       ..translatedTitle = fields[32] as String?
@@ -771,6 +761,10 @@ class PostReceiptAdapter extends TypeAdapter<PostReceipt> {
   PostReceipt read(BinaryReader reader) {
     final numOfFields = reader.readByte();
     final List<dynamic> fields = List.filled(9, null);
+    fields[2] = '';
+    fields[3] = '';
+    fields[5] = true;
+    fields[6] = false;
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -781,12 +775,12 @@ class PostReceiptAdapter extends TypeAdapter<PostReceipt> {
     return PostReceipt(
       password: fields[0] as String,
       id: fields[1] as int,
-      name: fields[2] == null ? '' : fields[2] as String,
-      options: fields[3] == null ? '' : fields[3] as String,
+      name: fields[2] as String,
+      options: fields[3] as String,
       time: fields[4] as DateTime?,
       post: fields[8] as DraftPost?,
-      markAsYou: fields[5] == null ? true : fields[5] as bool,
-      spamFiltered: fields[6] == null ? false : fields[6] as bool,
+      markAsYou: fields[5] as bool,
+      spamFiltered: fields[6] as bool,
       ip: fields[7] as String?,
     );
   }
@@ -1169,6 +1163,8 @@ class PersistentBrowserTabAdapter extends TypeAdapter<PersistentBrowserTab> {
   PersistentBrowserTab read(BinaryReader reader) {
     final numOfFields = reader.readByte();
     final List<dynamic> fields = List.filled(12, null);
+    fields[9] = false;
+    fields[10] = '';
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -1187,8 +1183,8 @@ class PersistentBrowserTabAdapter extends TypeAdapter<PersistentBrowserTab> {
       deprecatedDraftFilePath: fields[6] as String?,
       initialSearch: fields[7] as String?,
       catalogVariant: fields[8] as CatalogVariant?,
-      incognito: fields[9] == null ? false : fields[9] as bool,
-      id: fields[10] == null ? '' : fields[10] as String,
+      incognito: fields[9] as bool,
+      id: fields[10] as String,
       draft: fields[11] as DraftPost?,
     );
   }
@@ -1625,63 +1621,36 @@ class PersistentBrowserStateAdapter
     _readHookPersistentBrowserStateFields(fields);
     return PersistentBrowserState(
       deprecatedTabs: (fields[0] as List).cast<PersistentBrowserTab>(),
-      hiddenIds: fields[2] == null
-          ? {}
-          : (fields[2] as Map).map((dynamic k, dynamic v) =>
-              MapEntry(k as BoardKey, (v as List).cast<int>())),
-      favouriteBoards:
-          fields[3] == null ? [] : (fields[3] as List).cast<BoardKey>(),
-      autosavedIds: fields[5] == null
-          ? {}
-          : (fields[5] as Map).map((dynamic k, dynamic v) =>
-              MapEntry(k as BoardKey, (v as List).cast<int>())),
-      autowatchedIds: fields[27] == null
-          ? {}
-          : (fields[27] as Map).map((dynamic k, dynamic v) =>
-              MapEntry(k as BoardKey, (v as List).cast<int>())),
-      deprecatedHiddenImageMD5s:
-          fields[6] == null ? {} : (fields[6] as Set).cast<String>(),
-      loginFields:
-          fields[7] == null ? {} : (fields[7] as Map).cast<String, String>(),
+      hiddenIds: (fields[2] as Map).map((dynamic k, dynamic v) =>
+          MapEntry(k as BoardKey, (v as List).cast<int>())),
+      favouriteBoards: (fields[3] as List).cast<BoardKey>(),
+      autosavedIds: (fields[5] as Map).map((dynamic k, dynamic v) =>
+          MapEntry(k as BoardKey, (v as List).cast<int>())),
+      autowatchedIds: (fields[27] as Map).map((dynamic k, dynamic v) =>
+          MapEntry(k as BoardKey, (v as List).cast<int>())),
+      deprecatedHiddenImageMD5s: (fields[6] as Set).cast<String>(),
+      loginFields: (fields[7] as Map).cast<String, String>(),
       notificationsId: fields[8] as String?,
-      deprecatedThreadWatches:
-          fields[10] == null ? [] : (fields[10] as List).cast<ThreadWatch>(),
-      threadWatches: fields[23] == null
-          ? {}
-          : (fields[23] as Map).cast<ThreadIdentifier, ThreadWatch>(),
-      boardWatches:
-          fields[11] == null ? [] : (fields[11] as List).cast<BoardWatch>(),
-      notificationsMigrated: fields[12] == null ? false : fields[12] as bool,
-      deprecatedBoardSortingMethods: fields[13] == null
-          ? {}
-          : (fields[13] as Map).cast<String, ThreadSortingMethod>(),
-      deprecatedBoardReverseSortings:
-          fields[14] == null ? {} : (fields[14] as Map).cast<String, bool>(),
-      catalogVariants: fields[17] == null
-          ? {}
-          : (fields[17] as Map).cast<BoardKey, CatalogVariant>(),
-      postingNames: fields[18] == null
-          ? {}
-          : (fields[18] as Map).cast<BoardKey, String>(),
+      deprecatedThreadWatches: (fields[10] as List).cast<ThreadWatch>(),
+      threadWatches: (fields[23] as Map).cast<ThreadIdentifier, ThreadWatch>(),
+      boardWatches: (fields[11] as List).cast<BoardWatch>(),
+      notificationsMigrated: fields[12] as bool,
+      deprecatedBoardSortingMethods:
+          (fields[13] as Map).cast<String, ThreadSortingMethod>(),
+      deprecatedBoardReverseSortings: (fields[14] as Map).cast<String, bool>(),
+      catalogVariants: (fields[17] as Map).cast<BoardKey, CatalogVariant>(),
+      postingNames: (fields[18] as Map).cast<BoardKey, String>(),
       useTree: fields[16] as bool?,
-      treeModeInitiallyCollapseSecondLevelReplies:
-          fields[19] == null ? false : fields[19] as bool,
-      treeModeCollapsedPostsShowBody:
-          fields[20] == null ? false : fields[20] as bool,
-      treeModeRepliesToOPAreTopLevel:
-          fields[24] == null ? true : fields[24] as bool,
+      treeModeInitiallyCollapseSecondLevelReplies: fields[19] as bool,
+      treeModeCollapsedPostsShowBody: fields[20] as bool,
+      treeModeRepliesToOPAreTopLevel: fields[24] as bool,
       useCatalogGrid: fields[21] as bool?,
-      useCatalogGridPerBoard:
-          fields[22] == null ? {} : (fields[22] as Map).cast<BoardKey, bool>(),
-      overrideShowIds: fields[25] == null
-          ? {}
-          : (fields[25] as Map).map((dynamic k, dynamic v) =>
-              MapEntry(k as BoardKey, (v as List).cast<int>())),
-      treeModeNewRepliesAreLinear:
-          fields[26] == null ? true : fields[26] as bool,
-      outbox: fields[28] == null ? [] : (fields[28] as List).cast<DraftPost>(),
-      disabledArchiveNames:
-          fields[29] == null ? {} : (fields[29] as Set).cast<String>(),
+      useCatalogGridPerBoard: (fields[22] as Map).cast<BoardKey, bool>(),
+      overrideShowIds: (fields[25] as Map).map((dynamic k, dynamic v) =>
+          MapEntry(k as BoardKey, (v as List).cast<int>())),
+      treeModeNewRepliesAreLinear: fields[26] as bool,
+      outbox: (fields[28] as List).cast<DraftPost>(),
+      disabledArchiveNames: (fields[29] as Set).cast<String>(),
       postSortingMethod: fields[30] as PostSortingMethod?,
       postSortingMethodPerBoard: fields[31] == null
           ? {}

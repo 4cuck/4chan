@@ -129,6 +129,7 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 	late TextEditingController _textEditingController;
 	late StreamSubscription<BoxEvent> _boardsBoxSubscription;
 	final Map<ImageboardScoped<ImageboardBoard?>, BuildContext> _contexts = {};
+	VerticalDirection? _originalSlowScrollDirection;
 
 	static const _kRowHeight = 64.0;
 	static const _kMaxCrossAxisExtent = 125.0;
@@ -242,6 +243,7 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 		}
 		ImageboardRegistry.instance.addListener(_onImageboardRegistryUpdate);
 		_boardsBoxSubscription = Persistence.sharedBoardsBox.watch().listen(_onBoardsBoxUpdate);
+		_originalSlowScrollDirection = ScrollTracker.instance.slowScrollDirection.value;
 		ScrollTracker.instance.slowScrollDirection.value = VerticalDirection.down;
 		_textEditingController = TextEditingController();
 	}
@@ -998,7 +1000,7 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 																	const SizedBox(width: 16),
 																	ImageboardIcon(
 																		imageboardKey: imageboard.key,
-																		boardName: board.name,
+																		board: board,
 																		size: 24
 																	),
 																	const SizedBox(width: 16),
@@ -1192,7 +1194,7 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 																			padding: const EdgeInsets.only(left: 2),
 																			child: ImageboardIcon(
 																				imageboardKey: imageboard.key,
-																				boardName: board.name,
+																				board: board,
 																				size: 13
 																			)
 																		),
@@ -1446,5 +1448,6 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 		_textEditingController.dispose();
 		ImageboardRegistry.instance.removeListener(_onImageboardRegistryUpdate);
 		_boardsBoxSubscription.cancel();
+		ScrollTracker.instance.slowScrollDirection.value = _originalSlowScrollDirection;
 	}
 }

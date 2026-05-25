@@ -13,6 +13,7 @@ import 'package:chan/services/share.dart';
 import 'package:chan/services/translation.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/widgets/adaptive.dart';
+import 'package:chan/widgets/cheating_paragraph.dart';
 import 'package:chan/widgets/cupertino_inkwell.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/popup_attachment.dart';
@@ -454,10 +455,21 @@ class PostRow extends StatelessWidget {
 		);
 		final isPostHidden = isPostHiddenByThreadState || listFilterReason != null;
 		final cloverStyleRepliesButton = (settings.cloverStyleRepliesButton && replyIds.isNotEmpty && parentZone.style != PostSpanZoneStyle.tree);
+		final showReplyCount = this.showReplyCount && (overrideReplyCount != null || parentZone.style != PostSpanZoneStyle.tree || switch (replyIds) {
+			// Don't show reply count for tree + single reply
+			[int _] => false,
+			// Don't show reply count for tree + single reply (no subreplies) + second reply
+			[int firstReplyId, int _] => (parentZone.findPost(firstReplyId)?.replyIds.length ?? 0) > 0,
+			// Don't show reply count for tree + single reply (no subreplies) + second reply (no subreplies) + third reply
+			[int firstReplyId, int secondReplyId, int _] => (parentZone.findPost(firstReplyId)?.replyIds.length ?? 0) > 0 || (parentZone.findPost(secondReplyId)?.replyIds.length ?? 0) > 0,
+			// Otherwise show reply count
+			_ => true
+		});
 		final replyCountColor = highlightReplyCount ? theme.secondaryColor.shiftHue(90) : theme.secondaryColor;
 		openReplies() {
 			if (replyIds.isNotEmpty) {
 				WeakNavigator.push(context, PostsPage(
+					header: null,
 					postsIdsToShow: replyIds,
 					postIdForBackground: latestPost.id,
 					zone: parentZone.childZoneFor(latestPost.id),
@@ -468,7 +480,7 @@ class PostRow extends StatelessWidget {
 		}
 		final content = Builder(
 			builder: (ctx) => Padding(
-				padding: const EdgeInsets.only(top: 8, left: 8, right: 8, bottom: 16),
+				padding: const EdgeInsets.only(top: 8, left: 8, right: 8),
 				child: IgnorePointer(
 					ignoring: !allowTappingLinks,
 					child: ConditionalOnTapUp(
@@ -478,7 +490,7 @@ class PostRow extends StatelessWidget {
 								onTap?.call();
 							}
 						},
-						child: isDeletedStub ? const SizedBox(height: 14) : Text.rich(
+						child: isDeletedStub ? const SizedBox(height: 0) : RichTextWithBottomRightCornerWidget(
 							TextSpan(
 								children: [
 									if (
@@ -515,24 +527,23 @@ class PostRow extends StatelessWidget {
 											hideThumbnails: hideThumbnails
 										),
 										stripTrailingNewline: true,
-										postInject: showReplyCount ? (overrideReplyCount != null ? WidgetSpan(
-											alignment: PlaceholderAlignment.top,
-											child: Visibility(
-												visible: false,
-												maintainSize: true,
-												maintainAnimation: true,
-												maintainState: true,
-												child: Padding(
-													padding: const EdgeInsets.only(left: 8, right: 8),
-													child: overrideReplyCount!
-												)
-											)
-										) : ((settings.cloverStyleRepliesButton || replyIds.isEmpty) ? null : WidgetSpan(
-											child: SizedBox(width: (4 + replyIds.length.numberOfDigitsLinear) * 8)
-										))) : null
+										postInject: const TextSpan(text: '\n ', style: TextStyle(fontSize: 16, height: 1))
 									)
 								]
 							),
+							assumeTopMargin: 8.0,
+							cornerWidget: showReplyCount ? (overrideReplyCount != null ? Visibility(
+								visible: false,
+								maintainSize: true,
+								maintainAnimation: true,
+								maintainState: true,
+								child: Padding(
+									padding: const EdgeInsets.only(left: 8, right: 8, top: 8, bottom: 16),
+									child: overrideReplyCount!
+								)
+							) : ((settings.cloverStyleRepliesButton || replyIds.isEmpty) ? null :
+								SizedBox(width: (4 + replyIds.length.numberOfDigitsLinear) * 8, height: 44)
+							)) : null,
 							overflow: TextOverflow.fade
 						)
 					)
@@ -1351,6 +1362,7 @@ class PostRow extends StatelessWidget {
 				style: expandedInlineWithin != null ? PostSpanZoneStyle.expandedInline : null,
 				child: (replyIds.isNotEmpty) ? SliderBuilder(
 					popup: PostsPage(
+						header: null,
 						postsIdsToShow: replyIds,
 						postIdForBackground: latestPost.id,
 						zone: parentZone.childZoneFor(latestPost.id),
