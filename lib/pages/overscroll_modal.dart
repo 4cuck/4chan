@@ -24,6 +24,7 @@ class OverscrollModalPage extends StatefulWidget {
 	final Widget Function(Widget child) selectionAreaBuilder;
 	final VoidCallback? onSlowScroll;
 	final bool increasePopDifficulty;
+	final bool disableOverscrollPop;
 
 	const OverscrollModalPage({
 		required this.child,
@@ -36,6 +37,7 @@ class OverscrollModalPage extends StatefulWidget {
 		this.selectionAreaBuilder = identity,
 		this.onSlowScroll,
 		this.increasePopDifficulty = false,
+		this.disableOverscrollPop = false,
 		super.key
 	}) : sliver = null;
 
@@ -50,6 +52,7 @@ class OverscrollModalPage extends StatefulWidget {
 		this.selectionAreaBuilder = identity,
 		this.onSlowScroll,
 		this.increasePopDifficulty = false,
+		this.disableOverscrollPop = false,
 		super.key
 	}) : child = null;
 
@@ -151,8 +154,11 @@ class OverscrollModalPageState extends State<OverscrollModalPage> {
 		final overscrollTop = _controller.position.minScrollExtent - _controller.position.pixels;
 		final overscrollBottom = _controller.position.pixels - _controller.position.maxScrollExtent;
 		if (
-			((overscrollTop > (50 - _scrollStopPosition)) && (!widget.increasePopDifficulty || downData.$4.extentBefore <= 0)) ||
-			((overscrollBottom > (50 - _scrollStopPosition)) && (!widget.increasePopDifficulty || downData.$4.extentAfter <= 0))
+			!widget.disableOverscrollPop &&
+			(
+				((overscrollTop > (50 - _scrollStopPosition)) && (!widget.increasePopDifficulty || downData.$4.extentBefore <= 0)) ||
+				((overscrollBottom > (50 - _scrollStopPosition)) && (!widget.increasePopDifficulty || downData.$4.extentAfter <= 0))
+			)
 		) {
 			_popping = true;
 			widget.onPop?.call(((overscrollTop > overscrollBottom) ^ widget.reverse) ? AxisDirection.up : AxisDirection.down);

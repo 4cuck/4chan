@@ -165,6 +165,7 @@ Future<bool> showOwoVgCaptchaDialog({
 	final solved = await Navigator.of(context, rootNavigator: true).push<bool>(TransparentRoute(
 		builder: (dialogContext) => OverscrollModalPage(
 			increasePopDifficulty: true,
+			disableOverscrollPop: true,
 			child: Captcha4ChanCustom(
 				site: site,
 				request: request,
