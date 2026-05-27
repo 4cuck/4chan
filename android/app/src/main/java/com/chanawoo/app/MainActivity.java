@@ -1,4 +1,4 @@
-package com.moffatman.chan;
+package com.chanawoo.app;
 
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
@@ -59,14 +59,14 @@ import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.StandardMethodCodec;
 
 public class MainActivity extends FlutterFragmentActivity {
-    private static final String STORAGE_CHANNEL = "com.moffatman.chan/storage";
-    private static final String ANDROID_CHANNEL = "com.moffatman.chan/android";
-    private static final String NOTIFICATIONS_CHANNEL = "com.moffatman.chan/notifications";
-    private static final String CLIPBOARD_CHANNEL = "com.moffatman.chan/clipboard";
+    private static final String STORAGE_CHANNEL = "com.chanawoo.app/storage";
+    private static final String ANDROID_CHANNEL = "com.chanawoo.app/android";
+    private static final String NOTIFICATIONS_CHANNEL = "com.chanawoo.app/notifications";
+    private static final String CLIPBOARD_CHANNEL = "com.chanawoo.app/clipboard";
 
-    private static final String AUDIO_CHANNEL = "com.moffatman.chan/audio";
-    private static final String USER_AGENT_CHANNEL = "com.moffatman.chan/userAgent";
-    private static final String LAUNCH_URL_CHANNEL = "com.moffatman.chan/launchUrl";
+    private static final String AUDIO_CHANNEL = "com.chanawoo.app/audio";
+    private static final String USER_AGENT_CHANNEL = "com.chanawoo.app/userAgent";
+    private static final String LAUNCH_URL_CHANNEL = "com.chanawoo.app/launchUrl";
     private MethodChannel.Result folderResult;
 
     private MethodChannel.Result saveFileAsResult;
@@ -501,7 +501,7 @@ public class MainActivity extends FlutterFragmentActivity {
                     if (call.method.equals("launchUrl")) {
                         String url = call.argument("url");
                         // Force an actual external app, not just redirecting back to us
-                        ComponentName[] excludedComponentNames = {new ComponentName("com.moffatman.chan", "MainActivity")};
+                        ComponentName[] excludedComponentNames = {new ComponentName("com.chanawoo.app", "MainActivity")};
                         Intent launchIntent =
                                 new Intent(Intent.ACTION_VIEW)
                                         .setData(Uri.parse(url))

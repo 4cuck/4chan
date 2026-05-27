@@ -39,7 +39,7 @@ cd chan
 ```
 flutter pub get
 ```
-4. (Optional) Modify the package name (find-and-replace `com.moffatman.chan` with your own package identifier)
+4. (Optional) Modify the package name (find-and-replace `com.chanawoo.app` with your own package identifier)
     - This will let you create signing keys and create signed builds, which is necessary to install the app on your own iOS devices, or distribute Android APKs
 5. Run `build_runner` to create some necessary generated dart code
 ```

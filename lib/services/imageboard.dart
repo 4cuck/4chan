@@ -558,7 +558,7 @@ class Imageboard extends ChangeNotifier {
 const _devImageboardKey = 'devsite';
 final kDevBoard = ImageboardBoard(
 	name: 'chance',
-	title: 'Chance - Imageboard Browser',
+	title: 'Chanawoo - Imageboard Browser',
 	isWorksafe: true,
 	maxWebmDurationSeconds: 120,
 	webmAudioAllowed: false,

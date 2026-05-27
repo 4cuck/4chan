@@ -547,7 +547,7 @@ class _ChanAppState extends State<ChanApp> {
 											child: FilterZone(
 												filter: globalFilter,
 												child: materialStyle ? MaterialApp(
-													title: 'Chance',
+													title: 'Chanawoo',
 													debugShowCheckedModeBanner: false,
 													theme: theme.materialThemeData,
 													scrollBehavior: scrollBehavior,
@@ -558,7 +558,7 @@ class _ChanAppState extends State<ChanApp> {
 												) : Theme(
 													data: theme.materialThemeData,
 													child: CupertinoApp(
-														title: 'Chance',
+														title: 'Chanawoo',
 														debugShowCheckedModeBanner: false,
 														theme: theme.cupertinoThemeData,
 														scrollBehavior: scrollBehavior,
@@ -1585,7 +1585,7 @@ class ChanTabs extends ChangeNotifier {
 				alertError(_homePageState.context, 'Unrecognized link\n$link', null);
 			}
 		}
-		else if (link.toLowerCase().startsWith('sharemedia-com.moffatman.chan')) {
+		else if (link.toLowerCase().startsWith('sharemedia-com.chanawoo.app')) {
 			// ignore this, it is handled elsewhere
 		}
 		else {

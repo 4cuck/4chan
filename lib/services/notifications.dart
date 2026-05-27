@@ -93,7 +93,7 @@ class _UnifiedPushNotificationsToken implements _NotificationsToken {
 	};
 }
 
-const _platform = MethodChannel('com.moffatman.chan/notifications');
+const _platform = MethodChannel('com.chanawoo.app/notifications');
 
 const kPushNotificationsHelp =
 	'Notifications for (You)s will be sent while the app is closed.\n'

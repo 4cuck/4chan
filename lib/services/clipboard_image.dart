@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:mime/mime.dart';
 
-const _platform = MethodChannel('com.moffatman.chan/clipboard');
+const _platform = MethodChannel('com.chanawoo.app/clipboard');
 
 Future<bool> doesClipboardContainImage() async {
 	try {

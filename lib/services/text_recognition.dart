@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-const _platform = MethodChannel('com.moffatman.chan/textRecognition');
+const _platform = MethodChannel('com.chanawoo.app/textRecognition');
 
 typedef RecognizedTextBlock = ({String text, Rect rect});
 

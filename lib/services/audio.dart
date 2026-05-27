@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-const _platform = MethodChannel('com.moffatman.chan/audio');
+const _platform = MethodChannel('com.chanawoo.app/audio');
 
 Future<bool> areHeadphonesPluggedIn() async {
 	try {

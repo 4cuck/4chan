@@ -55,7 +55,7 @@ const _otherLanguages = {
 	'vi': 'Vietnamese',
 };
 
-const _platform = MethodChannel('com.moffatman.chan/translation');
+const _platform = MethodChannel('com.chanawoo.app/translation');
 
 bool nativeTranslationSupported = false;
 Future<void> initializeNativeTranslation() async {

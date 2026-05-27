@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-const _platform = MethodChannel('com.moffatman.chan/android');
+const _platform = MethodChannel('com.chanawoo.app/android');
 
 bool? impellerEnabled;
 bool? legacyStatusBarsEnabled;

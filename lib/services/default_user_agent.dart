@@ -1,7 +1,7 @@
 import 'package:chan/services/persistence.dart';
 import 'package:flutter/services.dart';
 
-const _platform = MethodChannel('com.moffatman.chan/userAgent');
+const _platform = MethodChannel('com.chanawoo.app/userAgent');
 
 Future<String?> _getDefaultUserAgent() async {
 	try {

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(runner LANGUAGES CXX)
 
 set(BINARY_NAME "chan")
-set(APPLICATION_ID "com.moffatman.chan")
+set(APPLICATION_ID "com.chanawoo.app")
 
 cmake_policy(SET CMP0063 NEW)
 

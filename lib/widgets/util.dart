@@ -662,7 +662,7 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 				type: "text",
 				sharePositionOrigin: null,
 				additionalOptions: {
-					if (imageboardTarget != null) 'Open in Chance': openInChance
+					if (imageboardTarget != null) 'Open in Chanawoo': openInChance
 				}
 			);
 		}

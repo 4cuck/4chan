@@ -64,6 +64,6 @@ class DefaultFirebaseOptions {
     projectId: 'chan-329813',
     storageBucket: 'chan-329813.appspot.com',
     iosClientId: '500583514678-mkce6tt2g3cjf59bblmh3ih30i9rp58r.apps.googleusercontent.com',
-    iosBundleId: 'com.moffatman.chan',
+    iosBundleId: 'com.chanawoo.app',
   );
 }

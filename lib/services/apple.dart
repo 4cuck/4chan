@@ -6,7 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:mutex/mutex.dart';
 
-const _platform = MethodChannel('com.moffatman.chan/apple');
+const _platform = MethodChannel('com.chanawoo.app/apple');
 
 bool isOnMac = false;
 bool isDevelopmentBuild = false;

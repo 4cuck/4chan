@@ -108,7 +108,7 @@ final behaviorSettings = [
 											...distributors.map((distributor) => AdaptiveDialogAction(
 												isDefaultAction: distributor == currentDistributor,
 												onPressed: () => Navigator.pop(context, distributor),
-												child: Text(distributor == 'com.moffatman.chan' ? 'Firebase (requires Google services)' : distributor)
+												child: Text(distributor == 'com.chanawoo.app' ? 'Firebase (requires Google services)' : distributor)
 											)),
 											AdaptiveDialogAction(
 												onPressed: () => Navigator.pop(context),

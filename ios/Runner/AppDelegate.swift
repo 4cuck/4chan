@@ -100,7 +100,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
       hostVC.view.alpha = 0.01
     }
     var currentActivity: NSUserActivity?
-    appleChannel = FlutterMethodChannel(name: "com.moffatman.chan/apple", binaryMessenger: controller.binaryMessenger)
+    appleChannel = FlutterMethodChannel(name: "com.chanawoo.app/apple", binaryMessenger: controller.binaryMessenger)
     appleChannel!.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "isOnMac") {
@@ -132,7 +132,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
           }
           else if currentActivity?.webpageURL != newUrl  {
             currentActivity?.resignCurrent()
-            currentActivity = NSUserActivity(activityType:"com.moffatman.chan.thread")
+            currentActivity = NSUserActivity(activityType:"com.chanawoo.app.thread")
             currentActivity!.webpageURL = newUrl
             currentActivity!.becomeCurrent()
           }
@@ -162,7 +162,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let notificationsChannel = FlutterMethodChannel(name: "com.moffatman.chan/notifications", binaryMessenger: controller.binaryMessenger)
+    let notificationsChannel = FlutterMethodChannel(name: "com.chanawoo.app/notifications", binaryMessenger: controller.binaryMessenger)
     notificationsChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "clearNotificationsWithProperties") {
@@ -197,7 +197,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let clipboardChannel = FlutterMethodChannel(name: "com.moffatman.chan/clipboard", binaryMessenger: controller.binaryMessenger)
+    let clipboardChannel = FlutterMethodChannel(name: "com.chanawoo.app/clipboard", binaryMessenger: controller.binaryMessenger)
     clipboardChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "doesClipboardContainImage") {
@@ -238,7 +238,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let textRecognitionChannel = FlutterMethodChannel(name: "com.moffatman.chan/textRecognition", binaryMessenger: controller.binaryMessenger)
+    let textRecognitionChannel = FlutterMethodChannel(name: "com.chanawoo.app/textRecognition", binaryMessenger: controller.binaryMessenger)
     textRecognitionChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "recognizeText") {
@@ -289,7 +289,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let audioChannel = FlutterMethodChannel(name: "com.moffatman.chan/audio", binaryMessenger: controller.binaryMessenger)
+    let audioChannel = FlutterMethodChannel(name: "com.chanawoo.app/audio", binaryMessenger: controller.binaryMessenger)
     audioChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "areHeadphonesPluggedIn") {
@@ -299,7 +299,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let userAgentChannel = FlutterMethodChannel(name: "com.moffatman.chan/userAgent", binaryMessenger: controller.binaryMessenger)
+    let userAgentChannel = FlutterMethodChannel(name: "com.chanawoo.app/userAgent", binaryMessenger: controller.binaryMessenger)
     userAgentChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "getDefaultUserAgent") {
@@ -309,7 +309,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let storageChannel = FlutterMethodChannel(name: "com.moffatman.chan/storage", binaryMessenger: controller.binaryMessenger)
+    let storageChannel = FlutterMethodChannel(name: "com.chanawoo.app/storage", binaryMessenger: controller.binaryMessenger)
     storageChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "pickDirectory") {
@@ -432,7 +432,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
         result(FlutterMethodNotImplemented)
       }
     })
-    let translationChannel = FlutterMethodChannel(name: "com.moffatman.chan/translation", binaryMessenger: controller.binaryMessenger)
+    let translationChannel = FlutterMethodChannel(name: "com.chanawoo.app/translation", binaryMessenger: controller.binaryMessenger)
     translationChannel.setMethodCallHandler({
       (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       if (call.method == "isSupported") {
@@ -534,7 +534,7 @@ class MyFileExportDelegate : NSObject, UIDocumentPickerDelegate {
   override func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
     if let fvc = application.keyWindow?.rootViewController as? FlutterViewController {
       restorationHandler([fvc])
-      if userActivity.activityType == "com.moffatman.chan.thread" {
+      if userActivity.activityType == "com.chanawoo.app.thread" {
         appleChannel?.invokeMethod("receivedHandoffUrl", arguments: [
           "url": userActivity.webpageURL?.absoluteString
         ])

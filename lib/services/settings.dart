@@ -1830,7 +1830,7 @@ class SavedSettings extends HiveObject {
 				gallerySavePath = kGallerySavePathGalleryPrefix;
 			}
 			else {
-				gallerySavePath = '${kGallerySavePathGalleryPrefix}Chance';
+				gallerySavePath = '${kGallerySavePathGalleryPrefix}Chanawoo';
 			}
 		}
 	}

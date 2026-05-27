@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:500583514678:android:d297a3fbce272458018e97",
         "android_client_info": {
-          "package_name": "com.moffatman.chan"
+          "package_name": "com.chanawoo.app"
         }
       },
       "oauth_client": [
@@ -34,7 +34,7 @@
               "client_id": "500583514678-mkce6tt2g3cjf59bblmh3ih30i9rp58r.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.moffatman.chan"
+                "bundle_id": "com.chanawoo.app"
               }
             }
           ]

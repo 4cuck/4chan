@@ -1,4 +1,4 @@
-package com.moffatman.chan;
+package com.chanawoo.app;
 
 import android.content.Context;
 import org.unifiedpush.android.foss_embedded_fcm_distributor.EmbeddedDistributorReceiver;
