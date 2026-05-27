@@ -44,3 +44,20 @@ Future<void> openGoogleTranslate(String text) async {
 		'text': text
 	});
 }
+
+/// Copies Hive data from a co-installed [com.moffatman.chan] app when signed with the same key.
+Future<bool> migrateLegacyChanceAppDataIfNeeded() async {
+	if (!Platform.isAndroid) {
+		return false;
+	}
+	try {
+		return await _platform.invokeMethod<bool>('migrateLegacyChanceAppData') ?? false;
+	}
+	on MissingPluginException {
+		return false;
+	}
+	catch (e, st) {
+		Future.error(e, st);
+		return false;
+	}
+}

@@ -61,6 +61,7 @@ import io.flutter.plugin.common.StandardMethodCodec;
 public class MainActivity extends FlutterFragmentActivity {
     private static final String STORAGE_CHANNEL = "com.chanawoo.app/storage";
     private static final String ANDROID_CHANNEL = "com.chanawoo.app/android";
+    private static final String LEGACY_CHANCE_PACKAGE = "com.moffatman.chan";
     private static final String NOTIFICATIONS_CHANNEL = "com.chanawoo.app/notifications";
     private static final String CLIPBOARD_CHANNEL = "com.chanawoo.app/clipboard";
 
@@ -396,6 +397,9 @@ public class MainActivity extends FlutterFragmentActivity {
                             result.error("JAVA_EXCEPTION", e.getMessage(), null);
                         }
                     }
+                    else if (call.method.equals("migrateLegacyChanceAppData")) {
+                        result.success(migrateLegacyChanceAppData());
+                    }
                     else {
                         result.notImplemented();
                     }
@@ -519,5 +523,62 @@ public class MainActivity extends FlutterFragmentActivity {
                     }
                 }
         );
+    }
+
+    private static void copyFile(File source, File destination) throws IOException {
+        try (InputStream in = new FileInputStream(source);
+             FileOutputStream out = new FileOutputStream(destination)) {
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = in.read(buffer)) > 0) {
+                out.write(buffer, 0, len);
+            }
+        }
+    }
+
+    private static void copyDirectory(File source, File destination) throws IOException {
+        if (!destination.exists() && !destination.mkdirs()) {
+            throw new IOException("Could not create " + destination);
+        }
+        File[] files = source.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            File destFile = new File(destination, file.getName());
+            if (file.isDirectory()) {
+                copyDirectory(file, destFile);
+            } else {
+                copyFile(file, destFile);
+            }
+        }
+    }
+
+    private boolean migrateLegacyChanceAppData() {
+        if (LEGACY_CHANCE_PACKAGE.equals(getPackageName())) {
+            return false;
+        }
+        File targetDir = new File(getApplicationInfo().dataDir, "app_flutter");
+        File targetSettings = new File(targetDir, "settings.hive");
+        if (targetSettings.exists()) {
+            return false;
+        }
+        try {
+            Context legacyContext = createPackageContext(LEGACY_CHANCE_PACKAGE, Context.CONTEXT_IGNORE_SECURITY);
+            File legacyDir = new File(legacyContext.getApplicationInfo().dataDir, "app_flutter");
+            if (!legacyDir.exists()) {
+                return false;
+            }
+            File legacySettings = new File(legacyDir, "settings.hive");
+            if (!legacySettings.exists()) {
+                return false;
+            }
+            copyDirectory(legacyDir, targetDir);
+            Log.i("Chanawoo", "Migrated app data from " + LEGACY_CHANCE_PACKAGE);
+            return true;
+        } catch (Exception e) {
+            Log.w("Chanawoo", "Could not migrate legacy Chance data: " + e.getMessage());
+            return false;
+        }
     }
 }

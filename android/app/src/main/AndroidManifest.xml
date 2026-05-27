@@ -156,7 +156,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="chanawoo" />
+                <data android:scheme="chance" />
             </intent-filter>
         </activity>
         <receiver android:enabled="true"  android:name=".EmbeddedDistributor" android:exported="false">

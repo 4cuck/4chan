@@ -14,6 +14,7 @@ import 'package:chan/pages/board.dart';
 import 'package:chan/pages/master_detail.dart';
 import 'package:chan/pages/thread.dart';
 import 'package:chan/pages/web_image_picker.dart';
+import 'package:chan/services/android.dart';
 import 'package:chan/services/bytes.dart';
 import 'package:chan/services/cookies.dart';
 import 'package:chan/services/filtering.dart';
@@ -493,6 +494,9 @@ class Persistence extends ChangeNotifier {
 			Hive.init(Directory.systemTemp.path);
 		}
 		else {
+			if (Platform.isAndroid) {
+				await migrateLegacyChanceAppDataIfNeeded();
+			}
 			await Hive.initFlutter();
 		}
 		Hive.registerAdapter(const PostAdapter());
