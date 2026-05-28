@@ -193,8 +193,8 @@ Future<PostReceipt> megucaSubmitPostViaHttp({
   }
   if (status == 403 && lower.contains('websocket connection')) {
     throw PostFailedException(
-      'awoo.cf blocked HTTP posting for new IPs. Install Chanawoo v1.3.0+134 or '
-      'newer, and ensure awoo.cf has MEGUCA_CHANCE_UA_SECRET set to match the app build.',
+      'awoo.cf blocked HTTP posting for new IPs. Use Chanawoo v1.3.0+134+ with a '
+      'valid signed chance/ User-Agent (HMAC secret must match the server).',
     );
   }
   if (status == 403 && (lower.contains('banned') || lower.contains('ban'))) {
