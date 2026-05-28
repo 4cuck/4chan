@@ -113,7 +113,48 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     return _extensions?[fileType] ?? megucaFileExtensions[fileType] ?? 'jpg';
   }
 
-  static PostNodeSpan makeSpan(String board, int threadId, String htmlBody) {
+  static Map<int, ({String board, int threadId})> _parseMegucaLinks(dynamic ln, String defaultBoard) {
+    if (ln is! List) {
+      return const {};
+    }
+    final links = <int, ({String board, int threadId})>{};
+    for (final raw in ln) {
+      if (raw is! Map) {
+        continue;
+      }
+      final postId = (raw['i'] as num?)?.toInt();
+      final targetThreadId = (raw['o'] as num?)?.toInt();
+      final linkBoard = raw['bd'] as String? ?? defaultBoard;
+      if (postId != null && targetThreadId != null) {
+        links[postId] = (board: linkBoard, threadId: targetThreadId);
+      }
+    }
+    return links;
+  }
+
+  static PostQuoteLinkSpan _megucaQuoteLink({
+    required String board,
+    required int threadId,
+    required int postId,
+    required Map<int, ({String board, int threadId})> links,
+  }) {
+    final target = links[postId];
+    if (target != null) {
+      return PostQuoteLinkSpan(
+        board: target.board,
+        threadId: target.threadId,
+        postId: postId,
+      );
+    }
+    return PostQuoteLinkSpan(board: board, threadId: threadId, postId: postId);
+  }
+
+  static PostNodeSpan makeSpan(
+    String board,
+    int threadId,
+    String htmlBody, {
+    Map<int, ({String board, int threadId})> links = const {},
+  }) {
     final body = parseFragment(htmlBody);
     int spoilerSpanId = 0;
 
@@ -132,7 +173,14 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
                 int.tryParse(RegExp(r'#p(\d+)').firstMatch(node.attributes['href'] ?? '')?.group(1) ?? '');
             final href = node.attributes['href'] ?? '';
             if (id != null) {
-              if (href.startsWith('/') && href.contains('/')) {
+              final fromLinks = links[id];
+              if (fromLinks != null) {
+                yield PostQuoteLinkSpan(
+                  board: fromLinks.board,
+                  threadId: fromLinks.threadId,
+                  postId: id,
+                );
+              } else if (href.startsWith('/') && href.contains('/')) {
                 final parts = href.split('/').where((s) => s.isNotEmpty).toList(growable: false);
                 if (parts.length >= 2 && parts[0] != board) {
                   yield PostQuoteLinkSpan(
@@ -165,7 +213,12 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
             yield* visit(node.nodes);
           }
         } else if (node.text != null && node.text!.isNotEmpty) {
-          yield* parsePlainMegucaText(node.text!, board: board, threadId: threadId);
+          yield* parsePlainMegucaText(
+            node.text!,
+            board: board,
+            threadId: threadId,
+            links: links,
+          );
         }
       }
     }
@@ -181,14 +234,24 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   static final _quoteLinkPattern = RegExp(r'>>(>?)(\d+)\b');
   static final _crossBoardPattern = RegExp(r'>>>(>?)\/(\w+)\/(\d+)?');
 
-  static Iterable<PostSpan> parsePlainMegucaText(String text, {required String board, required int threadId}) sync* {
+  static Iterable<PostSpan> parsePlainMegucaText(
+    String text, {
+    required String board,
+    required int threadId,
+    Map<int, ({String board, int threadId})> links = const {},
+  }) sync* {
     final lines = text.split('\n');
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       // A "greentext" line (starts with `>` but not `>>N` or `>>>/`). Real
       // post links use `>>` and we don't want to wrap those in a quote span.
       final isGreentext = line.startsWith('>') && !line.startsWith('>>');
-      final spans = _linkifyLine(line, board: board, threadId: threadId).toList(growable: false);
+      final spans = _linkifyLine(
+        line,
+        board: board,
+        threadId: threadId,
+        links: links,
+      ).toList(growable: false);
       if (spans.isEmpty) {
         // empty line
       } else if (isGreentext) {
@@ -202,7 +265,12 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     }
   }
 
-  static Iterable<PostSpan> _linkifyLine(String line, {required String board, required int threadId}) sync* {
+  static Iterable<PostSpan> _linkifyLine(
+    String line, {
+    required String board,
+    required int threadId,
+    Map<int, ({String board, int threadId})> links = const {},
+  }) sync* {
     if (line.isEmpty) return;
     var cursor = 0;
     // Track the running list of segments. We scan for both link kinds and
@@ -244,7 +312,12 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       } else {
         final m = quoteMatch!;
         final postId = int.parse(m.group(2)!);
-        yield PostQuoteLinkSpan(board: board, threadId: threadId, postId: postId);
+        yield _megucaQuoteLink(
+          board: board,
+          threadId: threadId,
+          postId: postId,
+          links: links,
+        );
         cursor += m.end;
       }
     }
@@ -256,6 +329,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     final name = [data['n'], data['tr']].whereType<String>().where((s) => s.isNotEmpty).join('');
     final body = data['b'] as String? ?? '';
     final posterId = data['pid'] as String?;
+    final links = _parseMegucaLinks(data['ln'], board);
     final post = Post(
       board: board,
       text: body,
@@ -267,7 +341,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       spanFormat: PostSpanFormat.jsChan,
       attachments_: _parseImage(data['im'], board, threadId, id),
     );
-    post.setSpan(makeSpan(board, threadId, body));
+    post.setSpan(makeSpan(board, threadId, body, links: links));
     return post;
   }
 
@@ -389,12 +463,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   @override
   @protected
   RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant, bool liveRefresh = false}) {
-    // Initial thread open uses megucaThreadLastN (default 1000). Live refresh
-    // polls with a separate, smaller window (megucaThreadRefreshLastN,
-    // default 10) so the server only serializes a handful of recent posts.
-    final lastN = liveRefresh
-        ? Settings.instance.megucaThreadRefreshLastN
-        : Settings.instance.megucaThreadLastN;
+    final lastN = Settings.instance.megucaThreadLastN;
     return RequestOptions(
       path: '/json/boards/${thread.board}/${thread.id}',
       baseUrl: 'https://$baseUrl',
@@ -406,9 +475,6 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       extra: {kPriority: RequestPriority.functional},
     );
   }
-
-  @override
-  bool get supportsPartialThreadRefresh => true;
 
   @override
   @protected

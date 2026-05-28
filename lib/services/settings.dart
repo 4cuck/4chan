@@ -1333,8 +1333,6 @@ class SavedSettings extends HiveObject {
   bool useAlternativeGalleryLayout;
   @HiveField(235)
   int megucaThreadLastN;
-  @HiveField(236)
-  int megucaThreadRefreshLastN;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1572,7 +1570,6 @@ class SavedSettings extends HiveObject {
     bool? showActiveDownloadsAboveArchivedDownloads,
     bool? useAlternativeGalleryLayout,
     int? megucaThreadLastN,
-    int? megucaThreadRefreshLastN,
   })  : autoloadAttachments =
             autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
         theme = theme ?? TristateSystemSetting.system,
@@ -1868,8 +1865,7 @@ class SavedSettings extends HiveObject {
         reverseDownloadedThreadsSorting = reverseDownloadedThreadsSorting ?? false,
         showActiveDownloadsAboveArchivedDownloads = showActiveDownloadsAboveArchivedDownloads ?? true,
         useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false,
-        megucaThreadLastN = megucaThreadLastN ?? 1000,
-        megucaThreadRefreshLastN = megucaThreadRefreshLastN ?? 10 {
+        megucaThreadLastN = megucaThreadLastN ?? 1000 {
         if (!this.appliedMigrations.contains('filters')) {
       this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
           RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
@@ -3598,12 +3594,6 @@ class Settings extends ChangeNotifier {
       SavedSetting(SavedSettingsFields.megucaThreadLastN);
   int get megucaThreadLastN => megucaThreadLastNSetting(this);
   set megucaThreadLastN(int value) => megucaThreadLastNSetting.set(this, value);
-
-  static const megucaThreadRefreshLastNSetting =
-      SavedSetting(SavedSettingsFields.megucaThreadRefreshLastN);
-  int get megucaThreadRefreshLastN => megucaThreadRefreshLastNSetting(this);
-  set megucaThreadRefreshLastN(int value) =>
-      megucaThreadRefreshLastNSetting.set(this, value);
 
   static const downloadInterFileDelayMsSetting =
       SavedSetting(SavedSettingsFields.downloadInterFileDelayMs);

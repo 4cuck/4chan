@@ -27,11 +27,7 @@ extension _Helper on ImageboardSite {
 				},
 				headers: {
 					...baseOptions.headers,
-					// Meguca (and any site with partial refresh) keys JSON off
-					// ETag/update_time, not If-Modified-Since. Sending IMS can
-					// yield false 304s; always re-fetch the small refresh window.
-					if (lastModified != null && !supportsPartialThreadRefresh)
-						HttpHeaders.ifModifiedSinceHeader: lastModified.toHttpHeader
+					if (lastModified != null) HttpHeaders.ifModifiedSinceHeader: lastModified.toHttpHeader
 				},
 				cancelToken: cancelToken
 			));
@@ -98,7 +94,7 @@ mixin Http304CachingThreadMixin on ImageboardSite {
 		required RequestPriority priority,
 		CancelToken? cancelToken
 	}) => _helper(
-		baseOptions: getThreadRequest(thread, variant: variant, liveRefresh: true),
+		baseOptions: getThreadRequest(thread, variant: variant),
 		lastModified: lastModified,
 		func: (response) async {
 			final t = await makeThread(thread, response, variant: variant, priority: priority, cancelToken: cancelToken);

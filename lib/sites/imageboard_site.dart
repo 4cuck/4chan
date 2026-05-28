@@ -2044,9 +2044,6 @@ abstract class ImageboardSiteArchive {
 		}
 	}
 	bool get hasPagedCatalog => false;
-	/// When true, [getThreadIfModifiedSince] may be used even if the cached
-	/// thread was loaded with a partial `last=N` window (e.g. Meguca).
-	bool get supportsPartialThreadRefresh => false;
 	bool get isArchive => this is! ImageboardSite;
 
 	void _garbageCollectCache(Timer _) {

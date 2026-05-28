@@ -494,7 +494,7 @@ final behaviorSettings = [
 	const SegmentedSettingWidget(
 		description: 'awoo.cf — load only the last N posts per thread',
 		icon: CupertinoIcons.list_number,
-		helpText: 'Used when you first open a thread. Awoo.cf threads can have 10,000+ posts; showing only the latest N keeps scrolling smooth on mobile. Pick 0 to load the entire thread.',
+		helpText: 'Awoo.cf threads can have 10,000+ posts. Showing only the latest N keeps scrolling smooth on mobile. Pick 0 to load the entire thread. Used for both opening a thread and live refresh.',
 		children: {
 			100: (null, '100'),
 			250: (null, '250'),
@@ -505,20 +505,6 @@ final behaviorSettings = [
 			0: (null, 'All'),
 		},
 		setting: Settings.megucaThreadLastNSetting
-	),
-	const SegmentedSettingWidget(
-		description: 'awoo.cf — live refresh post window',
-		icon: CupertinoIcons.arrow_2_circlepath,
-		helpText: 'While a thread is open or watched, polls fetch only the latest N posts (then merge new ones into what you already have). Smaller values are easier on the server.',
-		children: {
-			1: (null, '1'),
-			5: (null, '5'),
-			10: (null, '10'),
-			25: (null, '25'),
-			50: (null, '50'),
-			100: (null, '100'),
-		},
-		setting: Settings.megucaThreadRefreshLastNSetting
 	),
 	const SwitchSettingWidget(
 		description: 'Auto-watch thread when creating',
