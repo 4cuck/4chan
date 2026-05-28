@@ -23,6 +23,7 @@ Upstream development continues on the original repository. Chanawoo tracks that 
 - **CopyParty sync** — optional CopyParty server backend for downloaded thread media.
 - **Kuroba import/export** — import threads from Kuroba backups; export and bulk-manage downloaded threads.
 - **Hide/unhide images** — per-image hide filter by MD5.
+- **Alternative gallery (quilt layout)** — optional quilt-style gallery and updated media viewer (Settings → Appearance).
 - **Side-by-side install** — different package ID from Play Store / upstream Chance, so both apps can be installed at once.
 - **Same gallery album and deep links as Chance** — saved images go to the **Chance** gallery album by default, and `chance://` deep links open in Chanawoo.
 - **One-time app data migration** — on first launch, if Chanawoo has no settings yet and a co-installed `com.moffatman.chan` app exists with the **same signing key**, Hive data is copied automatically. Play Store Chance uses a different key, so migration works for fork / sideload builds only, not live sharing with the official app.
@@ -83,6 +84,12 @@ flutter pub run build_runner build
 ```
 flutter build apk --split-per-abi --release
 ```
+   To enable the signed `chance/<install>/<bucket>/<sig>` User-Agent that
+   Meguca-based servers (awoo.cf) use to whitelist HTTP posting from this
+   app, pass `--dart-define=CHANCE_UA_SECRET=...` and set the matching
+   `MEGUCA_CHANCE_UA_SECRET` env var on the server side. Without the secret
+   the UA still rotates per build but the server-side bypass is disabled
+   and new IPs go through the normal posting flow.
 7. To build for iOS (Mac and Xcode required):
 ```
 flutter build ios --release

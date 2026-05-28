@@ -10,6 +10,7 @@ import 'package:chan/services/recaptchav2.dart';
 import 'package:chan/services/recaptchav3.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/util.dart';
+import 'package:chan/services/meguca/captcha.dart';
 import 'package:chan/sites/imageboard_site.dart';
 import 'package:chan/util.dart';
 import 'package:chan/widgets/adaptive.dart';
@@ -230,6 +231,8 @@ Future<CaptchaSolution?> solveCaptcha({
 			));
 		case HCaptchaRequest():
 			return solveHCaptcha(site, request);
+		case MegucaCaptchaRequest():
+			return solveMegucaPostingCaptcha(site, request, cancelToken: cancelToken);
 		case SimpleTextCaptchaRequest():
 			final controller = TextEditingController();
 				try {

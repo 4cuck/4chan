@@ -42,7 +42,16 @@ class JsonCache {
 			}, options: Options(responseType: ResponseType.json, headers: {
 				HttpHeaders.userAgentHeader: 'Chance/$kChanceVersion'
 			}));
-			return (response.data!['data'] as Map).cast<String, Map>();
+			final remote = (response.data!['data'] as Map).cast<String, Map>();
+			return {
+				...remote,
+				'awoo': {
+					'type': 'meguca',
+					'name': 'awoo',
+					'baseUrl': 'awoo.cf',
+					'defaultUsername': 'Anonymous',
+				},
+			};
 		},
 		caster: (data) => (data as Map).cast<String, Map>(),
 		defaultValue: null // force download

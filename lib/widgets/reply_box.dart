@@ -101,27 +101,27 @@ class ReplyBox extends StatefulWidget {
 	final VoidCallback? onVisibilityChanged;
 	final bool isArchived;
 	final bool fullyExpanded;
-	final ValueChanged<ReplyBoxState>? onInitState;
+  final ValueChanged<ReplyBoxState>? onInitState;
 
-	const ReplyBox({
-		required this.board,
-		this.threadId,
-		required this.onReplyPosted,
-		this.initialDraft,
-		required this.onDraftChanged,
-		this.onVisibilityChanged,
-		this.isArchived = false,
-		this.fullyExpanded = false,
-		this.onInitState,
-		Key? key
-	}) : super(key: key);
+  const ReplyBox({
+    required this.board,
+    this.threadId,
+    required this.onReplyPosted,
+    this.initialDraft,
+    required this.onDraftChanged,
+    this.onVisibilityChanged,
+    this.isArchived = false,
+    this.fullyExpanded = false,
+    this.onInitState,
+    Key? key
+  }) : super(key: key);
 
 	@override
 	createState() => ReplyBoxState();
 }
 
 class ReplyBoxState extends State<ReplyBox> {
-	final _textFieldKey = GlobalKey<AdaptiveTextFieldState>(debugLabel: 'ReplyBoxState._textFieldKey');
+  final _textFieldKey = GlobalKey<AdaptiveTextFieldState>(debugLabel: 'ReplyBoxState._textFieldKey');
 	late final TextEditingController _textFieldController;
 	late final TextEditingController _nameFieldController;
 	late final TextEditingController _subjectFieldController;

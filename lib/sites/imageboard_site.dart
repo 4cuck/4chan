@@ -44,6 +44,7 @@ import 'package:chan/sites/lynxchan.dart';
 import 'package:chan/sites/reddit.dart';
 import 'package:chan/sites/soyjak.dart';
 import 'package:chan/sites/lainchan2.dart';
+import 'package:chan/sites/meguca.dart';
 import 'package:chan/sites/wizchan.dart';
 import 'package:chan/sites/xenforo.dart';
 import 'package:chan/util.dart';
@@ -921,6 +922,13 @@ class HCaptchaRequest extends CaptchaRequest {
 	});
 	@override
 	String toString() => 'HCaptchaRequest(hostPage: $hostPage, siteKey: $siteKey)';
+}
+
+class MegucaCaptchaRequest extends CaptchaRequest {
+	final String board;
+	const MegucaCaptchaRequest({required this.board});
+	@override
+	String toString() => 'MegucaCaptchaRequest(board: $board)';
 }
 
 class SimpleTextCaptchaRequest extends CaptchaRequest {
@@ -3031,6 +3039,20 @@ ImageboardSite makeSite(Map data) {
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
+		);
+	}
+	else if (data['type'] == 'meguca') {
+		return SiteMeguca(
+			baseUrl: data['baseUrl'] as String,
+			name: data['name'] as String,
+			imageUrl: data['imageUrl'] as String?,
+			defaultUsername: data['defaultUsername'] as String? ?? 'Anonymous',
+			overrideUserAgent: overrideUserAgent,
+			addIntrospectedHeaders: addIntrospectedHeaders,
+			archives: archives,
+			imageHeaders: imageHeaders,
+			videoHeaders: videoHeaders,
+			worksafeBoards: (data['worksafeBoards'] as List?)?.cast<String>().toSet() ?? const {'c'},
 		);
 	}
 	else if (data['type'] == 'jforum') {

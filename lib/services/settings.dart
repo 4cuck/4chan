@@ -1331,6 +1331,8 @@ class SavedSettings extends HiveObject {
   bool showActiveDownloadsAboveArchivedDownloads;
   @HiveField(234)
   bool useAlternativeGalleryLayout;
+  @HiveField(235)
+  int megucaThreadLastN;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1567,6 +1569,7 @@ class SavedSettings extends HiveObject {
     bool? reverseDownloadedThreadsSorting,
     bool? showActiveDownloadsAboveArchivedDownloads,
     bool? useAlternativeGalleryLayout,
+    int? megucaThreadLastN,
   })  : autoloadAttachments =
             autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
         theme = theme ?? TristateSystemSetting.system,
@@ -1861,7 +1864,8 @@ class SavedSettings extends HiveObject {
         downloadedThreadsSortingMethod = downloadedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
         reverseDownloadedThreadsSorting = reverseDownloadedThreadsSorting ?? false,
         showActiveDownloadsAboveArchivedDownloads = showActiveDownloadsAboveArchivedDownloads ?? true,
-        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false {
+        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false,
+        megucaThreadLastN = megucaThreadLastN ?? 1000 {
         if (!this.appliedMigrations.contains('filters')) {
       this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
           RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
@@ -3585,6 +3589,11 @@ class Settings extends ChangeNotifier {
       SavedSetting(SavedSettingsFields.useAlternativeGalleryLayout);
   bool get useAlternativeGalleryLayout =>
       useAlternativeGalleryLayoutSetting(this);
+
+  static const megucaThreadLastNSetting =
+      SavedSetting(SavedSettingsFields.megucaThreadLastN);
+  int get megucaThreadLastN => megucaThreadLastNSetting(this);
+  set megucaThreadLastN(int value) => megucaThreadLastNSetting.set(this, value);
 
   static const downloadInterFileDelayMsSetting =
       SavedSetting(SavedSettingsFields.downloadInterFileDelayMs);

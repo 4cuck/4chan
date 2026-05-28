@@ -491,6 +491,21 @@ final behaviorSettings = [
 		},
 		setting: Settings.backgroundThreadAutoUpdatePeriodSecondsSetting
 	),
+	const SegmentedSettingWidget(
+		description: 'awoo.cf — load only the last N posts per thread',
+		icon: CupertinoIcons.list_number,
+		helpText: 'Awoo.cf threads can have 10,000+ posts. Showing only the latest N keeps scrolling smooth on mobile. Pick 0 to load the entire thread. The Meguca server clamps small values up to 100 internally.',
+		children: {
+			100: (null, '100'),
+			250: (null, '250'),
+			500: (null, '500'),
+			1000: (null, '1k'),
+			2500: (null, '2.5k'),
+			5000: (null, '5k'),
+			0: (null, 'All'),
+		},
+		setting: Settings.megucaThreadLastNSetting
+	),
 	const SwitchSettingWidget(
 		description: 'Auto-watch thread when creating',
 		icon: CupertinoIcons.bell,

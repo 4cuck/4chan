@@ -3019,6 +3019,17 @@ class SavedSettingsFields {
     fieldName: 'useAlternativeGalleryLayout',
     merger: PrimitiveMerger(),
   );
+  static int getMegucaThreadLastN(SavedSettings x) => x.megucaThreadLastN;
+  static void setMegucaThreadLastN(SavedSettings x, int v) =>
+      x.megucaThreadLastN = v;
+  static const int kMegucaThreadLastN = 235;
+  static const megucaThreadLastN = HiveFieldAdapter<SavedSettings, int>(
+    getter: getMegucaThreadLastN,
+    setter: setMegucaThreadLastN,
+    fieldNumber: kMegucaThreadLastN,
+    fieldName: 'megucaThreadLastN',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3253,13 +3264,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     231: SavedSettingsFields.downloadedThreadsSortingMethod,
     232: SavedSettingsFields.reverseDownloadedThreadsSorting,
     233: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads,
-    234: SavedSettingsFields.useAlternativeGalleryLayout
+    234: SavedSettingsFields.useAlternativeGalleryLayout,
+    235: SavedSettingsFields.megucaThreadLastN
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(235, null);
+    final List<dynamic> fields = List.filled(236, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3507,13 +3519,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       reverseDownloadedThreadsSorting: fields[232] as bool?,
       showActiveDownloadsAboveArchivedDownloads: fields[233] as bool?,
       useAlternativeGalleryLayout: fields[234] as bool?,
+      megucaThreadLastN: fields[235] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(222)
+      ..writeByte(223)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3957,7 +3970,9 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(233)
       ..write(obj.showActiveDownloadsAboveArchivedDownloads)
       ..writeByte(234)
-      ..write(obj.useAlternativeGalleryLayout);
+      ..write(obj.useAlternativeGalleryLayout)
+      ..writeByte(235)
+      ..write(obj.megucaThreadLastN);
   }
 
   @override
