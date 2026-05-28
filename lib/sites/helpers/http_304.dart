@@ -27,7 +27,11 @@ extension _Helper on ImageboardSite {
 				},
 				headers: {
 					...baseOptions.headers,
-					if (lastModified != null) HttpHeaders.ifModifiedSinceHeader: lastModified.toHttpHeader
+					// Meguca (and any site with partial refresh) keys JSON off
+					// ETag/update_time, not If-Modified-Since. Sending IMS can
+					// yield false 304s; always re-fetch the small refresh window.
+					if (lastModified != null && !supportsPartialThreadRefresh)
+						HttpHeaders.ifModifiedSinceHeader: lastModified.toHttpHeader
 				},
 				cancelToken: cancelToken
 			));

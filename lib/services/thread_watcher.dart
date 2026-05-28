@@ -298,6 +298,7 @@ class ThreadWatcher extends ChangeNotifier {
 		=> _updateThreadDebouncer.debounce(threadState, acceptCached, cancelToken);
 	Future<bool> __updateThread(PersistentThreadState threadState, CacheConstraints? acceptCached, CancelToken? cancelToken) async {
 		Thread newThread;
+		var incrementalChanged = false;
 		try {
 			final oldThread = await threadState.getThread();
 			if (oldThread != null && acceptCached != null) {
@@ -340,7 +341,29 @@ class ThreadWatcher extends ChangeNotifier {
 				}
 			}
 			final lastUpdatedTime = oldThread?.lastUpdatedTime ?? oldThread?.posts_.tryLast?.time;
-			if (oldThread != null && (oldThread.posts_.length >= (oldThread.replyCount + 1) || site.supportsPartialThreadRefresh) && lastUpdatedTime != null && oldThread.archiveName == null) {
+			if (oldThread != null &&
+					site.supportsPartialThreadRefresh &&
+					lastUpdatedTime != null &&
+					oldThread.archiveName == null) {
+				final fetched = await site.getThreadIfModifiedSince(
+					threadState.identifier,
+					lastUpdatedTime,
+					variant: threadState.variant,
+					priority: RequestPriority.functional,
+					cancelToken: cancelToken,
+				);
+				if (fetched != null) {
+					incrementalChanged =
+							oldThread.mergeIncrementalPosts(fetched.posts_, site);
+					if (fetched.lastUpdatedTime != null) {
+						oldThread.lastUpdatedTime = fetched.lastUpdatedTime;
+					}
+					newThread = oldThread;
+				} else {
+					newThread = oldThread;
+				}
+				await site.updatePageNumber(newThread, priority: RequestPriority.functional, cancelToken: cancelToken);
+			} else if (oldThread != null && (oldThread.posts_.length >= (oldThread.replyCount + 1) || site.supportsPartialThreadRefresh) && lastUpdatedTime != null && oldThread.archiveName == null) {
 				newThread = await site.getThreadIfModifiedSince(
 					threadState.identifier,
 					lastUpdatedTime,
@@ -390,6 +413,11 @@ class ThreadWatcher extends ChangeNotifier {
 			on BoardNotArchivedException {
 				return false;
 			}
+		}
+		if (site.supportsPartialThreadRefresh && incrementalChanged) {
+			threadState.thread = newThread;
+			await threadState.didMutateThread();
+			return true;
 		}
 		if (newThread != threadState.thread) {
 			final didMerge = newThread.mergePosts(threadState.thread, threadState.thread?.posts_ ?? [], site);

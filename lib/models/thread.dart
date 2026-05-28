@@ -353,6 +353,95 @@ class Thread extends HiveObject implements Filterable {
 		return anyChanges;
 	}
 
+	/// Apply posts from a small live-refresh fetch onto this thread.
+	///
+	/// Unlike [mergePosts] (which starts from the fetch and pulls the entire
+	/// cached thread back in, marking missing posts as deleted stubs), this
+	/// only updates posts that appeared in [fetched] and appends genuinely new
+	/// ones. Used for Meguca `?last=N` polling where the fetch window is much
+	/// smaller than the posts already on screen.
+	bool mergeIncrementalPosts(List<Post> fetched, ImageboardSite site) {
+		if (fetched.isEmpty) {
+			return false;
+		}
+		bool anyChanges = false;
+		final postIdToListIndex = {
+			for (final pair in posts_.asMap().entries) pair.value.id: pair.key
+		};
+		for (final fetchedPost in fetched) {
+			if (fetchedPost.id == id) {
+				if (posts_.isNotEmpty && posts_.first.id == id) {
+					posts_.first.migrateFrom(fetchedPost);
+					if (fetchedPost.attachments.isNotEmpty && attachmentDeleted) {
+						attachments = fetchedPost.attachments_;
+						attachmentDeleted = false;
+					}
+				}
+				continue;
+			}
+			final indexToReplace = postIdToListIndex[fetchedPost.id];
+			if (indexToReplace != null) {
+				final existing = posts_[indexToReplace];
+				if (existing.isStub ||
+						(existing.isDeleted && !fetchedPost.isDeleted)) {
+					anyChanges = true;
+					posts_.removeAt(indexToReplace);
+					fetchedPost.replyIds = existing.replyIds;
+					if (existing.isDeleted && !fetchedPost.isDeleted) {
+						posts_.insert(
+							indexToReplace,
+							fetchedPost.copyWith(
+								archiveName: const NullWrapper('Cached'),
+								isDeleted: true,
+							),
+						);
+					} else {
+						posts_.insert(indexToReplace, fetchedPost);
+					}
+				} else {
+					existing.migrateFrom(fetchedPost);
+				}
+			} else {
+				anyChanges = true;
+				final newIndex = posts_.indexWhere((p) => p.id > fetchedPost.id);
+				if (newIndex == -1) {
+					posts_.add(fetchedPost);
+					postIdToListIndex[fetchedPost.id] = posts_.length - 1;
+				} else {
+					posts_.insert(newIndex, fetchedPost);
+					for (int i = newIndex + 1; i < posts_.length; i++) {
+						postIdToListIndex[posts_[i].id] = i;
+					}
+					postIdToListIndex[fetchedPost.id] = newIndex;
+				}
+				for (final int? repliedToId in [
+					fetchedPost.parentId,
+					...fetchedPost.repliedToIds
+				]) {
+					final parentIndex = postIdToListIndex[repliedToId];
+					if (parentIndex != null) {
+						posts_[parentIndex].maybeAddReplyId(fetchedPost.id);
+					}
+				}
+			}
+		}
+		if (anyChanges && site.hasWeakQuoteLinks) {
+			final postTexts = <int, String>{};
+			for (final post in posts_) {
+				if (post.updateWeakQuoteLinks(postTexts)) {
+					for (final repliedToId in post.repliedToIds) {
+						final repliedToIndex = postIdToListIndex[repliedToId];
+						if (repliedToIndex != null) {
+							posts_[repliedToIndex].maybeAddReplyId(post.id);
+						}
+					}
+				}
+				postTexts[post.id] = post.buildText(forQuoteComparison: true);
+			}
+		}
+		return anyChanges;
+	}
+
 	@override
 	bool operator ==(Object other) =>
 		identical(this, other) ||

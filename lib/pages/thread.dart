@@ -1403,6 +1403,7 @@ class ThreadPageState extends State<ThreadPage> {
     // The thread might switch in this interval
     _checkForeground();
     final Thread newThread;
+    var incrementalMergeChanged = false;
     if (tmpPersistentState.useArchive) {
       newThread = await site.getThreadFromArchive(widget.thread,
           priority: _priority,
@@ -1417,6 +1418,31 @@ class ThreadPageState extends State<ThreadPage> {
         final lastUpdatedTime =
             oldThread?.lastUpdatedTime ?? oldThread?.posts_.tryLast?.time;
         if (oldThread != null &&
+            site.supportsPartialThreadRefresh &&
+            lastUpdatedTime != null &&
+            oldThread.archiveName == null) {
+          // Meguca live refresh: fetch a small ?last=N window and fold any
+          // new/updated posts into the thread we already have on screen.
+          final fetched = await site.getThreadIfModifiedSince(
+            widget.thread,
+            lastUpdatedTime,
+            variant: tmpPersistentState.variant,
+            priority: _priority,
+            cancelToken: cancelToken,
+          );
+          if (fetched != null) {
+            incrementalMergeChanged =
+                oldThread.mergeIncrementalPosts(fetched.posts_, site);
+            if (fetched.lastUpdatedTime != null) {
+              oldThread.lastUpdatedTime = fetched.lastUpdatedTime;
+            }
+            newThread = oldThread;
+          } else {
+            newThread = oldThread;
+          }
+          await site.updatePageNumber(newThread,
+              priority: _priority, cancelToken: cancelToken);
+        } else if (oldThread != null &&
             (oldThread.posts_.length >= (oldThread.replyCount + 1) ||
                 site.supportsPartialThreadRefresh) &&
             lastUpdatedTime != null &&
@@ -1452,7 +1478,12 @@ class ThreadPageState extends State<ThreadPage> {
           foreground: _foreground);
     }
     await _listController.whenDoneAutoScrolling;
-    if (tmpPersistentState.thread != null || newThread.archiveName == null) {
+    final usedIncrementalRefresh = oldThread != null &&
+        site.supportsPartialThreadRefresh &&
+        oldThread.archiveName == null &&
+        !firstLoad;
+    if (!usedIncrementalRefresh &&
+        (tmpPersistentState.thread != null || newThread.archiveName == null)) {
       // Don't try to merge catalogCache onto archived thread, it will think weAreOldThread
       newThread.mergePosts(
           tmpPersistentState.thread,
@@ -1464,7 +1495,8 @@ class ThreadPageState extends State<ThreadPage> {
     final loadedReferencedThreads =
         await _loadReferencedThreads(newThread, cancelToken: cancelToken);
     _checkForNewGeneral();
-    if (newThread != tmpPersistentState.thread) {
+    final threadContentChanged = incrementalMergeChanged;
+    if (newThread != tmpPersistentState.thread || threadContentChanged) {
       await newThread.preinit();
       tmpPersistentState.thread = newThread;
       if (persistentState == tmpPersistentState) {
