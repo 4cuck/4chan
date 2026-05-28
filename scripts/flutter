@@ -28,4 +28,4 @@ if [[ -f "$ENV_FILE" ]]; then
   done < "$ENV_FILE"
 fi
 
-exec flutter "${DEFINES[@]}" "$@"
+exec flutter "$@" "${DEFINES[@]}"
