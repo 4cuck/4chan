@@ -3,13 +3,14 @@ import 'dart:convert';
 import 'package:chan/services/settings.dart';
 import 'package:crypto/crypto.dart';
 
-/// Shared signing secret for the Chance User-Agent. Picked up at build time
-/// via `--dart-define=CHANCE_UA_SECRET=...`. When unset (e.g. local dev
-/// builds), the UA still carries a deterministic signature but the server
-/// won't verify it, so HTTP posting falls back to the normal onboarding
-/// path. Set the same value on both client and server (`MEGUCA_CHANCE_UA_SECRET`
-/// on the server side, see `/root/meguca/auth/chance_ua.go`) to enable the
-/// new-user bypass.
+/// Shared signing secret for the Chance User-Agent. Loaded at compile time from
+/// `CHANCE_UA_SECRET` in the repo-root `.env` file (Android Gradle builds pick
+/// this up automatically; use `./scripts/flutter` on other platforms). When
+/// unset, the UA still carries a deterministic signature but the server won't
+/// verify it, so HTTP posting falls back to the normal onboarding path. Set
+/// the same value on both client and server (`MEGUCA_CHANCE_UA_SECRET` on the
+/// server side, see `/root/meguca/auth/chance_ua.go`) to enable the new-user
+/// bypass.
 const String _chanceUASecret = String.fromEnvironment(
   'CHANCE_UA_SECRET',
   defaultValue: '',

@@ -1,3 +1,7 @@
+# Local build secrets (see .env.example)
+.env
+.dart_defines.json
+
 # Miscellaneous
 *.class
 *.lock

@@ -1,0 +1,45 @@
+// Load KEY=value pairs from the repo-root `.env` into Gradle's `dart-defines`
+// property (base64-encoded, same format as `flutter build --dart-define`).
+// Android `flutter build apk` / `flutter run` compile through Gradle, so this
+// applies without passing --dart-define on the command line.
+
+ext.readEnvDartDefines = {
+    def envFile = rootProject.file('../.env')
+    if (!envFile.exists()) {
+        return null
+    }
+    def defines = []
+    envFile.eachLine { line ->
+        line = line.trim()
+        if (line.isEmpty() || line.startsWith('#')) {
+            return
+        }
+        def eq = line.indexOf('=')
+        if (eq <= 0) {
+            return
+        }
+        def key = line.substring(0, eq).trim()
+        def value = line.substring(eq + 1).trim()
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.substring(1, value.length() - 1)
+        }
+        if (key.isEmpty() || value.isEmpty()) {
+            return
+        }
+        defines.add("${key}=${value}")
+    }
+    if (defines.isEmpty()) {
+        return null
+    }
+    return defines.collect { String define ->
+        define.bytes.encodeBase64().toString()
+    }.join(',')
+}
+
+def envDartDefines = readEnvDartDefines()
+def existingDartDefines = project.findProperty('dart-defines')?.toString()?.trim()
+if (envDartDefines != null && (existingDartDefines == null || existingDartDefines.isEmpty())) {
+    ext.set('dart-defines', envDartDefines)
+    logger.lifecycle('Loaded dart-defines from ../.env')
+}

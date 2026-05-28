@@ -80,24 +80,29 @@ flutter pub get
 ```
 flutter pub run build_runner build
 ```
-6. Build a release APK for Android:
+6. Copy local build secrets (gitignored):
 ```
-flutter build apk --split-per-abi --release
+cp .env.example .env
 ```
-   To enable the signed `chance/<install>/<bucket>/<sig>` User-Agent that
-   Meguca-based servers (awoo.cf) use to whitelist HTTP posting from this
-   app, pass `--dart-define=CHANCE_UA_SECRET=...` and set the matching
-   `MEGUCA_CHANCE_UA_SECRET` env var on the server side. Without the secret
-   the UA still rotates per build but the server-side bypass is disabled
-   and new IPs go through the normal posting flow.
-7. To build for iOS (Mac and Xcode required):
+   Edit `.env` and set `CHANCE_UA_SECRET` to the same value as
+   `MEGUCA_CHANCE_UA_SECRET` on your Meguca server (awoo.cf). Android builds
+   load this automatically via Gradle; no `--dart-define` needed.
+7. Build a release APK for Android:
 ```
-flutter build ios --release
+./scripts/build_release_apk.sh
 ```
-8. For development with a connected device:
+   Or equivalently: `flutter build apk --split-per-abi --release` (Gradle reads
+   `.env` on its own). For iOS/macOS/desktop, use `./scripts/flutter` instead
+   of plain `flutter` so the same `.env` values are passed through.
+8. To build for iOS (Mac and Xcode required):
+```
+./scripts/flutter build ios --release
+```
+9. For development with a connected device:
 ```
 flutter run
 ```
+   On Android, `flutter run` also picks up `.env` through Gradle.
 
 Chance upstream is developed on Flutter `master`; if you hit build errors, try `flutter channel dev` or `flutter channel master`.
 
