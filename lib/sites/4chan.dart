@@ -283,16 +283,19 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 			}
 		}
 		return linkify(text, linkifiers: fromSearchThread != null ? const [
+			MagnetLinkifier(),
 			LooseUrlLinkifier(),
 			ChanceLinkifier(),
 			LineBreakLinkifier(),
 			_QuoteLinkLinkifier(fake: false)
 		] : (findFakeQuotelinksOnBoard != null ? const [
+			MagnetLinkifier(),
 			LooseUrlLinkifier(),
 			ChanceLinkifier(),
 			LineBreakLinkifier(),
 			_QuoteLinkLinkifier(fake: true)
 		] : const [
+			MagnetLinkifier(),
 			LooseUrlLinkifier(),
 			ChanceLinkifier(),
 			LineBreakLinkifier()
@@ -328,7 +331,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	static final _mathPattern = RegExp(r'\[math\](.+?)\[\/math\]');
 	static final _eqnPattern = RegExp(r'\[eqn\](.+?)\[\/eqn\]');
 	static final _catalogSearchPattern = RegExp(r'^catalog#s=(.+)$');
-	static final _crossThreadQuoteLinkPattern = RegExp(r'^\/([^/]+)\/thread\/(\d+)(?:\/[^/]*)?#p(\d+)');
+	static final _crossThreadQuoteLinkPattern = RegExp(r'\/([^/]+)\/thread\/(\d+)(?:\/[^/]*)?#p(\d+)');
 
 	static PostNodeSpan makeSpan(String board, int threadId, String data, {bool fromSearch = false}) {
 		final fromSearchThread = fromSearch ? ThreadIdentifier(board, threadId) : null;
@@ -372,6 +375,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 						}
 						else if (_crossThreadQuoteLinkPattern.firstMatch(node.attributes['href']!) case final match?) {
 							// href looks like '/tv/thread/123456#p123457' or '/tv/thread/123456/title#p123457'
+							// or '//boards.4chan.org/lgbt/thread/43703757#p43703757'
 							elements.add(PostQuoteLinkSpan(
 								board: match.group(1)!,
 								threadId: match.group(2)!.parseInt,
