@@ -14,7 +14,7 @@ This fork adds **[owo.vg](https://owo.vg)** posting integration, offline thread 
 | owo.vg posting | — | Yes |
 | Thread download / CopyParty / Kuroba import | — | Yes |
 
-Upstream development continues on the original repository. Chanawoo tracks that codebase and layers fork-specific changes on top. Thread downloading and CopyParty sync are integrated from [Lystus/chan](https://github.com/Lystus/chan) (excluding cosmetic/theme changes).
+Upstream development continues on the original repository. Chanawoo tracks that codebase and layers fork-specific changes on top. Thread downloading, CopyParty sync, alternative gallery layout, and appearance options are integrated from [Lystus/chan](https://github.com/Lystus/chan).
 
 ## What's different in this fork
 

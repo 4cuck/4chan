@@ -1329,6 +1329,8 @@ class SavedSettings extends HiveObject {
   bool reverseDownloadedThreadsSorting;
   @HiveField(233)
   bool showActiveDownloadsAboveArchivedDownloads;
+  @HiveField(234)
+  bool useAlternativeGalleryLayout;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1564,6 +1566,7 @@ class SavedSettings extends HiveObject {
     ThreadSortingMethod? downloadedThreadsSortingMethod,
     bool? reverseDownloadedThreadsSorting,
     bool? showActiveDownloadsAboveArchivedDownloads,
+    bool? useAlternativeGalleryLayout,
   })  : autoloadAttachments =
             autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
         theme = theme ?? TristateSystemSetting.system,
@@ -1857,7 +1860,8 @@ class SavedSettings extends HiveObject {
         copypartyAutoUpload = copypartyAutoUpload ?? true,
         downloadedThreadsSortingMethod = downloadedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
         reverseDownloadedThreadsSorting = reverseDownloadedThreadsSorting ?? false,
-        showActiveDownloadsAboveArchivedDownloads = showActiveDownloadsAboveArchivedDownloads ?? true {
+        showActiveDownloadsAboveArchivedDownloads = showActiveDownloadsAboveArchivedDownloads ?? true,
+        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false {
         if (!this.appliedMigrations.contains('filters')) {
       this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
           RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
@@ -3576,6 +3580,11 @@ class Settings extends ChangeNotifier {
   static const copypartyAutoUploadSetting =
       SavedSetting(SavedSettingsFields.copypartyAutoUpload);
   bool get copypartyAutoUpload => copypartyAutoUploadSetting(this);
+
+  static const useAlternativeGalleryLayoutSetting =
+      SavedSetting(SavedSettingsFields.useAlternativeGalleryLayout);
+  bool get useAlternativeGalleryLayout =>
+      useAlternativeGalleryLayoutSetting(this);
 
   static const downloadInterFileDelayMsSetting =
       SavedSetting(SavedSettingsFields.downloadInterFileDelayMs);

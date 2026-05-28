@@ -3006,6 +3006,19 @@ class SavedSettingsFields {
     fieldName: 'showActiveDownloadsAboveArchivedDownloads',
     merger: PrimitiveMerger(),
   );
+  static bool getUseAlternativeGalleryLayout(SavedSettings x) =>
+      x.useAlternativeGalleryLayout;
+  static void setUseAlternativeGalleryLayout(SavedSettings x, bool v) =>
+      x.useAlternativeGalleryLayout = v;
+  static const int kUseAlternativeGalleryLayout = 234;
+  static const useAlternativeGalleryLayout =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getUseAlternativeGalleryLayout,
+    setter: setUseAlternativeGalleryLayout,
+    fieldNumber: kUseAlternativeGalleryLayout,
+    fieldName: 'useAlternativeGalleryLayout',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3239,13 +3252,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     230: SavedSettingsFields.copypartyAutoUpload,
     231: SavedSettingsFields.downloadedThreadsSortingMethod,
     232: SavedSettingsFields.reverseDownloadedThreadsSorting,
-    233: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads
+    233: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads,
+    234: SavedSettingsFields.useAlternativeGalleryLayout
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(234, null);
+    final List<dynamic> fields = List.filled(235, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3492,13 +3506,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       downloadedThreadsSortingMethod: fields[231] as ThreadSortingMethod?,
       reverseDownloadedThreadsSorting: fields[232] as bool?,
       showActiveDownloadsAboveArchivedDownloads: fields[233] as bool?,
+      useAlternativeGalleryLayout: fields[234] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(221)
+      ..writeByte(222)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3940,7 +3955,9 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(232)
       ..write(obj.reverseDownloadedThreadsSorting)
       ..writeByte(233)
-      ..write(obj.showActiveDownloadsAboveArchivedDownloads);
+      ..write(obj.showActiveDownloadsAboveArchivedDownloads)
+      ..writeByte(234)
+      ..write(obj.useAlternativeGalleryLayout);
   }
 
   @override

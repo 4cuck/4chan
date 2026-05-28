@@ -1021,7 +1021,8 @@ class ThreadPageState extends State<ThreadPage> {
   void _showGallery(
       {bool initiallyShowChrome = false,
       TaggedAttachment? initialAttachment,
-      bool initiallyShowGrid = false}) {
+      bool initiallyShowGrid = false,
+      bool openViewer = true}) {
     final imageboard = context.read<Imageboard>();
     final commonParentIds = [widget.boardSemanticId, 0];
     List<TaggedAttachment> attachments = _listController.items.expand((item) {
@@ -1101,7 +1102,8 @@ class ThreadPageState extends State<ThreadPage> {
           _listController
               .animateToIfOffscreen((p) => p.id == attachment.postId);
         },
-        heroOtherEndIsBoxFitCover: Settings.instance.squareThumbnails);
+        heroOtherEndIsBoxFitCover: Settings.instance.squareThumbnails,
+        openViewer: openViewer);
   }
 
   void _showGalleryFromNextImage({bool initiallyShowGrid = false}) {
@@ -1120,7 +1122,8 @@ class ThreadPageState extends State<ThreadPage> {
                     .followedBy(nextPostWithImage.parentIds),
                 imageboard: context.read<Imageboard>(),
                 postId: nextPostWithImage.item.id),
-            initiallyShowGrid: true);
+            initiallyShowGrid: initiallyShowGrid,
+            openViewer: false);
       }
     }
   }

@@ -716,7 +716,8 @@ class BoardPageState extends State<BoardPage> {
                 alignment: 0.5);
           },
           initiallyShowGrid: initiallyShowGrid,
-          heroOtherEndIsBoxFitCover: true); //settings.useCatalogGrid
+          heroOtherEndIsBoxFitCover: true, //settings.useCatalogGrid
+          openViewer: false);
     }
   }
 
