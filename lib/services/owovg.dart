@@ -165,6 +165,12 @@ class OwoVgService {
 		_cachedMetaAt = null;
 	}
 
+	/// Whether the last `/meta` fetch reported an active gold pass session.
+	static bool get cachedGold => _cachedMeta?.gold ?? false;
+
+	static bool isGoldUser(Site4Chan site, CookieJar cookies) =>
+		cachedGold || site.owoVgLoginSystem.isLoggedIn(cookies);
+
 	static List<(String, String)> parseRecycleIpOptions(String? ipMarkup) {
 		if (ipMarkup == null || ipMarkup.isEmpty) {
 			return const [('all', 'All')];

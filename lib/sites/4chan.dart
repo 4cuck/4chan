@@ -978,6 +978,14 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 
 	@override
 	Duration getActionCooldown(String board, ImageboardAction action, CookieJar cookies) {
+		if (Settings.instance.fourChanPostingBackend == OwoVgPostingBackend.owoVg &&
+		    OwoVgService.isGoldUser(this, cookies) &&
+		    switch (action) {
+		      ImageboardAction.postReply || ImageboardAction.postReplyWithImage || ImageboardAction.postThread => true,
+		      _ => false,
+		    }) {
+			return Duration.zero;
+		}
 		final b = persistence?.getBoard(board);
 		var (Duration cooldown, bool isPassReduced) = switch (action) {
 			ImageboardAction.postReply => (Duration(seconds: b?.replyCooldown ?? 0), true),
