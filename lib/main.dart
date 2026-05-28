@@ -42,6 +42,8 @@ import 'package:chan/services/streaming_mp4.dart';
 import 'package:chan/services/taskgraph.dart';
 import 'package:chan/services/taskstack.dart';
 import 'package:chan/services/theme.dart';
+import 'package:chan/services/copyparty_sync.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/thread_watcher.dart';
 import 'package:chan/services/tls.dart';
 import 'package:chan/services/translation.dart';
@@ -130,6 +132,8 @@ Future<void> innerMain() async {
 		]);
 		final tlsTask = Task('tls', initializeTls, [initializeDefaultUserAgentTask, persistenceTask]);
 		final mediaScanTask = Task('mediaScan', MediaScan.initializeStatic, [hiveTask]);
+		CopyPartySyncService.initializeStatic();
+		final threadDownloaderTask = Task('threadDownloader', ThreadDownloadService.initializeStatic, [persistenceTask]);
 		await executeTaskGraph([
 			initializeIsDevelopmentBuildTask,
 			initializeIsOnMacTask,
@@ -148,6 +152,7 @@ Future<void> innerMain() async {
 			jsonCacheTask,
 			mediaScanTask,
 			tlsTask,
+			threadDownloaderTask,
 			if (kDebugMode)
 				Task('resetAdditionalSafeAreaInsets', resetAdditionalSafeAreaInsets)
 		]);
@@ -363,7 +368,10 @@ class _ChanAppState extends State<ChanApp> {
 				context: context,
 				sites: _lastSites,
 				keys: _lastSiteKeys
-			).then(_precacheIcons);
+			).then((v) {
+				_precacheIcons(v);
+				ThreadDownloadService.instance.resumePending();
+			});
 		});
 		Settings.instance.addListener(_onSettingsUpdate);
 		JsonCache.instance.sites.addListener(_onSitesUpdate);
@@ -547,7 +555,7 @@ class _ChanAppState extends State<ChanApp> {
 											child: FilterZone(
 												filter: globalFilter,
 												child: materialStyle ? MaterialApp(
-													title: 'Chanawoo',
+													title: 'Chance',
 													debugShowCheckedModeBanner: false,
 													theme: theme.materialThemeData,
 													scrollBehavior: scrollBehavior,
@@ -558,7 +566,7 @@ class _ChanAppState extends State<ChanApp> {
 												) : Theme(
 													data: theme.materialThemeData,
 													child: CupertinoApp(
-														title: 'Chanawoo',
+														title: 'Chance',
 														debugShowCheckedModeBanner: false,
 														theme: theme.cupertinoThemeData,
 														scrollBehavior: scrollBehavior,
@@ -1585,7 +1593,7 @@ class ChanTabs extends ChangeNotifier {
 				alertError(_homePageState.context, 'Unrecognized link\n$link', null);
 			}
 		}
-		else if (link.toLowerCase().startsWith('sharemedia-com.chanawoo.app')) {
+		else if (link.toLowerCase().startsWith('sharemedia-com.moffatman.chan')) {
 			// ignore this, it is handled elsewhere
 		}
 		else {

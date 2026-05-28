@@ -866,7 +866,10 @@ class ThreadRow extends StatelessWidget {
 					]
 				)
 				else ...[
-					content,
+					Padding(
+						padding: const EdgeInsets.only(bottom: 20),
+						child: content,
+					),
 					Positioned.fill(
 						child: Align(
 							alignment: settings.imagesOnRight ? Alignment.bottomLeft : Alignment.bottomRight,

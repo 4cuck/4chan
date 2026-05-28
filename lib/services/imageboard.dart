@@ -13,6 +13,7 @@ import 'package:chan/services/captcha.dart';
 import 'package:chan/services/notifications.dart';
 import 'package:chan/services/outbox.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/share.dart';
 import 'package:chan/services/thread_watcher.dart';
@@ -558,7 +559,7 @@ class Imageboard extends ChangeNotifier {
 const _devImageboardKey = 'devsite';
 final kDevBoard = ImageboardBoard(
 	name: 'chance',
-	title: 'Chanawoo - Imageboard Browser',
+	title: 'Chance - Imageboard Browser',
 	isWorksafe: true,
 	maxWebmDurationSeconds: 120,
 	webmAudioAllowed: false,
@@ -636,6 +637,18 @@ class ImageboardRegistry extends ChangeNotifier {
 					initializations.add(_sites[entry.key]!.initialize());
 				}
 				await Future.wait(initializations);
+				if (Persistence.settings.automaticCacheClearDays < 100000) {
+					await dev?._initializedCompleter.future;
+					await Persistence.cleanupThreads(
+						imageboardsIncludingDev.toList(),
+						Duration(days: Persistence.settings.automaticCacheClearDays),
+						// Guard against the startup race where _backfillIsDownloaded
+						// (fire-and-forget in resumePending) hasn't run yet.
+						// On second+ launch all records already have isDownloaded=true
+						// so this set is redundant but cheap.
+						extraPreserveKeys: ThreadDownloadService.instance.allDownloadedStateKeys,
+					);
+				}
 				final initialTabsLength = Persistence.tabs.length;
 				final initialTab = Persistence.tabs[Persistence.currentTabIndex];
 				final initialTabIndex = Persistence.currentTabIndex;
@@ -657,11 +670,7 @@ class ImageboardRegistry extends ChangeNotifier {
 				await Future.wait(Persistence.tabs.map((tab) => tab.initialize()));
 				if (initialTabsLength != Persistence.tabs.length) {
 					Persistence.saveTabs();
-					Persistence.globalTabMutator.value = Persistence.currentTabIndex;
-				}
-				if (Persistence.settings.automaticCacheClearDays < 100000) {
-					await dev?._initializedCompleter.future;
-					await Persistence.cleanupThreads(imageboardsIncludingDev.toList(), Duration(days: Persistence.settings.automaticCacheClearDays));
+				Persistence.globalTabMutator.value = Persistence.currentTabIndex;
 				}
 			}
 			catch (e, st) {

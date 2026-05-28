@@ -4,7 +4,7 @@
 
 **Chanawoo** is an unofficial fork of [Chance](https://github.com/moffatman/chan), the imageboard browser built with Flutter for iOS and Android.
 
-This fork adds **[owo.vg](https://owo.vg)** posting integration and ships under a separate Android package ID so it can be installed **alongside** the official Chance app.
+This fork adds **[owo.vg](https://owo.vg)** posting integration, offline thread downloading (from [Lystus/chan](https://github.com/Lystus/chan)), and ships under a separate Android package ID so it can be installed **alongside** the official Chance app.
 
 | | Official Chance | Chanawoo (this fork) |
 |---|---|---|
@@ -12,12 +12,17 @@ This fork adds **[owo.vg](https://owo.vg)** posting integration and ships under 
 | Android package | `com.moffatman.chan` | `com.chanawoo.app` |
 | App name | Chance | Chanawoo |
 | owo.vg posting | — | Yes |
+| Thread download / CopyParty / Kuroba import | — | Yes |
 
-Upstream development continues on the original repository. Chanawoo tracks that codebase and layers fork-specific changes on top.
+Upstream development continues on the original repository. Chanawoo tracks that codebase and layers fork-specific changes on top. Thread downloading and CopyParty sync are integrated from [Lystus/chan](https://github.com/Lystus/chan) (excluding cosmetic/theme changes).
 
 ## What's different in this fork
 
 - **owo.vg integration** — post to 4chan through owo.vg (WebSocket posting, captcha UI, Gold Pass login, and related settings).
+- **Thread downloading** — save full threads locally for offline reading, with progress tracking and archive detection.
+- **CopyParty sync** — optional CopyParty server backend for downloaded thread media.
+- **Kuroba import/export** — import threads from Kuroba backups; export and bulk-manage downloaded threads.
+- **Hide/unhide images** — per-image hide filter by MD5.
 - **Side-by-side install** — different package ID from Play Store / upstream Chance, so both apps can be installed at once.
 - **Same gallery album and deep links as Chance** — saved images go to the **Chance** gallery album by default, and `chance://` deep links open in Chanawoo.
 - **One-time app data migration** — on first launch, if Chanawoo has no settings yet and a co-installed `com.moffatman.chan` app exists with the **same signing key**, Hive data is copied automatically. Play Store Chance uses a different key, so migration works for fork / sideload builds only, not live sharing with the official app.
@@ -39,6 +44,7 @@ All core Chance features are included, plus fork-specific posting support:
 - Support for archives to access deleted threads or search for posts
 - Thread watcher to check for replies
 - **owo.vg posting** for supported boards
+- **Offline downloaded threads** with CopyParty and Kuroba support
 
 ## Installing on Android
 

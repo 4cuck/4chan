@@ -440,6 +440,17 @@ class PersistentThreadStateFields {
     fieldName: 'translatedTitle',
     merger: PrimitiveMerger(),
   );
+  static bool? _getIsDownloaded(PersistentThreadState x) => x._isDownloaded;
+  static void _setIsDownloaded(PersistentThreadState x, bool? v) =>
+      x._isDownloaded = v;
+  static const int _kIsDownloaded = 33;
+  static const _isDownloaded = HiveFieldAdapter<PersistentThreadState, bool?>(
+    getter: _getIsDownloaded,
+    setter: _setIsDownloaded,
+    fieldNumber: _kIsDownloaded,
+    fieldName: '_isDownloaded',
+    merger: PrimitiveMerger(),
+  );
   static String getBoard(PersistentThreadState x) => x.board;
   static void setBoard(PersistentThreadState x, String v) => x.board = v;
   static const int kBoard = 19;
@@ -503,6 +514,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
     30: PersistentThreadStateFields.treeSplitId,
     31: PersistentThreadStateFields.draft,
     32: PersistentThreadStateFields.translatedTitle,
+    33: PersistentThreadStateFields._isDownloaded,
     19: PersistentThreadStateFields.board,
     20: PersistentThreadStateFields.id
   };
@@ -510,7 +522,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
   @override
   PersistentThreadState read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(33, null);
+    final List<dynamic> fields = List.filled(34, null);
     fields[7] = <int>[];
     fields[8] = <int>[];
     fields[10] = <int>[];
@@ -567,13 +579,14 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       ..overrideShowPostIds = (fields[28] as List).cast<int>()
       ..deprecatedReplyOptions = fields[29] as String?
       ..treeSplitId = fields[30] as int?
-      ..translatedTitle = fields[32] as String?;
+      ..translatedTitle = fields[32] as String?
+      .._isDownloaded = fields[33] as bool?;
   }
 
   @override
   void write(BinaryWriter writer, PersistentThreadState obj) {
     writer
-      ..writeByte(32)
+      ..writeByte(33)
       ..writeByte(0)
       ..write(obj.lastSeenPostId)
       ..writeByte(1)
@@ -634,6 +647,8 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       ..write(obj.draft)
       ..writeByte(32)
       ..write(obj.translatedTitle)
+      ..writeByte(33)
+      ..write(obj._isDownloaded)
       ..writeByte(19)
       ..write(obj.board)
       ..writeByte(20)
@@ -1541,6 +1556,26 @@ class PersistentBrowserStateFields {
     fieldName: 'postingFlags',
     merger: MapMerger(AdaptedMerger(ImageboardBoardFlagAdapter.kTypeId)),
   );
+  static Map<BoardKey, List<int>> getHiddenImageIds(PersistentBrowserState x) =>
+      x.hiddenImageIds;
+  static const int kHiddenImageIds = 34;
+  static const hiddenImageIds = ReadOnlyHiveFieldAdapter<PersistentBrowserState,
+      Map<BoardKey, List<int>>>(
+    getter: getHiddenImageIds,
+    fieldNumber: kHiddenImageIds,
+    fieldName: 'hiddenImageIds',
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  );
+  static Map<BoardKey, List<int>> getShowImageIds(PersistentBrowserState x) =>
+      x.showImageIds;
+  static const int kShowImageIds = 35;
+  static const showImageIds = ReadOnlyHiveFieldAdapter<PersistentBrowserState,
+      Map<BoardKey, List<int>>>(
+    getter: getShowImageIds,
+    fieldNumber: kShowImageIds,
+    fieldName: 'showImageIds',
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  );
 }
 
 class PersistentBrowserStateAdapter
@@ -1581,13 +1616,15 @@ class PersistentBrowserStateAdapter
     30: PersistentBrowserStateFields.postSortingMethod,
     31: PersistentBrowserStateFields.postSortingMethodPerBoard,
     32: PersistentBrowserStateFields.downloadSubfoldersPerBoard,
-    33: PersistentBrowserStateFields.postingFlags
+    33: PersistentBrowserStateFields.postingFlags,
+    34: PersistentBrowserStateFields.hiddenImageIds,
+    35: PersistentBrowserStateFields.showImageIds
   };
 
   @override
   PersistentBrowserState read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(34, null);
+    final List<dynamic> fields = List.filled(36, null);
     fields[2] = <String, List<int>>{};
     fields[3] = <String>[];
     fields[5] = <String, List<int>>{};
@@ -1613,6 +1650,8 @@ class PersistentBrowserStateAdapter
     fields[31] = <dynamic, dynamic>{};
     fields[32] = <dynamic, dynamic>{};
     fields[33] = <dynamic, dynamic>{};
+    fields[34] = <String, List<int>>{};
+    fields[35] = <String, List<int>>{};
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -1658,13 +1697,17 @@ class PersistentBrowserStateAdapter
           (fields[31] as Map).cast<BoardKey, PostSortingMethod>(),
       downloadSubfoldersPerBoard: (fields[32] as Map).cast<BoardKey, String>(),
       postingFlags: (fields[33] as Map).cast<BoardKey, ImageboardBoardFlag>(),
+      hiddenImageIds: (fields[34] as Map).map((dynamic k, dynamic v) =>
+          MapEntry(k as BoardKey, (v as List).cast<int>())),
+      showImageIds: (fields[35] as Map).map((dynamic k, dynamic v) =>
+          MapEntry(k as BoardKey, (v as List).cast<int>())),
     );
   }
 
   @override
   void write(BinaryWriter writer, PersistentBrowserState obj) {
     writer
-      ..writeByte(26)
+      ..writeByte(28)
       ..writeByte(0)
       ..write(obj.deprecatedTabs)
       ..writeByte(2)
@@ -1716,7 +1759,11 @@ class PersistentBrowserStateAdapter
       ..writeByte(32)
       ..write(obj.downloadSubfoldersPerBoard)
       ..writeByte(33)
-      ..write(obj.postingFlags);
+      ..write(obj.postingFlags)
+      ..writeByte(34)
+      ..write(obj.hiddenImageIds)
+      ..writeByte(35)
+      ..write(obj.showImageIds);
   }
 
   @override

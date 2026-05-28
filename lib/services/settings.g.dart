@@ -2884,7 +2884,7 @@ class SavedSettingsFields {
     setter: setOwoVgInstallDate,
     fieldNumber: kOwoVgInstallDate,
     fieldName: 'owoVgInstallDate',
-    merger: NullableMerger(PrimitiveMerger()),
+    merger: PrimitiveMerger(),
   );
   static bool getOwoVgRecompression(SavedSettings x) => x.owoVgRecompression;
   static void setOwoVgRecompression(SavedSettings x, bool v) =>
@@ -2898,13 +2898,112 @@ class SavedSettingsFields {
     merger: PrimitiveMerger(),
   );
   static bool getOwoVgAntiphash(SavedSettings x) => x.owoVgAntiphash;
-  static void setOwoVgAntiphash(SavedSettings x, bool v) => x.owoVgAntiphash = v;
+  static void setOwoVgAntiphash(SavedSettings x, bool v) =>
+      x.owoVgAntiphash = v;
   static const int kOwoVgAntiphash = 225;
   static const owoVgAntiphash = HiveFieldAdapter<SavedSettings, bool>(
     getter: getOwoVgAntiphash,
     setter: setOwoVgAntiphash,
     fieldNumber: kOwoVgAntiphash,
     fieldName: 'owoVgAntiphash',
+    merger: PrimitiveMerger(),
+  );
+  static bool getCopypartyEnabled(SavedSettings x) => x.copypartyEnabled;
+  static void setCopypartyEnabled(SavedSettings x, bool v) =>
+      x.copypartyEnabled = v;
+  static const int kCopypartyEnabled = 226;
+  static const copypartyEnabled = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getCopypartyEnabled,
+    setter: setCopypartyEnabled,
+    fieldNumber: kCopypartyEnabled,
+    fieldName: 'copypartyEnabled',
+    merger: PrimitiveMerger(),
+  );
+  static String getCopypartyServerUrl(SavedSettings x) => x.copypartyServerUrl;
+  static void setCopypartyServerUrl(SavedSettings x, String v) =>
+      x.copypartyServerUrl = v;
+  static const int kCopypartyServerUrl = 227;
+  static const copypartyServerUrl = HiveFieldAdapter<SavedSettings, String>(
+    getter: getCopypartyServerUrl,
+    setter: setCopypartyServerUrl,
+    fieldNumber: kCopypartyServerUrl,
+    fieldName: 'copypartyServerUrl',
+    merger: PrimitiveMerger(),
+  );
+  static String getCopypartyDestRoot(SavedSettings x) => x.copypartyDestRoot;
+  static void setCopypartyDestRoot(SavedSettings x, String v) =>
+      x.copypartyDestRoot = v;
+  static const int kCopypartyDestRoot = 228;
+  static const copypartyDestRoot = HiveFieldAdapter<SavedSettings, String>(
+    getter: getCopypartyDestRoot,
+    setter: setCopypartyDestRoot,
+    fieldNumber: kCopypartyDestRoot,
+    fieldName: 'copypartyDestRoot',
+    merger: PrimitiveMerger(),
+  );
+  static int getDownloadInterFileDelayMs(SavedSettings x) =>
+      x.downloadInterFileDelayMs;
+  static void setDownloadInterFileDelayMs(SavedSettings x, int v) =>
+      x.downloadInterFileDelayMs = v;
+  static const int kDownloadInterFileDelayMs = 229;
+  static const downloadInterFileDelayMs = HiveFieldAdapter<SavedSettings, int>(
+    getter: getDownloadInterFileDelayMs,
+    setter: setDownloadInterFileDelayMs,
+    fieldNumber: kDownloadInterFileDelayMs,
+    fieldName: 'downloadInterFileDelayMs',
+    merger: PrimitiveMerger(),
+  );
+  static bool getCopypartyAutoUpload(SavedSettings x) => x.copypartyAutoUpload;
+  static void setCopypartyAutoUpload(SavedSettings x, bool v) =>
+      x.copypartyAutoUpload = v;
+  static const int kCopypartyAutoUpload = 230;
+  static const copypartyAutoUpload = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getCopypartyAutoUpload,
+    setter: setCopypartyAutoUpload,
+    fieldNumber: kCopypartyAutoUpload,
+    fieldName: 'copypartyAutoUpload',
+    merger: PrimitiveMerger(),
+  );
+  static ThreadSortingMethod getDownloadedThreadsSortingMethod(
+          SavedSettings x) =>
+      x.downloadedThreadsSortingMethod;
+  static void setDownloadedThreadsSortingMethod(
+          SavedSettings x, ThreadSortingMethod v) =>
+      x.downloadedThreadsSortingMethod = v;
+  static const int kDownloadedThreadsSortingMethod = 231;
+  static const downloadedThreadsSortingMethod =
+      HiveFieldAdapter<SavedSettings, ThreadSortingMethod>(
+    getter: getDownloadedThreadsSortingMethod,
+    setter: setDownloadedThreadsSortingMethod,
+    fieldNumber: kDownloadedThreadsSortingMethod,
+    fieldName: 'downloadedThreadsSortingMethod',
+    merger: PrimitiveMerger(),
+  );
+  static bool getReverseDownloadedThreadsSorting(SavedSettings x) =>
+      x.reverseDownloadedThreadsSorting;
+  static void setReverseDownloadedThreadsSorting(SavedSettings x, bool v) =>
+      x.reverseDownloadedThreadsSorting = v;
+  static const int kReverseDownloadedThreadsSorting = 232;
+  static const reverseDownloadedThreadsSorting =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getReverseDownloadedThreadsSorting,
+    setter: setReverseDownloadedThreadsSorting,
+    fieldNumber: kReverseDownloadedThreadsSorting,
+    fieldName: 'reverseDownloadedThreadsSorting',
+    merger: PrimitiveMerger(),
+  );
+  static bool getShowActiveDownloadsAboveArchivedDownloads(SavedSettings x) =>
+      x.showActiveDownloadsAboveArchivedDownloads;
+  static void setShowActiveDownloadsAboveArchivedDownloads(
+          SavedSettings x, bool v) =>
+      x.showActiveDownloadsAboveArchivedDownloads = v;
+  static const int kShowActiveDownloadsAboveArchivedDownloads = 233;
+  static const showActiveDownloadsAboveArchivedDownloads =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getShowActiveDownloadsAboveArchivedDownloads,
+    setter: setShowActiveDownloadsAboveArchivedDownloads,
+    fieldNumber: kShowActiveDownloadsAboveArchivedDownloads,
+    fieldName: 'showActiveDownloadsAboveArchivedDownloads',
     merger: PrimitiveMerger(),
   );
 }
@@ -3132,13 +3231,21 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     222: SavedSettingsFields.owoVgEmailVerificationStock,
     223: SavedSettingsFields.owoVgInstallDate,
     224: SavedSettingsFields.owoVgRecompression,
-    225: SavedSettingsFields.owoVgAntiphash
+    225: SavedSettingsFields.owoVgAntiphash,
+    226: SavedSettingsFields.copypartyEnabled,
+    227: SavedSettingsFields.copypartyServerUrl,
+    228: SavedSettingsFields.copypartyDestRoot,
+    229: SavedSettingsFields.downloadInterFileDelayMs,
+    230: SavedSettingsFields.copypartyAutoUpload,
+    231: SavedSettingsFields.downloadedThreadsSortingMethod,
+    232: SavedSettingsFields.reverseDownloadedThreadsSorting,
+    233: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(226, null);
+    final List<dynamic> fields = List.filled(234, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3377,13 +3484,21 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       owoVgInstallDate: fields[223] as int?,
       owoVgRecompression: fields[224] as bool?,
       owoVgAntiphash: fields[225] as bool?,
+      copypartyEnabled: fields[226] as bool?,
+      copypartyServerUrl: fields[227] as String?,
+      copypartyDestRoot: fields[228] as String?,
+      downloadInterFileDelayMs: fields[229] as int?,
+      copypartyAutoUpload: fields[230] as bool?,
+      downloadedThreadsSortingMethod: fields[231] as ThreadSortingMethod?,
+      reverseDownloadedThreadsSorting: fields[232] as bool?,
+      showActiveDownloadsAboveArchivedDownloads: fields[233] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(213)
+      ..writeByte(221)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3809,7 +3924,23 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(224)
       ..write(obj.owoVgRecompression)
       ..writeByte(225)
-      ..write(obj.owoVgAntiphash);
+      ..write(obj.owoVgAntiphash)
+      ..writeByte(226)
+      ..write(obj.copypartyEnabled)
+      ..writeByte(227)
+      ..write(obj.copypartyServerUrl)
+      ..writeByte(228)
+      ..write(obj.copypartyDestRoot)
+      ..writeByte(229)
+      ..write(obj.downloadInterFileDelayMs)
+      ..writeByte(230)
+      ..write(obj.copypartyAutoUpload)
+      ..writeByte(231)
+      ..write(obj.downloadedThreadsSortingMethod)
+      ..writeByte(232)
+      ..write(obj.reverseDownloadedThreadsSorting)
+      ..writeByte(233)
+      ..write(obj.showActiveDownloadsAboveArchivedDownloads);
   }
 
   @override

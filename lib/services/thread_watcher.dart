@@ -407,7 +407,10 @@ class ThreadWatcher extends ChangeNotifier {
 	}
 
 	Future<void> update(CancelToken? cancelToken) async {
-		if (ImageboardRegistry.instance.getImageboard(imageboardKey)?.seemsOk == false) {
+		final imageboard = ImageboardRegistry.instance.getImageboard(imageboardKey);
+		// boardFetchError doesn't prevent thread updates — just means board list failed
+		if (imageboard == null || !imageboard.initialized || imageboard.setupError != null) {
+			print('[ThreadWatcher] SKIP auto-update for $imageboardKey: imageboard=$imageboard initialized=${imageboard?.initialized} setupError=${imageboard?.setupError != null}');
 			return;
 		}
 		// Avoid triggering multiple updates in different functions
@@ -418,7 +421,9 @@ class ThreadWatcher extends ChangeNotifier {
 			fetchedOnOrAfter: DateTime.now().subtract(const Duration(minutes: 5))
 		);
 		// Could be concurrently-modified
-		for (final watch in notifications.threadWatches.values) {
+		final watches = notifications.threadWatches.values.toList();
+		print('[ThreadWatcher] Auto-updating $imageboardKey: ${watches.length} watched threads');
+		for (final watch in watches) {
 			if (cancelToken?.isCancelled ?? false) {
 				return;
 			}
@@ -658,6 +663,7 @@ class ThreadWatcherController extends ChangeNotifier {
 		}
 		else {
 			updateNotificationsBadgeCount();
+			print('[ThreadWatcherController] Auto-update running for ${_watchers.length} watchers');
 			// Update up to two sites in parallel
 			final pool = Pool(2);
 			await Future.wait(_watchers.map((watcher) => pool.withResource(() async {
