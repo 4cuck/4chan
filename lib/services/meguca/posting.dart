@@ -191,6 +191,12 @@ Future<PostReceipt> megucaSubmitPostViaHttp({
   if (status == 400 && lower.contains('captcha')) {
     throw const MegucaCaptchaRequiredException();
   }
+  if (status == 403 && lower.contains('websocket connection')) {
+    throw PostFailedException(
+      'awoo.cf blocked HTTP posting for new IPs. Install Chanawoo v1.3.0+134 or '
+      'newer, and ensure awoo.cf has MEGUCA_CHANCE_UA_SECRET set to match the app build.',
+    );
+  }
   if (status == 403 && (lower.contains('banned') || lower.contains('ban'))) {
     throw BannedException(body.isNotEmpty ? body : 'You are banned from this board', null);
   }
