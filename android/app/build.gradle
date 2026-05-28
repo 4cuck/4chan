@@ -91,6 +91,59 @@ android {
     lint {
         disable 'InvalidPackage'
     }
+
+    // Gradle sometimes corrupts arm64 libflutter.so during transform (invalid ELF,
+    // ~157MB unstripped blob). After strip, replace bad/missing copies with the
+    // known-good engine library bundled beside this file.
+    applicationVariants.configureEach { variant ->
+        if (variant.buildType.name != "release") {
+            return
+        }
+        def stripTask = tasks.findByName("strip${variant.name.capitalize()}DebugSymbols")
+        if (stripTask == null) {
+            return
+        }
+        stripTask.doFirst {
+            def fallback = rootProject.file("libflutter-arm64-v8a-release.so")
+            if (!fallback.exists()) {
+                def jetified = null
+                fileTree("${gradle.gradleUserHomeDir}/caches").matching {
+                    include "**/jetified-arm64_v8a_release-*/arm64-v8a/libflutter.so"
+                }.files.each { candidate ->
+                    def probe = ["file", candidate.absolutePath].execute()
+                    probe.waitFor()
+                    if (probe.text.contains("debug_info") && !probe.text.contains("section table")) {
+                        jetified = candidate
+                    }
+                }
+                if (jetified != null) {
+                    exec {
+                        commandLine "${android.ndkDirectory}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip",
+                            "-o", fallback.absolutePath, jetified.absolutePath
+                    }
+                    logger.lifecycle("Generated ${fallback.name} from ${jetified.name}")
+                }
+            }
+        }
+        stripTask.doLast {
+            def fallback = rootProject.file("libflutter-arm64-v8a-release.so")
+            if (!fallback.exists()) {
+                return
+            }
+            stripTask.outputs.files.each { outputRoot ->
+                def armFlutter = new File(outputRoot, "lib/arm64-v8a/libflutter.so")
+                def needsFix = !armFlutter.exists() || armFlutter.length() > 50_000_000
+                if (needsFix) {
+                    copy {
+                        from fallback
+                        into armFlutter.parentFile
+                        rename { "libflutter.so" }
+                    }
+                    logger.lifecycle("Replaced bad arm64 libflutter.so with ${fallback.name}")
+                }
+            }
+        }
+    }
 }
 
 flutter {
