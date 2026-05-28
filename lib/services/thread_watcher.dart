@@ -340,7 +340,7 @@ class ThreadWatcher extends ChangeNotifier {
 				}
 			}
 			final lastUpdatedTime = oldThread?.lastUpdatedTime ?? oldThread?.posts_.tryLast?.time;
-			if (oldThread != null && oldThread.posts_.length >= (oldThread.replyCount + 1) && lastUpdatedTime != null && oldThread.archiveName == null) {
+			if (oldThread != null && (oldThread.posts_.length >= (oldThread.replyCount + 1) || site.supportsPartialThreadRefresh) && lastUpdatedTime != null && oldThread.archiveName == null) {
 				newThread = await site.getThreadIfModifiedSince(
 					threadState.identifier,
 					lastUpdatedTime,

@@ -3030,6 +3030,18 @@ class SavedSettingsFields {
     fieldName: 'megucaThreadLastN',
     merger: PrimitiveMerger(),
   );
+  static int getMegucaThreadRefreshLastN(SavedSettings x) =>
+      x.megucaThreadRefreshLastN;
+  static void setMegucaThreadRefreshLastN(SavedSettings x, int v) =>
+      x.megucaThreadRefreshLastN = v;
+  static const int kMegucaThreadRefreshLastN = 236;
+  static const megucaThreadRefreshLastN = HiveFieldAdapter<SavedSettings, int>(
+    getter: getMegucaThreadRefreshLastN,
+    setter: setMegucaThreadRefreshLastN,
+    fieldNumber: kMegucaThreadRefreshLastN,
+    fieldName: 'megucaThreadRefreshLastN',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3265,13 +3277,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     232: SavedSettingsFields.reverseDownloadedThreadsSorting,
     233: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads,
     234: SavedSettingsFields.useAlternativeGalleryLayout,
-    235: SavedSettingsFields.megucaThreadLastN
+    235: SavedSettingsFields.megucaThreadLastN,
+    236: SavedSettingsFields.megucaThreadRefreshLastN
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(236, null);
+    final List<dynamic> fields = List.filled(237, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3520,13 +3533,14 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       showActiveDownloadsAboveArchivedDownloads: fields[233] as bool?,
       useAlternativeGalleryLayout: fields[234] as bool?,
       megucaThreadLastN: fields[235] as int?,
+      megucaThreadRefreshLastN: fields[236] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(223)
+      ..writeByte(224)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3972,7 +3986,9 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(234)
       ..write(obj.useAlternativeGalleryLayout)
       ..writeByte(235)
-      ..write(obj.megucaThreadLastN);
+      ..write(obj.megucaThreadLastN)
+      ..writeByte(236)
+      ..write(obj.megucaThreadRefreshLastN);
   }
 
   @override

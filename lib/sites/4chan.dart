@@ -630,7 +630,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	}
 
 	@override
-	RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant})
+	RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant, bool liveRefresh = false})
 		=> RequestOptions(
 			path: '/${thread.board}/thread/${thread.id}.json',
 			baseUrl: 'https://$apiUrl',

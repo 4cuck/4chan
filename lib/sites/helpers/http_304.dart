@@ -62,7 +62,7 @@ extension _Helper on ImageboardSite {
 
 mixin Http304CachingThreadMixin on ImageboardSite {
 	@protected
-	RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant});
+	RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant, bool liveRefresh = false});
 	@protected
 	Future<Thread> makeThread(ThreadIdentifier thread, Response response, {
 		ThreadVariant? variant,
@@ -94,7 +94,7 @@ mixin Http304CachingThreadMixin on ImageboardSite {
 		required RequestPriority priority,
 		CancelToken? cancelToken
 	}) => _helper(
-		baseOptions: getThreadRequest(thread, variant: variant),
+		baseOptions: getThreadRequest(thread, variant: variant, liveRefresh: true),
 		lastModified: lastModified,
 		func: (response) async {
 			final t = await makeThread(thread, response, variant: variant, priority: priority, cancelToken: cancelToken);

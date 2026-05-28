@@ -388,13 +388,13 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
 
   @override
   @protected
-  RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant}) {
-    // Awoo.cf threads can carry 10K+ posts which kills scrolling on mobile.
-    // The Meguca JSON endpoint honours `?last=N` (server clamps it via
-    // detectLastN: small positives bump up to 100, 0 returns the full thread,
-    // > 1_000_000 clamps down to 1M). Defaults to 1000 — see
-    // Settings.megucaThreadLastN to tweak per user.
-    final lastN = Settings.instance.megucaThreadLastN;
+  RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant, bool liveRefresh = false}) {
+    // Initial thread open uses megucaThreadLastN (default 1000). Live refresh
+    // polls with a separate, smaller window (megucaThreadRefreshLastN,
+    // default 10) so the server only serializes a handful of recent posts.
+    final lastN = liveRefresh
+        ? Settings.instance.megucaThreadRefreshLastN
+        : Settings.instance.megucaThreadLastN;
     return RequestOptions(
       path: '/json/boards/${thread.board}/${thread.id}',
       baseUrl: 'https://$baseUrl',
@@ -406,6 +406,9 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       extra: {kPriority: RequestPriority.functional},
     );
   }
+
+  @override
+  bool get supportsPartialThreadRefresh => true;
 
   @override
   @protected

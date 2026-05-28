@@ -589,7 +589,7 @@ class SiteLainchan extends ImageboardSite with Http304CachingThreadMixin, Http30
 	}
 
 	@override
-	RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant})
+	RequestOptions getThreadRequest(ThreadIdentifier thread, {ThreadVariant? variant, bool liveRefresh = false})
 		=> RequestOptions(
 			path: '$basePath/${thread.board}/$res/${thread.id}.json',
 			baseUrl: 'https://$baseUrl',
