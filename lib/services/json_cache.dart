@@ -47,7 +47,7 @@ class JsonCache {
 				...remote,
 				'awoo': {
 					'type': 'meguca',
-					'name': 'awoo',
+					'name': kAwooSiteKey,
 					'baseUrl': 'awoo.cf',
 					'defaultUsername': 'Anonymous',
 				},

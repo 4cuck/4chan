@@ -59,7 +59,7 @@ final siteSettings = [
 		builder: (context) => Column(
 			mainAxisSize: MainAxisSize.min,
 			children: [
-				for (final imageboard in ImageboardRegistry.instance.imageboards) ...[
+				for (final imageboard in ImageboardRegistry.instance.imageboardsInSiteKeyOrder) ...[
 					const ChanceDivider(),
 					Row(
 						children: [
@@ -435,13 +435,18 @@ final siteSettings = [
 										continue;
 									}
 								}
+								final sortedSiteEntries = sites.entries.toList()
+									..sort((a, b) {
+										final cmp = addSitePickerSortIndex(a.key).compareTo(addSitePickerSortIndex(b.key));
+										return cmp != 0 ? cmp : a.value.name.compareTo(b.value.name);
+									});
 								final key = await showAdaptiveDialog<String>(
 									context: context,
 									builder: (context) => AdaptiveAlertDialog(
 										title: const Text('Add new site'),
 										content: Column(
 											mainAxisSize: MainAxisSize.min,
-											children: sites.entries.expand((site) => [const ChanceDivider(), AdaptiveButton(
+											children: sortedSiteEntries.expand((site) => [const ChanceDivider(), AdaptiveButton(
 												onPressed: () => Navigator.pop(context, site.key),
 												child: Row(
 													mainAxisSize: MainAxisSize.min,

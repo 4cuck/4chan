@@ -582,6 +582,14 @@ class ImageboardRegistry extends ChangeNotifier {
 	int get count => _sites.length;
 	Iterable<Imageboard> get imageboardsIncludingUninitialized => _sites.values;
 	Iterable<Imageboard> get imageboards => _sites.values.where((s) => s.initialized);
+	Iterable<Imageboard> get imageboardsInSiteKeyOrder sync* {
+		for (final key in orderedSiteKeys(Settings.instance.contentSettings.siteKeys)) {
+			final site = _sites[key];
+			if (site?.initialized == true) {
+				yield site!;
+			}
+		}
+	}
 	Iterable<Imageboard> get imageboardsIncludingDev sync* {
 		yield* _sites.values.where((s) => s.initialized);
 		final dev_ = dev;
@@ -619,7 +627,13 @@ class ImageboardRegistry extends ChangeNotifier {
 			try {
 				final siteKeysToRemove = _sites.keys.toList();
 				final initializations = <Future<void>>[];
-				final yourSites = sites.entries.where((e) => keys.contains(e.key));
+				final yourSites = orderedSiteKeys(keys).map((key) {
+					final data = sites[key];
+					if (data == null) {
+						throw Exception('No site data available for "$key"');
+					}
+					return MapEntry(key, data);
+				});
 				if (yourSites.isEmpty) {
 					throw Exception('No site data available for $keys');
 				}

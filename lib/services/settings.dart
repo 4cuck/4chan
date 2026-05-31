@@ -105,6 +105,8 @@ const contentSettingsApiRoot = 'https://api.chance.surf/preferences';
 final _punctuationRegex = RegExp('(\\W+|s\\W)');
 final _badWords = Set.from(ProfanityFilter().wordsToFilterOutList);
 const kTestchanKey = 'testchan';
+const kFourChanSiteKey = '4chan';
+const kAwooSiteKey = 'awoo';
 const defaultSite = {
   'type': 'lainchan',
   'name': kTestchanKey,
@@ -172,10 +174,28 @@ enum ThreadSortingMethod {
 
 Set<String> getDefaultSiteKeys() {
   if (Platform.isAndroid) {
-    return {'4chan'};
+    return {kFourChanSiteKey, kAwooSiteKey};
   }
   return defaultSites.keys.toSet();
 }
+
+int _siteKeySortIndex(String key) => switch (key) {
+  kFourChanSiteKey => 0,
+  kAwooSiteKey => 1,
+  _ => 2,
+};
+
+/// Site keys in display/initialization order (4chan, awoo, then the rest).
+List<String> orderedSiteKeys(Iterable<String> keys) {
+  final list = keys.toList()
+    ..sort((a, b) {
+      final cmp = _siteKeySortIndex(a).compareTo(_siteKeySortIndex(b));
+      return cmp != 0 ? cmp : a.compareTo(b);
+    });
+  return list;
+}
+
+int addSitePickerSortIndex(String key) => key == kAwooSiteKey ? 0 : 1;
 
 ContentSettings getDefaultContentSettings() {
   if (Platform.isAndroid) {
