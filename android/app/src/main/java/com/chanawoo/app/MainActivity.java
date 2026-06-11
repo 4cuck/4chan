@@ -271,6 +271,7 @@ public class MainActivity extends FlutterFragmentActivity {
                             int dotPos = destinationName.lastIndexOf('.');
                             if (dotPos == -1) {
                                 result.error("FilenameProblem", "Supplied filename has no file extension", null);
+                                return;
                             }
                             String mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(destinationName.substring(dotPos + 1));
                             String nameWithoutExtension = destinationName.substring(0, dotPos);

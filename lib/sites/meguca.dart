@@ -23,7 +23,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   SiteMeguca({
     required this.baseUrl,
     required this.name,
-    this.imageUrl,
+    String? imageUrl,
     this.defaultUsername = 'Anonymous',
     required super.overrideUserAgent,
     required super.addIntrospectedHeaders,
@@ -31,12 +31,16 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     required super.imageHeaders,
     required super.videoHeaders,
     this.worksafeBoards = const {'c'},
-  });
+  }) : _imageUrlOverride = imageUrl;
 
   @override
   final String baseUrl;
+  final String? _imageUrlOverride;
+  // Meguca serves attachments from the same host as the site itself. Host
+  // matching (offline downloads, attachment-source detection) relies on
+  // imageUrl being the media host, so default it to baseUrl when not provided.
   @override
-  final String? imageUrl;
+  String? get imageUrl => _imageUrlOverride ?? baseUrl;
   @override
   final String name;
   @override
@@ -383,8 +387,18 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       return const [];
     }
     final fileType = (im['file_type'] as num?)?.toInt() ?? 0;
-    final ext = _extForFileType(fileType);
-    final filename = (im['name'] as String?) ?? '$sha1.$ext';
+    final rawExt = _extForFileType(fileType);
+    if (rawExt.isEmpty) {
+      // NoFile (or an unknown type with no extension) - nothing to attach.
+      return const [];
+    }
+    // Meguca stores `name` WITHOUT its extension and derives the real extension
+    // from file_type. The rest of the app (modeled on 4chan) expects
+    // Attachment.ext to include the leading dot and the filename to end with it,
+    // so saving/downloading produces a valid "name.ext".
+    final ext = '.$rawExt';
+    final rawName = (im['name'] as String?)?.trim();
+    final filename = (rawName != null && rawName.isNotEmpty) ? '$rawName$ext' : '$sha1$ext';
     final dims = im['dims'];
     int? width;
     int? height;
@@ -393,7 +407,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       height = (dims[1] as num?)?.toInt();
     }
     final spoiler = im['spoiler'] == true;
-    final type = AttachmentType.fromFilename('x.$ext');
+    final type = AttachmentType.fromFilename('x$ext');
     return [
       Attachment(
         board: board,
@@ -401,7 +415,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
         filename: filename,
         id: sha1,
         type: type,
-        url: Uri.https(baseUrl, '/assets/images/src/$sha1.$ext').toString(),
+        url: Uri.https(baseUrl, '/assets/images/src/$sha1$ext').toString(),
         thumbnailUrl: Uri.https(baseUrl, '/assets/images/thumb/$sha1.webp').toString(),
         width: width,
         height: height,
