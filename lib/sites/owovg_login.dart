@@ -57,7 +57,7 @@ class SiteOwoVgGoldLoginSystem extends ImageboardSiteLoginSystem {
 		OwoVgService.invalidateMetaCache();
 		if (fromBothWifiAndCellular) {
 			await CookieManager.instance().deleteCookies(
-				url: WebUri(parent.owoVgUrl)
+				url: WebUri('https://${parent.owoVgUrl}')
 			);
 			await Persistence.nonCurrentCookies.deletePreservingCloudflare(Uri.https(parent.owoVgUrl, '/'), true);
 			loggedIn[Persistence.nonCurrentCookies] = false;
@@ -117,6 +117,10 @@ class SiteOwoVgGoldLoginSystem extends ImageboardSiteLoginSystem {
 			if (e is ImageboardSiteLoginException) {
 				rethrow;
 			}
+			// The auth POST already succeeded; we just couldn't confirm gold status
+			// (e.g. a network error fetching /meta). Don't fail the login over it,
+			// but log so a silently-non-gold session is diagnosable.
+			print('owo.vg: logged in but could not verify gold status: $e');
 		}
 	}
 

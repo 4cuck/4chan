@@ -1331,7 +1331,18 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
                       child: ImageboardScope(
                         imageboardKey: null,
                         imageboard: imageboard,
-                        child: ThreadRow(
+                        // ThreadRow (row style) is designed to live inside the
+                        // catalog's height-bounded list item. This list sizes items
+                        // to their content, so without a bound ThreadRow's attachment
+                        // column (maxHeight: infinity) expands to each image's full
+                        // natural height — the large blank gaps users saw between
+                        // downloaded threads. Match the catalog row height, with a
+                        // compact default when the user picked "Unlimited" (null).
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: Settings.instance.maxCatalogRowHeight ?? 125,
+                          ),
+                          child: ThreadRow(
                           thread: thread,
                           isSelected: false,
                           showBoardName: true,
@@ -1359,6 +1370,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
                                   Settings.instance.squareThumbnails,
                             );
                           },
+                        ),
                         ),
                       ),
                     ),

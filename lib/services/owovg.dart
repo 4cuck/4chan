@@ -51,7 +51,7 @@ class OwoVgEmailVerificationProvider {
 		successColor: json['successColor'] as String?,
 		stockDisplay: json['stockDisplay'] as String?,
 		successRateDisplay: json['successRateDisplay'] as String?,
-		disabled: json['disabled'] as bool? ?? false || json['stockKind'] == 'wip'
+		disabled: (json['disabled'] as bool? ?? false) || json['stockKind'] == 'wip'
 	);
 }
 
@@ -341,16 +341,38 @@ class OwoVgService {
 		StreamSubscription? subscription;
 		var responseStarted = false;
 		Future<void> wsEventChain = Future.value();
+		Timer? watchdog;
 
 		void notify(String message, {bool warning = false, bool error = false}) {
 			_notify(message, warning: warning, error: error);
 		}
 
 		void cleanup() {
+			watchdog?.cancel();
+			watchdog = null;
 			subscription?.cancel();
 			subscription = null;
 			channel?.sink.close();
 			channel = null;
+		}
+
+		void cancelWatchdog() {
+			watchdog?.cancel();
+			watchdog = null;
+		}
+
+		// Fail the post if the server stops making progress — e.g. it keeps the
+		// socket alive with `hb` heartbeats but never sends a terminal `res`/`error`.
+		// Re-armed on every progress frame and paused while a captcha dialog is
+		// open, so it only fires on a genuine stall, never mid-user-interaction.
+		void armWatchdog() {
+			watchdog?.cancel();
+			watchdog = Timer(const Duration(seconds: 90), () {
+				if (!completer.isCompleted) {
+					cleanup();
+					completer.completeError(const OwoVgException('owo.vg stopped responding (timed out waiting for the post to finish).'));
+				}
+			});
 		}
 
 		void applyDeferredCookieLater(int? cookieFlag) {
@@ -374,15 +396,20 @@ class OwoVgService {
 			}
 			switch (res['t']) {
 				case 'hb':
+					// Pure keepalive — intentionally does NOT reset the watchdog, so a
+					// server that only heartbeats but never finishes still times out.
 					break;
 				case 'info':
 					notify(res['d'] as String? ?? '');
+					armWatchdog();
 					break;
 				case 'tag':
 					notify(res['d'] as String? ?? '');
+					armWatchdog();
 					break;
 				case 'warn':
 					notify(res['d'] as String? ?? '', warning: true);
+					armWatchdog();
 					break;
 				case 'email_hcaptcha':
 					final data = res['d'];
@@ -403,6 +430,8 @@ class OwoVgService {
 						cleanup();
 						return;
 					}
+					// User is about to interact — don't let the watchdog fire mid-solve.
+					cancelWatchdog();
 					final solved = await showOwoVgEmailHcaptchaDialog(
 						context: context,
 						prompt: prompt,
@@ -413,6 +442,8 @@ class OwoVgService {
 					if (!solved) {
 						completer.completeError(const OwoVgException('hCaptcha cancelled'));
 						cleanup();
+					} else if (!completer.isCompleted) {
+						armWatchdog();
 					}
 					break;
 				case 'interactive':
@@ -423,6 +454,8 @@ class OwoVgService {
 						cleanup();
 						return;
 					}
+					// User is about to interact — don't let the watchdog fire mid-solve.
+					cancelWatchdog();
 					final solved = await showOwoVgCaptchaDialog(
 						context: context,
 						site: site,
@@ -435,6 +468,8 @@ class OwoVgService {
 					if (!solved) {
 						completer.completeError(const OwoVgException('Captcha cancelled'));
 						cleanup();
+					} else if (!completer.isCompleted) {
+						armWatchdog();
 					}
 					break;
 				case 'res':
@@ -489,7 +524,14 @@ class OwoVgService {
 
 			subscription = channel!.stream.listen((event) {
 				wsEventChain = wsEventChain.then((_) => handleWsEvent(event)).catchError((Object e, StackTrace st) {
-					Future<void>.error(e, st);
+					// Previously this built an errored future and dropped it, silently
+					// swallowing handler failures and leaving the post to hang. Surface
+					// the error so the submit fails fast with a real message.
+					print('[owo.vg] ws event handler error: $e\n$st');
+					if (!completer.isCompleted) {
+						cleanup();
+						completer.completeError(e is OwoVgException ? e : OwoVgException('owo.vg post failed: $e'));
+					}
 				});
 			}, onError: (Object e) {
 				if (!completer.isCompleted) {
@@ -518,6 +560,7 @@ class OwoVgService {
 			}));
 
 			notify('Submitting post via owo.vg...');
+			armWatchdog();
 			return await completer.future;
 		}
 		catch (e) {
