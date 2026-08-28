@@ -33,33 +33,30 @@ class SiteOwoVgGoldLoginSystem extends ImageboardSiteLoginSystem {
 
 	Uri get _authUri => Uri.https(parent.owoVgUrl, '/auth');
 
+	static const _passCookieNames = {'pass_id', 'ecker_pass'};
+
+	Future<void> _clearPassCookies(CookieJar jar) async {
+		final uri = Uri.https(parent.owoVgUrl, '/');
+		await jar.deleteWhere(uri, (c) => _passCookieNames.contains(c.name), true);
+	}
+
+	Future<void> _clearPassCookiesFromWebView() async {
+		final url = WebUri('https://${parent.owoVgUrl}');
+		for (final name in _passCookieNames) {
+			await CookieManager.instance().deleteCookie(url: url, name: name);
+		}
+	}
+
 	@override
 	Future<void> logoutImpl(bool fromBothWifiAndCellular, CancelToken cancelToken) async {
-		await parent.client.postUri(
-			_authUri,
-			data: {
-				'logout': '1'
-			},
-			options: Options(
-				contentType: Headers.formUrlEncodedContentType,
-				headers: {
-					'user-agent': OwoVgService.userAgentFor(parent),
-					'origin': Uri.https(parent.owoVgUrl).origin,
-					'referer': '${Uri.https(parent.owoVgUrl).origin}/',
-				},
-				extra: {
-					kPriority: RequestPriority.interactive
-				}
-			),
-			cancelToken: cancelToken
-		);
+		// owo.vg /auth has no logout handler. POSTing `logout=1` (empty id)
+		// hits "blank fields" and counts toward the 5-fail / 10-min lockout.
+		await _clearPassCookies(Persistence.currentCookies);
+		await _clearPassCookiesFromWebView();
 		loggedIn[Persistence.currentCookies] = false;
 		OwoVgService.invalidateMetaCache();
 		if (fromBothWifiAndCellular) {
-			await CookieManager.instance().deleteCookies(
-				url: WebUri('https://${parent.owoVgUrl}')
-			);
-			await Persistence.nonCurrentCookies.deletePreservingCloudflare(Uri.https(parent.owoVgUrl, '/'), true);
+			await _clearPassCookies(Persistence.nonCurrentCookies);
 			loggedIn[Persistence.nonCurrentCookies] = false;
 		}
 	}
@@ -96,12 +93,10 @@ class SiteOwoVgGoldLoginSystem extends ImageboardSiteLoginSystem {
 		final body = response.data as String? ?? '';
 		if (response.statusCode != 200) {
 			loggedIn[Persistence.currentCookies] = false;
-			await logout(false, cancelToken);
 			throw ImageboardSiteLoginException(body.trim().isEmpty ? 'Login failed (${response.statusCode})' : body.trim());
 		}
 		if (!body.contains('Success!')) {
 			loggedIn[Persistence.currentCookies] = false;
-			await logout(false, cancelToken);
 			throw ImageboardSiteLoginException(body.trim().isEmpty ? 'Login failed' : body.trim());
 		}
 		loggedIn[Persistence.currentCookies] = true;

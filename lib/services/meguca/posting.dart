@@ -269,6 +269,12 @@ int? _extractPostId(Response<String> response, {required bool isThread}) {
     final parsed = int.tryParse(value.trim());
     if (parsed != null) return parsed;
   }
+  // Replies redirect to `/{board}/{op}?last100=true#bottom`, which is the
+  // thread id, not the new post. Only thread creation's Location is the
+  // new post id (`/{board}/{id}`).
+  if (!isThread) {
+    return null;
+  }
   final location = response.headers.value('location') ?? response.headers.value('Location');
   if (location != null) {
     final match = RegExp(r'/([^/]+)/(\d+)(?:\?|#|$)').firstMatch(location);

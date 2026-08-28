@@ -36,6 +36,8 @@ enum AttachmentType {
 				return AttachmentType.pdf;
 			case 'mp3':
 			case 'ogg':
+			case 'flac':
+			case 'wav':
 				return AttachmentType.mp3;
 			case 'swf':
 				return AttachmentType.swf;

@@ -60,13 +60,17 @@ class OwoVgMeta {
 	final String? metathreadUrl;
 	final String? news;
 	final String? ipMarkup;
+	final String? poolMarkup;
 	final List<OwoVgEmailVerificationProvider> emailVerificationProviders;
+	final bool skipAutosolver;
 	const OwoVgMeta({
 		required this.gold,
 		this.metathreadUrl,
 		this.news,
 		this.ipMarkup,
-		this.emailVerificationProviders = const []
+		this.poolMarkup,
+		this.emailVerificationProviders = const [],
+		this.skipAutosolver = false
 	});
 
 	factory OwoVgMeta.fromJson(Map json) => OwoVgMeta(
@@ -74,7 +78,9 @@ class OwoVgMeta {
 		metathreadUrl: json['mt'] as String?,
 		news: json['n'] as String?,
 		ipMarkup: json['ipmarkup'] as String?,
-		emailVerificationProviders: (json['emailVerificationProviders'] as List?)?.cast<Map>().map(OwoVgEmailVerificationProvider.fromJson).toList() ?? const []
+		poolMarkup: json['poolmarkup'] as String?,
+		emailVerificationProviders: (json['emailVerificationProviders'] as List?)?.cast<Map>().map(OwoVgEmailVerificationProvider.fromJson).toList() ?? const [],
+		skipAutosolver: json['skipAutosolver'] as bool? ?? false
 	);
 }
 
@@ -183,6 +189,26 @@ class OwoVgService {
 			options.add((value, option.text.trim().isEmpty ? value : option.text.trim()));
 		}
 		return options.isEmpty ? const [('all', 'All')] : options;
+	}
+
+	static const defaultPoolOptions = <(String, String)>[
+		('s', 'Rule-breaking'),
+		('l', 'Non-rule breaking'),
+		('c', 'Permabans+evasion'),
+	];
+
+	static List<(String, String)> parsePoolOptions(String? poolMarkup) {
+		if (poolMarkup == null || poolMarkup.isEmpty) {
+			return defaultPoolOptions;
+		}
+		final fragment = parseFragment(poolMarkup);
+		final options = <(String, String)>[];
+		for (final option in fragment.querySelectorAll('option')) {
+			final value = option.attributes['value'];
+			if (value == null || value.isEmpty) continue;
+			options.add((value, option.text.trim().isEmpty ? value : option.text.trim()));
+		}
+		return options.length < 2 ? defaultPoolOptions : options;
 	}
 
 	static Future<String> submitFeedback(Site4Chan site, String message) async {
@@ -362,7 +388,7 @@ class OwoVgService {
 		}
 
 		// Fail the post if the server stops making progress — e.g. it keeps the
-		// socket alive with `hb` heartbeats but never sends a terminal `res`/`error`.
+		// socket alive with `h` heartbeats but never sends a terminal `res`/`error`.
 		// Re-armed on every progress frame and paused while a captcha dialog is
 		// open, so it only fires on a genuine stall, never mid-user-interaction.
 		void armWatchdog() {
@@ -384,9 +410,6 @@ class OwoVgService {
 		}
 
 		Future<void> handleWsEvent(dynamic event) async {
-			if (completer.isCompleted) {
-				return;
-			}
 			Map res;
 			try {
 				res = jsonDecode(event as String) as Map;
@@ -394,10 +417,21 @@ class OwoVgService {
 			catch (e) {
 				return;
 			}
+			// Cookie frames can arrive after the post completes; apply them even
+			// if we already resolved the receipt.
+			if (res['t'] == 'cookie') {
+				applyDeferredCookieLater(1);
+				return;
+			}
+			if (completer.isCompleted) {
+				return;
+			}
 			switch (res['t']) {
+				case 'h':
 				case 'hb':
 					// Pure keepalive — intentionally does NOT reset the watchdog, so a
 					// server that only heartbeats but never finishes still times out.
+					// owo.vg sends `t:"h"`; `hb` is kept as a stale alias.
 					break;
 				case 'info':
 					notify(res['d'] as String? ?? '');

@@ -49,8 +49,13 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   final Set<String> worksafeBoards;
 
   Map<int, String>? _extensions;
+  bool _jpegThumbnails = false;
 
   String? _pendingPostCaptchaToken;
+
+  static const _kNoFileType = 14;
+  static const _stillImageTypes = {0, 1, 2, 5, 16, 20}; // jpg png gif svg webp avif
+  static const _audioVideoNoThumbTypes = {3, 6, 7, 8, 13, 22}; // webm mp4 mp3 ogg flac wav
 
   static const megucaFileExtensions = {
     0: 'jpg',
@@ -75,6 +80,9 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     19: 'cbr',
     20: 'avif',
     21: 'swf',
+    22: 'wav',
+    23: 'glb',
+    24: 'torrent',
   };
 
   @override
@@ -100,7 +108,8 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
 
   Future<void> _loadMegucaConfig() async {
     try {
-      await fetchMegucaPublicConfig(this);
+      final cfg = await fetchMegucaPublicConfig(this);
+      _jpegThumbnails = cfg['JPEGThumbnails'] == true;
       final extResponse = await client.getUri<Map>(
         Uri.https(baseUrl, '/json/extensions'),
         options: Options(responseType: ResponseType.json, extra: {kPriority: RequestPriority.functional}),
@@ -344,7 +353,12 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       id: id,
       posterId: posterId,
       spanFormat: PostSpanFormat.jsChan,
-      attachments_: _parseImage(data['im'], board, threadId, id),
+      attachments_: [
+        ..._parseImage(data['im'], board, threadId, id),
+        if (data['xi'] is List)
+          for (final extra in data['xi'] as List)
+            ..._parseImage(extra, board, threadId, id),
+      ],
     );
     post.setSpan(makeSpan(board, threadId, body, links: links));
     return post;
@@ -417,7 +431,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
         id: sha1,
         type: type,
         url: Uri.https(baseUrl, '/assets/images/src/$sha1$ext').toString(),
-        thumbnailUrl: Uri.https(baseUrl, '/assets/images/thumb/$sha1.webp').toString(),
+        thumbnailUrl: _thumbUrl(im, sha1, ext, fileType),
         width: width,
         height: height,
         spoiler: spoiler,
@@ -426,6 +440,27 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
         sizeInBytes: (im['size'] as num?)?.toInt(),
       ),
     ];
+  }
+
+  /// Meguca stores the raster thumb extension in `thumb_type`, not as a
+  /// hardcoded `.webp`. `NoFile` (14) means there is no raster thumb: still
+  /// images use the source file, audio/video use `/assets/audio.{webp|jpg}`,
+  /// and everything else uses `/assets/file.png`.
+  String _thumbUrl(Map im, String sha1, String srcExt, int fileType) {
+    final thumbType = (im['thumb_type'] as num?)?.toInt();
+    final thumbExt = thumbType == null ? null : (megucaFileExtensions[thumbType] ?? _extensions?[thumbType]);
+    final noRasterThumb = thumbType == _kNoFileType || (thumbType != null && (thumbExt == null || thumbExt.isEmpty));
+    if (noRasterThumb) {
+      if (_audioVideoNoThumbTypes.contains(fileType)) {
+        final staticExt = _jpegThumbnails ? 'jpg' : 'webp';
+        return Uri.https(baseUrl, '/assets/audio.$staticExt').toString();
+      }
+      if (_stillImageTypes.contains(fileType)) {
+        return Uri.https(baseUrl, '/assets/images/src/$sha1$srcExt').toString();
+      }
+      return Uri.https(baseUrl, '/assets/file.png').toString();
+    }
+    return Uri.https(baseUrl, '/assets/images/thumb/$sha1.${thumbExt ?? 'webp'}').toString();
   }
 
   Thread _parseThreadMap(Map<String, dynamic> data, String board) {

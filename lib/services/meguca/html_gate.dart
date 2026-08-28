@@ -13,6 +13,7 @@ const megucaHtmlGateCookieByKind = {
   'turnstile': 'meguca_turnstile_html',
   'cap': 'meguca_cap_html',
   'twister': 'meguca_twister_html',
+  'gocaptcha': 'meguca_gocaptcha_html',
 };
 
 /// Returns true when the response is Meguca's unified HTML gate page (HTTP 403).

@@ -34,6 +34,7 @@ class _OwoVgReplyExtrasPanelState extends State<OwoVgReplyExtrasPanel> {
 	OwoVgMeta? _meta;
 	bool _loadingMeta = true;
 	List<(String, String)> _recycleIpOptions = const [];
+	List<(String, String)> _poolOptions = OwoVgService.defaultPoolOptions;
 	final _peeTextController = TextEditingController();
 
 	@override
@@ -68,6 +69,7 @@ class _OwoVgReplyExtrasPanelState extends State<OwoVgReplyExtrasPanel> {
 			setState(() {
 				_meta = meta;
 				_recycleIpOptions = OwoVgService.parseRecycleIpOptions(meta.ipMarkup);
+				_poolOptions = OwoVgService.parsePoolOptions(meta.poolMarkup);
 				_loadingMeta = false;
 			});
 		}
@@ -174,10 +176,9 @@ class _OwoVgReplyExtrasPanelState extends State<OwoVgReplyExtrasPanel> {
 										settings.owoVgPool = pool;
 										setState(() {});
 									},
-									children: const {
-										's': (null, 'Shitposting'),
-										'l': (null, 'Legitposting'),
-										'c': (null, '😭'),
+									children: {
+										for (final (value, label) in _poolOptions)
+											value: (null, label),
 									}
 								),
 							]
