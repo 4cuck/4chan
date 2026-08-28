@@ -196,7 +196,7 @@ Future<PostReceipt> megucaSubmitPostViaHttp({
   }
   if (status == 403 && lower.contains('websocket connection')) {
     throw PostFailedException(
-      'awoo.cf blocked HTTP posting for new IPs. Use Chanawoo v1.3.0+134+ with a '
+      'awoo.cf blocked HTTP posting for new IPs. Use Awoochan v1.3.0+134+ with a '
       'valid signed chance/ User-Agent (HMAC secret must match the server).',
     );
   }

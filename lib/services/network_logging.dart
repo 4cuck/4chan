@@ -62,7 +62,7 @@ class LoggingInterceptor extends Interceptor {
 		final gzippedPath = '${fileObj.path}.gz';
 		await copyGzipped(fileObj.path, gzippedPath);
 		FlutterEmailSender.send(Email(
-			subject: 'Chanawoo Network Logs',
+			subject: 'Awoochan Network Logs',
 			recipients: ['callum@moffatman.com'],
 			attachmentPaths: [gzippedPath],
 			body: '''Hi Callum,

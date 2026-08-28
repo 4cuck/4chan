@@ -25,11 +25,11 @@ Future<void> reportBug(Object error, StackTrace stackTrace) async {
 	}
 	try {
 		await FlutterEmailSender.send(Email(
-			subject: 'Chanawoo Bug Report',
+			subject: 'Awoochan Bug Report',
 			recipients: ['callum@moffatman.com'],
 			isHTML: true,
 			body: '''<p>Hi Callum,</p>
-							<p>Chanawoo v$kChanceVersion is giving me a problem:</p>
+							<p>Awoochan v$kChanceVersion is giving me a problem:</p>
 							<p>[insert your problem here]</p>
 							<p>Error: <pre>$error</pre></p>
 							<p>

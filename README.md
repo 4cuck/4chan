@@ -1,20 +1,24 @@
 ![Screenshot](https://boards.chance.surf/assets/promo.png)
 
-# Chanawoo
+# Awoochan
 
-**Chanawoo** is an unofficial fork of [Chance](https://github.com/moffatman/chan), the imageboard browser built with Flutter for iOS and Android.
+**Awoochan** is an unofficial fork of [Chance](https://github.com/moffatman/chan), the imageboard browser built with Flutter for iOS and Android.
 
 This fork adds **[owo.vg](https://owo.vg)** posting integration, offline thread downloading (from [Lystus/chan](https://github.com/Lystus/chan)), and ships under a separate Android package ID so it can be installed **alongside** the official Chance app.
 
-| | Official Chance | Chanawoo (this fork) |
+| | Official Chance | Awoochan (this fork) |
 |---|---|---|
 | GitHub | [moffatman/chan](https://github.com/moffatman/chan) | [4cuck/4chan](https://github.com/4cuck/4chan) |
 | Android package | `com.moffatman.chan` | `com.chanawoo.app` |
-| App name | Chance | Chanawoo |
+| App name | Chance | Awoochan |
 | owo.vg posting | — | Yes |
 | Thread download / CopyParty / Kuroba import | — | Yes |
 
-Upstream development continues on the original repository. Chanawoo tracks that codebase and layers fork-specific changes on top. Thread downloading, CopyParty sync, alternative gallery layout, and appearance options are integrated from [Lystus/chan](https://github.com/Lystus/chan).
+> The app was previously called **Chanawoo**. Only the name changed — the Android
+> package ID stays `com.chanawoo.app` so existing installs update in place and keep
+> their settings, saved threads and downloads.
+
+Upstream development continues on the original repository. Awoochan tracks that codebase and layers fork-specific changes on top. Thread downloading, CopyParty sync, alternative gallery layout, and appearance options are integrated from [Lystus/chan](https://github.com/Lystus/chan).
 
 ## What's different in this fork
 
@@ -25,8 +29,8 @@ Upstream development continues on the original repository. Chanawoo tracks that 
 - **Hide/unhide images** — per-image hide filter by MD5.
 - **Alternative gallery (quilt layout)** — optional quilt-style gallery and updated media viewer (Settings → Appearance).
 - **Side-by-side install** — different package ID from Play Store / upstream Chance, so both apps can be installed at once.
-- **Same gallery album and deep links as Chance** — saved images go to the **Chance** gallery album by default, and `chance://` deep links open in Chanawoo.
-- **One-time app data migration** — on first launch, if Chanawoo has no settings yet and a co-installed `com.moffatman.chan` app exists with the **same signing key**, Hive data is copied automatically. Play Store Chance uses a different key, so migration works for fork / sideload builds only, not live sharing with the official app.
+- **Same gallery album and deep links as Chance** — saved images go to the **Chance** gallery album by default, and `chance://` deep links open in Awoochan.
+- **One-time app data migration** — on first launch, if Awoochan has no settings yet and a co-installed `com.moffatman.chan` app exists with the **same signing key**, Hive data is copied automatically. Play Store Chance uses a different key, so migration works for fork / sideload builds only, not live sharing with the official app.
 
 ## Features
 
@@ -57,11 +61,11 @@ Download the APK that matches your device:
 - `app-armeabi-v7a-release.apk` — older 32-bit ARM devices
 - `app-x86_64-release.apk` — emulators
 
-If you previously installed Chanawoo v123 with empty data, clear Chanawoo app storage (or uninstall and reinstall) while a compatible `com.moffatman.chan` build is still installed, then launch Chanawoo again to trigger migration.
+If you previously installed Awoochan v123 with empty data, clear Awoochan app storage (or uninstall and reinstall) while a compatible `com.moffatman.chan` build is still installed, then launch Awoochan again to trigger migration.
 
 ## Installing on iOS
 
-Chanawoo releases are Android-focused. For iOS, use upstream [Chance beta testing](https://testflight.apple.com/join/gdHJSbzI) from the official project.
+Awoochan releases are Android-focused. For iOS, use upstream [Chance beta testing](https://testflight.apple.com/join/gdHJSbzI) from the official project.
 
 ## How to compile
 
@@ -126,7 +130,7 @@ Hold on the post counter at the bottom-right.
 
 ### How can I get help, report a bug, or request a feature?
 
-For **Chanawoo / owo.vg issues**, open an issue on [4cuck/4chan](https://github.com/4cuck/4chan/issues).
+For **Awoochan / owo.vg issues**, open an issue on [4cuck/4chan](https://github.com/4cuck/4chan/issues).
 
 For **upstream Chance** bugs and features, use the [moffatman/chan](https://github.com/moffatman/chan/issues) tracker or the meta imageboard linked from Chance settings.
 
