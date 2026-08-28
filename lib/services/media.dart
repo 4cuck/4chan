@@ -394,6 +394,17 @@ class MediaScan {
 		}
 	}
 
+	@visibleForTesting
+	static void addDummyScan(Uri uri, MediaScan scan) {
+		_webScans[uri] = scan;
+	}
+
+	static Future<void> clearCache() async {
+		_fileScans.clear();
+		await _mediaScanBox.deleteAll(_mediaScanBox.keys);
+		await _mediaScanBox.compact();
+	}
+
 	bool get isAudioOnly => videoFramerate?.isNaN ?? true;
 	bool get hasVideo {
 		final framerate = videoFramerate;
@@ -775,7 +786,7 @@ class MediaConversion {
 				}
 				(int, int)? newSize;
 				if ((scan.width, scan.height) case (int width, int height)) {
-					if (maximumDimension case final maximumDimension?) {
+					if (maximumDimension case final maximumDimension? when max(width, height) > maximumDimension) {
 						// Apply this first, because the _scaleDownRetry.factor applies from the
 						// first conversion. Which means the shrunken width/height
 						final fittedSize = applyBoxFit(BoxFit.contain, Size(width.toDouble(), height.toDouble()), Size.square(maximumDimension.toDouble())).destination;
@@ -784,7 +795,7 @@ class MediaConversion {
 					if (maximumSizeInBytes case final maximumSizeInBytes?) {
 						if (outputDurationInSeconds case final s? when isVideoOutput) {
 							// Just a way to try and not get stuck, slowly reduce bitrate target over attempts
-							final bitsPerByte = 8 - (_scaleDownRetry.attempts / 6);
+							final bitsPerByte = 8 / _scaleDownRetry.factor;
 							final maximumBitrate = (bitsPerByte * (maximumSizeInBytes / s)).round();
 							if (maximumBitrate < outputBitrate) {
 								// Limit bitrate

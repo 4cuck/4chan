@@ -15,14 +15,15 @@ import 'package:chan/services/cloudflare.dart';
 import 'package:chan/services/cookies.dart';
 import 'package:chan/services/extendable_timeout_exception.dart';
 import 'package:chan/services/http_429_backoff.dart';
-import 'package:chan/services/http_client.dart';
 import 'package:chan/services/imageboard.dart';
+import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/network_logging.dart';
 import 'package:chan/services/persistence.dart';
 import 'package:chan/services/request_fixup.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/soundposts.dart';
 import 'package:chan/services/strict_json.dart';
+import 'package:chan/services/tls.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/services/webview_introspection.dart';
 import 'package:chan/sites/4chan.dart';
@@ -51,6 +52,7 @@ import 'package:chan/util.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/attachment_viewer.dart';
 import 'package:chan/widgets/post_spans.dart';
+import 'package:chan/widgets/util.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
@@ -1485,32 +1487,107 @@ enum ImageboardBoardPopularityType {
 	postsCount
 }
 
-@HiveType(typeId: 47)
+// Upstream assigned typeId 51, which the fork already ships for DownloadStatus
+// (see models/downloaded_thread.dart, typeIds 51-54, already persisted on
+// users' devices). Moved to the next free id so both can coexist.
+@HiveType(typeId: 55)
+class DraftPostFile {
+	@HiveField(0)
+	String path;
+	@HiveField(1)
+	String? overrideFilenameWithoutExtension;
+	@HiveField(2)
+	bool overrideRandomizeFilenames;
+	@HiveField(3)
+	bool spoiler;
+
+	DraftPostFile({
+		required this.path,
+		this.overrideFilenameWithoutExtension,
+		this.overrideRandomizeFilenames = false,
+		this.spoiler = false
+	});
+
+	String? get fileExt => path.afterLast('.').toLowerCase();
+
+	String? get overrideFilename {
+		final override = overrideFilenameWithoutExtension;
+		final basename = FileBasename.get(path);
+		final filename = (override == null || override.isEmpty) ? basename : '$override.$fileExt';
+		if (Settings.instance.randomizeFilenames &&
+				!overrideRandomizeFilenames &&
+				SoundpostAttachment.extractSoundSourceFromFilename(filename) == null) {
+			return '${DateTime.now().subtract(const Duration(days: 365) * random.nextDouble()).microsecondsSinceEpoch}.$fileExt';
+		}
+		final encoded = SoundpostAttachment.encodeSoundSourceFilename(filename);
+		if (override == null || override.isEmpty && (encoded == basename)) {
+			return null;
+		}
+		return encoded;
+	}
+
+	String get basename => FileBasename.get(path);
+
+	@override
+	bool operator == (Object other) =>
+		identical(this, other) ||
+		other is DraftPostFile &&
+		other.path == path &&
+		other.overrideFilenameWithoutExtension == overrideFilenameWithoutExtension &&
+		other.overrideRandomizeFilenames == overrideRandomizeFilenames &&
+		other.spoiler == spoiler;
+	
+	@override
+	int get hashCode => Object.hash(path, overrideFilenameWithoutExtension, overrideRandomizeFilenames, spoiler);
+
+	@override
+	String toString() => 'DraftPostFile(path: $path, overrideFilenameWithoutExtension: $overrideFilenameWithoutExtension, overrideRandomizeFilenames: $overrideRandomizeFilenames, spoiler: $spoiler)';
+}
+
+void _readHookDraftPostFields(List<dynamic> fields) {
+	fields[DraftPostFields.files.fieldNumber] ??= () {
+		final deprecatedFile = fields[6] as String?;
+		final deprecatedSpoiler = fields[7] as bool?;
+		final deprecatedOverrideFilenameWithoutExtension = fields[8] as String?;
+		final deprecatedOverrideRandomizeFilenames = fields[11] as bool?;
+		return [
+			if (deprecatedFile != null) DraftPostFile(
+				path: deprecatedFile,
+				overrideFilenameWithoutExtension: deprecatedOverrideFilenameWithoutExtension,
+				spoiler: deprecatedSpoiler ?? false,
+				overrideRandomizeFilenames: deprecatedOverrideRandomizeFilenames ?? false
+			)
+		];
+	}();
+}
+
+@HiveType(typeId: 47, readHook: _readHookDraftPostFields)
 class DraftPost {
 	@HiveField(0)
 	final String board;
+	BoardKey get boardKey => ImageboardBoard.getKey(board);
 	@HiveField(1)
-	final int? threadId;
+	int? threadId;
 	@HiveField(2)
 	String? name;
 	@HiveField(3)
 	final String? options;
 	@HiveField(4)
-	final String? subject;
+	String? subject;
 	@HiveField(5)
-	final String text;
-	@HiveField(6)
-	String? file;
-	@HiveField(7)
-	final bool? spoiler;
-	@HiveField(8)
-	final String? overrideFilenameWithoutExtension;
+	String text;
 	@HiveField(9)
 	ImageboardBoardFlag? flag;
 	@HiveField(10)
 	bool? useLoginSystem;
-	@HiveField(11, defaultValue: false)
-	bool overrideRandomizeFilenames;
+	@HiveField(12, merger: MapLikeListMerger<DraftPostFile, String>(
+		childMerger: AdaptedMerger<DraftPostFile>(DraftPostFileAdapter.kTypeId),
+		keyer: DraftPostFileFields.getPath,
+		maintainOrder: true
+	))
+	List<DraftPostFile> files;
+	// Do not persist
+	int sequenceNumber = 1;
 
 	DraftPost({
 		required this.board,
@@ -1519,35 +1596,86 @@ class DraftPost {
 		required this.options,
 		this.subject,
 		required this.text,
-		this.file,
-		this.spoiler,
-		this.overrideFilenameWithoutExtension,
 		this.flag,
 		required this.useLoginSystem,
-		this.overrideRandomizeFilenames = false
+		required this.files
 	});
+
+	DraftPost clone() => DraftPost(
+		board: board,
+		threadId: threadId,
+		name: name,
+		options: options,
+		subject: subject,
+		text: text,
+		flag: flag,
+		useLoginSystem: useLoginSystem,
+		files: files.toList()
+	);
+
+	static const _kVideoExtensions = {
+		'webm', 'mp4', 'mov', 'm4v', 'mkv', 'mpeg', 'avi', '3gp', 'm2ts'
+	};
+
+	static (List<DraftPostFile>, List<DraftPostFile>) _splitFiles(ImageboardBoard board, List<DraftPostFile> files) {
+		if (board.filesPerPost == 0 && files.isNotEmpty) {
+			throw Exception('Posting files not allowed');
+		}
+		if (files.length <= 1) {
+			return (files, []);
+		}
+		final currentFiles = files.toList();
+		final List<DraftPostFile> remainingFiles;
+		if (currentFiles.length > board.filesPerPost) {
+			remainingFiles = currentFiles.sublist(board.filesPerPost);
+			currentFiles.removeRange(board.filesPerPost, currentFiles.length);
+		}
+		else {
+			remainingFiles = [];
+		}
+		int limit = 1 << 50;
+		int size = 0;
+		for (int i = 0; i < currentFiles.length; i++) {
+			final thisLimit = (_kVideoExtensions.contains(currentFiles[i].fileExt) ? board.maxWebmSizeBytes : board.maxImageSizeBytes) ?? limit;
+			if (thisLimit < limit) {
+				limit = thisLimit;
+			}
+			final thisSize = File(currentFiles[i].path).statSync().size;
+			if (size + thisSize > limit) {
+				remainingFiles.insertAll(0, currentFiles.sublist(i));
+				currentFiles.removeRange(i, currentFiles.length);
+				break;
+			}
+			size += thisSize;
+		}
+		if (currentFiles.isEmpty) {
+			throw Exception('All files removed due to size limit ${formatFilesize(limit)}');
+		}
+		return (currentFiles, remainingFiles);
+	}
+
+	(List<DraftPostFile>, List<DraftPostFile>) splitFiles(ImageboardBoard board) {
+		return _splitFiles(board, files);
+	}
+
+	int calculateNeededPosts(ImageboardBoard board) {
+		int needed = 1;
+		List<DraftPostFile> nextFiles = splitFiles(board).$2;
+		while (nextFiles.isNotEmpty) {
+			needed++;
+			nextFiles = _splitFiles(board, nextFiles).$2;
+		}
+		return needed;
+	}
 
 	ImageboardAction get action =>
 		threadId == null ?
 			ImageboardAction.postThread :
-			(file != null) ?
+			files.isNotEmpty ?
 				ImageboardAction.postReplyWithImage :
 				ImageboardAction.postReply;
 	
 	ThreadIdentifier? get thread => threadId == null ? null : ThreadIdentifier(board, threadId!);
-
-	String? get fileExt => file?.afterLast('.').toLowerCase();
-
-	String? get overrideFilename {
-		if (Settings.instance.randomizeFilenames && !overrideRandomizeFilenames) {
-			return '${DateTime.now().subtract(const Duration(days: 365) * random.nextDouble()).microsecondsSinceEpoch}.$fileExt';
-		}
-		final override = overrideFilenameWithoutExtension;
-		if (override == null || override.isEmpty || file == null) {
-			return null;
-		}
-		return '${SoundpostAttachment.encodeSoundSourceFilename(override)}.$fileExt';
-	}
 
 	@override
 	bool operator == (Object other) =>
@@ -1559,18 +1687,15 @@ class DraftPost {
 		other.options == options &&
 		other.subject == subject &&
 		other.text == text &&
-		other.file == file &&
-		other.spoiler == spoiler &&
-		other.overrideFilenameWithoutExtension == overrideFilenameWithoutExtension &&
+		listEquals(other.files, files) &&
 		other.flag == flag &&
-		other.useLoginSystem == useLoginSystem &&
-		other.overrideRandomizeFilenames == overrideRandomizeFilenames;
+		other.useLoginSystem == useLoginSystem;
 	
 	@override
-	int get hashCode => Object.hash(board, threadId, name, options, subject, text, file, spoiler, overrideFilenameWithoutExtension, flag, useLoginSystem, overrideRandomizeFilenames);
+	int get hashCode => Object.hash(board, threadId, name, options, subject, text, files, flag, useLoginSystem);
 
 	@override
-	String toString() => 'DraftPost(board: $board, threadId: $threadId, name: $name, options: $options, subject: $subject, text: $text, file: $file, spoiler: $spoiler, overrideFilenameWithoutExtension: $overrideFilenameWithoutExtension, flag: $flag, useLoginSystem: $useLoginSystem, overrideRandomizeFilenames: $overrideRandomizeFilenames)';
+	String toString() => 'DraftPost(board: $board, threadId: $threadId, name: $name, options: $options, subject: $subject, text: $text, files: $files, flag: $flag, useLoginSystem: $useLoginSystem)';
 }
 
 @HiveType(typeId: 48)
@@ -1756,25 +1881,27 @@ abstract class ImageboardSiteArchive {
 		/// 15 seconds should be well long enough for initial TCP handshake
 		connectTimeout: 15000
 	));
-	final Map<String, Map<String, Catalog>> _catalogCache = {};
-	final Map<String, Map<String, CatalogPageMap>> _catalogPageMapCache = {};
+	final Map<BoardKey, Map<String, Catalog>> _catalogCache = {};
+	final Map<BoardKey, Map<String, CatalogPageMap>> _catalogPageMapCache = {};
 	final Map<ThreadIdentifier, _TemporaryThread> _temporaryThreadCache = {};
 	static const _kCacheLifetime = Duration(minutes: 10);
 	Timer? _cacheGarbageCollectionTimer;
 	String get userAgent => overrideUserAgent ?? Settings.instance.userAgent;
 	final String? overrideUserAgent;
 	final bool addIntrospectedHeaders;
+	final bool? preferHttp3WithoutAltSvc;
 	ImageboardSiteArchive({
 		required this.overrideUserAgent,
-		required this.addIntrospectedHeaders
+		required this.addIntrospectedHeaders,
+		required this.preferHttp3WithoutAltSvc
 	}) {
 		client.interceptors.add(CloudflareBlockingInterceptor());
 		client.interceptors.add(HTTP429BackoffInterceptor(client: client));
-		client.interceptors.add(InterceptorsWrapper(
+		client.interceptors.add(InterceptorWrapperBase(
 			onRequest: (options, handler) async {
-				try {
 					options.headers['user-agent'] ??= userAgent;
 					final extraCookie = getExtraCookie(options.uri);
+				if (extraCookie.isNotEmpty) {
 					options.extra.update(kExtraCookie, (existing) {
 						if (existing is String && existing.contains(extraCookie)) {
 							// Don't re-add on re-entrant request
@@ -1785,22 +1912,17 @@ abstract class ImageboardSiteArchive {
 						}
 						return '$existing; $extraCookie';
 					}, ifAbsent: () => extraCookie);
+				}
 					if (addIntrospectedHeaders) {
 						for (final entry in (await WebViewIntrospection.instance.getDefaultHeaders()).entries) {
 							options.headers[entry.key] ??= entry.value;
 						}
 					}
+				if (isKnownHost(options.uri.host)) {
+					options.preferHttp3WithoutAltSvc ??= preferHttp3WithoutAltSvc;
+				}
 					handler.next(options);
 				}
-				catch (e, st) {
-					handler.reject(DioError(
-						requestOptions: options,
-						response: null,
-						error: e
-					)..stackTrace = st, false);
-					return;
-				}
-			}
 		));
 		client.interceptors.add(SeparatedCookieManager());
 		client.interceptors.add(FixupInterceptor());
@@ -1811,16 +1933,24 @@ abstract class ImageboardSiteArchive {
 		if (!kInUnitTest) {
 			client.interceptors.add(LoggingInterceptor.instance);
 		}
-		client.httpClientAdapter = MyHttpClientAdapter();
+		client.httpClientAdapter = myHttpClientAdapter;
 	}
 	String get name;
 	String get baseUrl;
+	bool isKnownHost(String host) {
+		return host == baseUrl;
+	}
 	Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken});
 	Future<Thread> getThread(ThreadIdentifier thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken});
+	/// Null means tail function not available
+	Future<ThreadTail?> getThreadTail(Thread thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
+		return null;
+	}
 	/// Exported to handle pageMap with same request as catalog, when pageMap is requested first
 	@protected
 	void insertCatalogIntoCache(String board, CatalogVariant? variant, Catalog catalog) {
-		final oldCatalog = _catalogCache[board]?[variant.dataId];
+		final key = ImageboardBoard.getKey(board);
+		final oldCatalog = _catalogCache[key]?[variant.dataId];
 		if (oldCatalog != null) {
 			for (final oldThread in oldCatalog.threads.values) {
 				if (!catalog.threads.containsKey(oldThread.id)) {
@@ -1829,10 +1959,10 @@ abstract class ImageboardSiteArchive {
 				}
 			}
 		}
-		(_catalogCache[board] ??= {})[variant.dataId] = catalog;
+		(_catalogCache[key] ??= {})[variant.dataId] = catalog;
 	}
 	void ensureCatalogCached(Thread thread, DateTime fetchedTime) {
-		if (_catalogCache[thread.board]?.values.any((c) => c.threads.containsKey(thread.id)) ?? false) {
+		if (_catalogCache[ImageboardBoard.getKey(thread.board)]?.values.any((c) => c.threads.containsKey(thread.id)) ?? false) {
 			// Already cached
 			return;
 		}
@@ -1850,7 +1980,7 @@ abstract class ImageboardSiteArchive {
 		CancelToken? cancelToken
 	}) async {
 		return runEphemerallyLocked('getCatalog($name,$board)', (_) async {
-			final entry = _catalogCache[board]?[variant.dataId];
+			final entry = _catalogCache[ImageboardBoard.getKey(board)]?[variant.dataId];
 			if (acceptCached != null && entry != null && entry.satisfiesConstraints(acceptCached)) {
 				return entry;
 			}
@@ -1873,7 +2003,7 @@ abstract class ImageboardSiteArchive {
 		if (board == null) {
 			return null;
 		}
-		final catalog = _catalogCache[board]?[variant.dataId];
+		final catalog = _catalogCache[ImageboardBoard.getKey(board)]?[variant.dataId];
 		if (constraints == null || catalog == null || catalog.satisfiesConstraints(constraints)) {
 			return catalog;
 		}
@@ -1932,13 +2062,14 @@ abstract class ImageboardSiteArchive {
 		CancelToken? cancelToken
 	}) async {
 		return runEphemerallyLocked('getCatalogPageMap($name,$board)', (_) async {
-			final entry = _catalogPageMapCache[board]?[variant.dataId];
+			final key = ImageboardBoard.getKey(board);
+			final entry = _catalogPageMapCache[key]?[variant.dataId];
 			if (acceptCached != null) {
 				if (entry != null && entry.satisfiesConstraints(acceptCached)) {
 					return entry;
 				}
 				// Try to steal from getCatalog() caching
-				final catalogEntry = _catalogCache[board]?[variant.dataId];
+				final catalogEntry = _catalogCache[key]?[variant.dataId];
 				if (catalogEntry != null && catalogEntry.satisfiesConstraints(acceptCached)) {
 					return CatalogPageMap(
 						pageMap: {
@@ -1962,7 +2093,7 @@ abstract class ImageboardSiteArchive {
 				);
 			}
 			pageMap ??= await getCatalogPageMapImpl(board, variant: variant, priority: priority, cancelToken: cancelToken);
-			(_catalogPageMapCache[board] ??= {})[variant.dataId] = pageMap;
+			(_catalogPageMapCache[key] ??= {})[variant.dataId] = pageMap;
 			return pageMap;
 		});
 	}
@@ -1972,7 +2103,7 @@ abstract class ImageboardSiteArchive {
 	Future<List<Thread>> getMoreCatalog(String board, Thread after, {CatalogVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
 		final fetchedTime = DateTime.now();
 		final moreCatalog = await getMoreCatalogImpl(board, after, variant: variant, priority: priority, cancelToken: cancelToken);
-		final entry = (_catalogCache[board] ??= {})[variant.dataId] ??= Catalog(
+		final entry = (_catalogCache[ImageboardBoard.getKey(board)] ??= {})[variant.dataId] ??= Catalog(
 			threads: LinkedHashMap(),
 			lastModified: null,
 			fetchedTime: fetchedTime
@@ -1987,7 +2118,7 @@ abstract class ImageboardSiteArchive {
 		if (identifier == null) {
 			return null;
 		}
-		final caches = _catalogCache[identifier.board]?.values ?? [];
+		final caches = _catalogCache[ImageboardBoard.getKey(identifier.board)]?.values ?? [];
 		for (final cache in caches) {
 			if (constraints != null && !cache.satisfiesConstraints(constraints)) {
 				continue;
@@ -2005,9 +2136,10 @@ abstract class ImageboardSiteArchive {
 	}
 	@protected
 	void bumpCatalogInCache(String board, CatalogVariant? variant, DateTime fetchedTime, DateTime? lastModified) {
-		final oldCatalog = _catalogCache[board]?[variant.dataId];
+		final key = ImageboardBoard.getKey(board);
+		final oldCatalog = _catalogCache[key]?[variant.dataId];
 		if (oldCatalog != null && oldCatalog.fetchedTime.isBefore(fetchedTime) && oldCatalog.lastModified == lastModified) {
-			(_catalogCache[board] ??= {})[variant.dataId] = Catalog(
+			(_catalogCache[key] ??= {})[variant.dataId] = Catalog(
 				threads: oldCatalog.threads,
 				lastModified: oldCatalog.lastModified,
 				fetchedTime: fetchedTime
@@ -2026,7 +2158,7 @@ abstract class ImageboardSiteArchive {
 	}) {
 		return getWebUrlImpl(board, threadId, postId);
 	}
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url);
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken});
 	bool decodeUrlPossible(Uri url);
 	int placeOrphanPost(List<Post> posts, Post post) {
 		final index = posts.indexWhere((p) => p.id > post.id);
@@ -2087,7 +2219,8 @@ abstract class ImageboardSiteArchive {
 		identical(this, other) ||
 		other is ImageboardSiteArchive &&
 		other.overrideUserAgent == overrideUserAgent &&
-		other.addIntrospectedHeaders == addIntrospectedHeaders;
+		other.addIntrospectedHeaders == addIntrospectedHeaders &&
+		other.preferHttp3WithoutAltSvc == preferHttp3WithoutAltSvc;
 	
 	@override
 	int get hashCode => baseUrl.hashCode;
@@ -2104,19 +2237,29 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 		required this.imageHeaders,
 		required this.videoHeaders,
 		required super.overrideUserAgent,
-		required super.addIntrospectedHeaders
+		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc
 	});
 	/// Get headers to use to download an Attachment
-	Map<String, String> getHeaders(Uri url) {
-		final type = AttachmentType.fromFilename(FileBasename.get(url.path));
+	Map<String, String> getHeaders(Attachment attachment, [Uri? url]) {
 		return {
 			'user-agent': userAgent,
-			if (type.isVideo) ...videoHeaders
-			else if (type == AttachmentType.image) ...imageHeaders
+			if (attachment.type.isVideo) ...{
+				'accept': 'video/*',
+				...videoHeaders
+			}
+			else if (attachment.type == AttachmentType.image) ...{
+				'accept': 'image/*',
+				...imageHeaders
+			}
 		};
 	}
 	String? get imageUrl => null;
 	Uri? get iconUrl;
+	@override
+	bool isKnownHost(String host) {
+		return super.isKnownHost(host) || host == imageUrl;
+	}
 	Future<CaptchaRequest> getCaptchaRequest(String board, int? threadId, {CancelToken? cancelToken});
 	Future<CaptchaRequest> getDeleteCaptchaRequest(ThreadIdentifier thread, {CancelToken? cancelToken}) async => const NoCaptchaRequest();
 	Future<PostReceipt> submitPost(DraftPost post, CaptchaSolution captchaSolution, CancelToken cancelToken);
@@ -2208,7 +2351,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 				final url = Uri.parse(opAttachment.url);
 				final response = await client.head(opAttachment.url, options: Options(
 					headers: {
-						...getHeaders(url),
+						...getHeaders(opAttachment),
 						if (opAttachment.useRandomUseragent) 'user-agent': makeRandomUserAgent()
 					},
 					followRedirects: false,
@@ -2455,6 +2598,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 	bool get supportsPushNotifications => false;
 	bool get supportsUserInfo => false;
 	bool get supportsUserAvatars => false;
+	bool get hasUnreliableThumbnails => false;
 	List<CatalogVariantGroup> get catalogVariantGroups => const [
 		CatalogVariantGroup(
 			name: 'Bump order',
@@ -2498,6 +2642,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 		)
 	];
 	List<ThreadVariant> get threadVariants => const [];
+	String formatBoardNameShort(String name) => '/$name/';
 	String formatBoardName(String name) => '/$name/';
 	String formatBoardNameWithoutTrailingSlash(String name) => '/$name';
 	String formatBoardLink(String name) => '>>/$name/';
@@ -2676,15 +2821,20 @@ abstract class ImageboardSiteLoginSystem {
 	bool isLoggedIn(CookieJar jar) {
 		return loggedIn.putIfAbsent(jar, () => false);
 	}
+	void didClearCookies(CookieJar jar) {
+		loggedIn[jar] = false;
+	}
 }
 
 ImageboardSiteArchive? makeArchive(Map archive) {
 	final overrideUserAgent = archive['overrideUserAgent'] as String?;
 	final addIntrospectedHeaders = archive['addIntrospectedHeaders'] as bool? ?? false;
+	final preferHttp3WithoutAltSvc =  archive['preferHttp3WithoutAltSvc'] as bool?;
 	final boards = (archive['boards'] as List?)?.cast<Map>().map((b) => ImageboardBoard(
 		title: b['title'] as String,
 		name: b['name'] as String,
 		isWorksafe: b['isWorksafe'] as bool,
+		filesPerPost: (b['filesPerPost'] as int?) ?? 1,
 		webmAudioAllowed: false
 	)).toList();
 	if (archive['type'] == 'foolfuuka') {
@@ -2696,7 +2846,8 @@ ImageboardSiteArchive? makeArchive(Map archive) {
 			useRandomUseragent: archive['useRandomUseragent'] as bool? ?? false,
 			hasAttachmentRateLimit: archive['hasAttachmentRateLimit'] as bool? ?? false,
 			overrideUserAgent: overrideUserAgent,
-			addIntrospectedHeaders: addIntrospectedHeaders
+			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc
 		);
 	}
 	else if (archive['type'] == 'fuuka') {
@@ -2705,7 +2856,8 @@ ImageboardSiteArchive? makeArchive(Map archive) {
 			baseUrl: archive['baseUrl'] as String,
 			boards: boards,
 			overrideUserAgent: overrideUserAgent,
-			addIntrospectedHeaders: addIntrospectedHeaders
+			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc
 		);
 	}
 	else {
@@ -2717,6 +2869,7 @@ ImageboardSiteArchive? makeArchive(Map archive) {
 ImageboardSite makeSite(Map data) {
 	final overrideUserAgent = data['overrideUserAgent'] as String?;
 	final addIntrospectedHeaders = data['addIntrospectedHeaders'] as bool? ?? false;
+	final preferHttp3WithoutAltSvc =  data['preferHttp3WithoutAltSvc'] as bool?;
 	final archives = [
 		...(data['archives'] as List? ?? []).cast<Map>().tryMap<ImageboardSiteArchive>(makeArchive),
 		// archives2 exists because old versions will crash with unsupported archives in 'archives' list
@@ -2728,6 +2881,7 @@ ImageboardSite makeSite(Map data) {
 		title: b['title'] as String,
 		name: b['name'] as String,
 		isWorksafe: b['isWorksafe'] as bool,
+		filesPerPost: (b['filesPerPost'] as int?) ?? 1,
 		webmAudioAllowed: true
 	)).toList();
 	if (data['type'] == 'lainchan') {
@@ -2736,8 +2890,10 @@ ImageboardSite makeSite(Map data) {
 			baseUrl: data['baseUrl'] as String,
 			imageUrl: data['imageUrl'] as String?,
 			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?,
+			filesPerPost: (data['filesPerPost'] as int?) ?? 1,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -2749,8 +2905,10 @@ ImageboardSite makeSite(Map data) {
 			name: data['name'] as String,
 			baseUrl: data['baseUrl'] as String,
 			imageUrl: data['imageUrl'] as String?,
+			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -2769,6 +2927,7 @@ ImageboardSite makeSite(Map data) {
 			imageUrl: data['imageUrl'] as String?,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			boardsWithHtmlOnlyFlags: (data['boardsWithHtmlOnlyFlags'] as List?)?.cast<String>() ?? [],
 			boardsWithMemeFlags: (data['boardsWithMemeFlags'] as List?)?.cast<String>(),
 			archives: archives,
@@ -2783,8 +2942,10 @@ ImageboardSite makeSite(Map data) {
 			name: data['name'] as String,
 			baseUrl: data['baseUrl'] as String,
 			imageUrl: data['imageUrl'] as String?,
+			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -2798,8 +2959,11 @@ ImageboardSite makeSite(Map data) {
 			imageUrl: data['imageUrl'] as String?,
 			faviconPath: data['faviconPath'] as String? ?? '/favicon.ico',
 			defaultUsername: data['defaultUsername'] as String? ?? 'Anonymous',
+			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?,
+			filesPerPost: (data['filesPerPost'] as int?) ?? 1,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -2812,6 +2976,7 @@ ImageboardSite makeSite(Map data) {
 			baseUrl: data['baseUrl'] as String,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -2824,6 +2989,7 @@ ImageboardSite makeSite(Map data) {
 			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -2833,6 +2999,7 @@ ImageboardSite makeSite(Map data) {
 		return SiteReddit(
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -2842,6 +3009,7 @@ ImageboardSite makeSite(Map data) {
 		return SiteHackerNews(
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -2854,6 +3022,7 @@ ImageboardSite makeSite(Map data) {
 			imageUrl: data['imageUrl'] as String?,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			boardsWithHtmlOnlyFlags: (data['boardsWithHtmlOnlyFlags'] as List?)?.cast<String>() ?? [],
 			boardsWithMemeFlags: (data['boardsWithMemeFlags'] as List?)?.cast<String>(),
 			archives: archives,
@@ -2901,6 +3070,7 @@ ImageboardSite makeSite(Map data) {
 			subjectCharacterLimit: data['subjectCharacterLimit'] as int?,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			boardFlags: (data['boardFlags'] as Map?)?.cast<String, Map>().map((k, v) => MapEntry(k, v.cast<String, String>())),
 			boardsWithCountryFlags: (data['boardsWithCountryFlags'] as List?)?.cast<String>() ?? [],
 			searchUrl: data['searchUrl'] as String? ?? '',
@@ -2916,6 +3086,7 @@ ImageboardSite makeSite(Map data) {
 			boards: boards,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -2923,7 +3094,9 @@ ImageboardSite makeSite(Map data) {
 			hasLinkCookieAuth: data['hasLinkCookieAuth'] as bool? ?? false,
 			hasPagedCatalog: data['hasPagedCatalog'] as bool? ?? true,
 			allowsArbitraryBoards: data['allowsArbitraryBoards'] as bool? ?? false,
-			hasBlockBypassJson: data['hasBlockBypassJson'] as bool? ?? false
+			hasBlockBypassJson: data['hasBlockBypassJson'] as bool? ?? false,
+			filesPerPost: (data['filesPerPost'] as int?) ?? 5,
+			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?
 		);
 	}
 	else if (data['type'] == '8chan') {
@@ -2933,13 +3106,16 @@ ImageboardSite makeSite(Map data) {
 			boards: boards,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
 			defaultUsername: data['defaultUsername'] as String? ?? 'Anonymous',
 			hasLinkCookieAuth: data['hasLinkCookieAuth'] as bool? ?? false,
 			hasPagedCatalog: data['hasPagedCatalog'] as bool? ?? true,
-			allowsArbitraryBoards: data['allowsArbitraryBoards'] as bool? ?? false
+			allowsArbitraryBoards: data['allowsArbitraryBoards'] as bool? ?? false,
+			filesPerPost: (data['filesPerPost'] as int?) ?? 5,
+			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?
 		);
 	}
 	else if (data['type'] == 'lainchan2') {
@@ -2952,8 +3128,11 @@ ImageboardSite makeSite(Map data) {
 			faviconPath: data['faviconPath'] as String?,
 			boardsPath: data['boardsPath'] as String,
 			defaultUsername: data['defaultUsername'] as String,
+			maxUploadSizeBytes: data['maxUploadSizeBytes'] as int?,
+			filesPerPost: (data['filesPerPost'] as int?) ?? 1,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -2981,6 +3160,7 @@ ImageboardSite makeSite(Map data) {
 			defaultUsername: data['defaultUsername'] as String,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
@@ -3004,6 +3184,7 @@ ImageboardSite makeSite(Map data) {
 			postsPerPage: data['postsPerPage'] as int,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -3017,6 +3198,7 @@ ImageboardSite makeSite(Map data) {
 			defaultUsername: data['defaultUsername'] as String? ?? 'Anonymous',
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -3036,6 +3218,7 @@ ImageboardSite makeSite(Map data) {
 			textCaptchaQuestion: data['textCaptchaQuestion'] as String?,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders
@@ -3052,6 +3235,7 @@ ImageboardSite makeSite(Map data) {
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			worksafeBoards: (data['worksafeBoards'] as List?)?.cast<String>().toSet() ?? const {'c'},
 		);
 	}
@@ -3067,6 +3251,7 @@ ImageboardSite makeSite(Map data) {
 			searchResultsPerPage: data['searchResultsPerPage'] as int? ?? 25,
 			overrideUserAgent: overrideUserAgent,
 			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc,
 			archives: archives,
 			imageHeaders: imageHeaders,
 			videoHeaders: videoHeaders

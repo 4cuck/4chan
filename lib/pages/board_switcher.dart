@@ -124,6 +124,7 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 	late final ValueNotifier<Color?> _backgroundColor;
 	int _pointersDownCount = 0;
 	bool _popping = false;
+	bool _poppingWithSelected = false;
 	int _selectedIndex = 0;
 	bool _showSelectedItem = isOnMac;
 	late TextEditingController _textEditingController;
@@ -183,7 +184,8 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 							name: '',
 							title: imageboard.site.name,
 							isWorksafe: false,
-							webmAudioAllowed: false
+							webmAudioAllowed: false,
+							filesPerPost: 1
 						)));
 					}
 				}
@@ -543,7 +545,8 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 					name: searchString,
 					title: '',
 					isWorksafe: false,
-					webmAudioAllowed: true
+					webmAudioAllowed: true,
+					filesPerPost: 1
 				);
 				if (ret.isEmpty) {
 					return [currentImageboard.scope(fakeBoard)];
@@ -573,7 +576,11 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 	}
 
 	Future<void> _pop(ImageboardScoped<ImageboardBoard> item) async {
+		if (_popping) {
+			return;
+		}
 		_popping = true;
+		_poppingWithSelected = true;
 		if (item.imageboard.persistence.maybeGetBoard(item.item.name) == null) {
 			// In case it is found by typeahead or something
 			await item.imageboard.persistence.setBoard(item.item.name, item.item);
@@ -1448,6 +1455,6 @@ class _BoardSwitcherPageState extends State<BoardSwitcherPage> {
 		_textEditingController.dispose();
 		ImageboardRegistry.instance.removeListener(_onImageboardRegistryUpdate);
 		_boardsBoxSubscription.cancel();
-		ScrollTracker.instance.slowScrollDirection.value = _originalSlowScrollDirection;
+		ScrollTracker.instance.slowScrollDirection.value = _poppingWithSelected ? VerticalDirection.up : _originalSlowScrollDirection;
 	}
 }

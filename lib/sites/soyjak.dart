@@ -18,19 +18,22 @@ class SiteSoyjak extends SiteLainchan2 {
 		this.boardsWithCaptcha,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.boardsWithHtmlOnlyFlags,
 		required super.boardsWithMemeFlags,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders,
-		required super.turnstileSiteKey
+		required super.turnstileSiteKey,
+		required super.maxUploadSizeBytes
 	}) : super(
 		basePath: '',
 		formBypass: {},
 		imageThumbnailExtension: null,
 		faviconPath: '/favicon.ico',
 		defaultUsername: 'Chud',
-		res: 'thread'
+		res: 'thread',
+		filesPerPost: 4
 	);
 
 	@override

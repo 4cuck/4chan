@@ -397,7 +397,7 @@ class FuukaArchive extends ImageboardSiteArchive {
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		return _decodeUrl(url);
 	}
 
@@ -406,7 +406,8 @@ class FuukaArchive extends ImageboardSiteArchive {
 		required this.name,
 		this.boards,
 		required super.overrideUserAgent,
-		required super.addIntrospectedHeaders
+		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc
 	});
 
 	@override

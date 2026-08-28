@@ -44,7 +44,8 @@ class SiteJForum extends ImageboardSite with ForumSite {
 		required super.imageHeaders,
 		required super.videoHeaders,
 		required super.overrideUserAgent,
-		required super.addIntrospectedHeaders
+		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc
 	});
 
 	static void _trim(dom.NodeList nodes) {
@@ -153,7 +154,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 	}
 
 	/// Board is a weak concept in JForum. Sometimes we need to find it.
-	Future<String> _lookupBoard(int threadId) async {
+	Future<String> _lookupBoard(int threadId, {CancelToken? cancelToken}) async {
 		// Maybe we already have the thread
 		if (persistence?.imageboardKey case String imageboardKey) {
 			final prefix = '$imageboardKey/';
@@ -169,7 +170,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 			}
 		}
 		// May need to fetch the thread to fill in the board
-		return (await getThread(ThreadIdentifier('', threadId), priority: RequestPriority.functional)).board;
+		return (await getThread(ThreadIdentifier('', threadId), priority: RequestPriority.functional, cancelToken: cancelToken)).board;
 	}
 
 	static const _kForumsPattern = r'^/forums/show/(\d+)\.page';
@@ -198,7 +199,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		if (url.host != baseUrl) {
 			return null;
 		}
@@ -215,7 +216,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 		}
 		if (RegExp(_kPostsListPattern).firstMatch(path) case Match match) {
 			final threadId = int.parse(match.group(2)!);
-			final board = await _lookupBoard(threadId);
+			final board = await _lookupBoard(threadId, cancelToken: cancelToken);
 			if (url.fragment.tryParseInt case int postId) {
 				return BoardThreadOrPostIdentifier(board, threadId, postId);
 			}
@@ -228,7 +229,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 		if (RegExp(_kPostsPrelistPattern).firstMatch(path) case Match match) {
 			final threadId = int.parse(match.group(1)!);
 			final postId = int.parse(match.group(2)!);
-			final board = await _lookupBoard(threadId);
+			final board = await _lookupBoard(threadId, cancelToken: cancelToken);
 			return BoardThreadOrPostIdentifier(board, threadId, postId);
 		}
 		return null;
@@ -259,7 +260,8 @@ class SiteJForum extends ImageboardSite with ForumSite {
 				title: description,
 				isWorksafe: true,
 				webmAudioAllowed: true,
-				popularity: postCount
+				popularity: postCount,
+				filesPerPost: 0
 			);
 		}).toList();
 	}
@@ -588,6 +590,8 @@ class SiteJForum extends ImageboardSite with ForumSite {
 	}
 
 	@override
+	String formatBoardNameShort(String name) => name.afterLast('.');
+	@override
 	String formatBoardName(String name) => name.afterLast('.');
 	@override
 	String formatBoardNameWithoutTrailingSlash(String name) => name.afterLast('.');
@@ -623,7 +627,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 
 	@override
 	Future<PostReceipt> submitPost(DraftPost post, CaptchaSolution captchaSolution, CancelToken cancelToken) async {
-		if (post.file != null) {
+		if (post.files.isNotEmpty) {
 			throw Exception('Media posting not supported on JForum');
 		}
 		// TODO: implement submitPost

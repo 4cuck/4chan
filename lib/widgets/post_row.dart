@@ -601,26 +601,25 @@ class PostRow extends StatelessWidget {
 						)
 					)
 				)
-				else if (latestPost.attachmentDeleted) Center(
-					child: SizedBox(
-						width: 75,
-						height: 75,
-						child:
-							parentZone.isLoadingPostFromArchive(post.board, post.id) ?
-								const CircularProgressIndicator.adaptive() :
-								switch (parentZone.postFromArchiveError(post.board, post.id)) {
-									(Object error, StackTrace stackTrace) => CupertinoInkwell(
-										onPressed: () => alertError(context, error, stackTrace, actions: {
-											'Retry': () => parentZone.loadPostFromArchive(post.board, post.id)
-										}),
-										child: const Icon(CupertinoIcons.exclamationmark_triangle, size: 36)
-									),
-									null => CupertinoInkwell(
-										onPressed: () => parentZone.loadPostFromArchive(post.board, post.id),
-										child: const Icon(CupertinoIcons.xmark_square, size: 36)
-									)
-								}
-					)
+				else if (latestPost.attachmentDeleted) Container(
+					width: 75,
+					height: 75,
+					alignment: Alignment.center,
+					child:
+						parentZone.isLoadingPostFromArchive(post.board, post.id) ?
+							const CircularProgressIndicator.adaptive() :
+							switch (parentZone.postFromArchiveError(post.board, post.id)) {
+								(Object error, StackTrace stackTrace) => CupertinoInkwell(
+									onPressed: () => alertError(context, error, stackTrace, actions: {
+										'Retry': () => parentZone.loadPostFromArchive(post.board, post.id)
+									}),
+									child: const Icon(CupertinoIcons.exclamationmark_triangle, size: 36)
+								),
+								null => CupertinoInkwell(
+									onPressed: () => parentZone.loadPostFromArchive(post.board, post.id),
+									child: const Icon(CupertinoIcons.xmark_square, size: 36)
+								)
+							}
 				),
 				if (shrinkWrap) Flexible(
 					child: content
@@ -671,7 +670,6 @@ class PostRow extends StatelessWidget {
 																			showBoardName: showBoardName,
 																			settings: settings,
 																			theme: theme,
-																			site: site,
 																			context: context,
 																			zone: ctx.watch<PostSpanZoneData>(),
 																			showPostNumber: showPostNumber,
@@ -842,7 +840,7 @@ class PostRow extends StatelessWidget {
 										alignment: Alignment.bottomRight,
 										child: CupertinoInkwell(
 											alignment: Alignment.bottomRight,
-											padding: const EdgeInsets.only(left: 8, bottom: 16, right: 16),
+											padding: isDeletedStub ? const EdgeInsets.only(left: 8, bottom: 8, right: 16) : const EdgeInsets.only(left: 8, bottom: 16, right: 16),
 											onPressed: openReplies,
 											child: Transform.scale(
 												alignment: Alignment.bottomRight,

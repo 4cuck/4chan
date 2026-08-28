@@ -449,7 +449,8 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 				name: archive['shortname'] as String,
 				title: archive['name'] as String,
 				isWorksafe: !(archive['is_nsfw'] as bool),
-				webmAudioAllowed: false
+				webmAudioAllowed: false,
+				filesPerPost: 1
 			);
 		}).toList();
 	}
@@ -577,7 +578,7 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		return _decodeUrl(url);
 	}
 
@@ -589,7 +590,8 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 		this.hasAttachmentRateLimit = false,
 		this.boards,
 		required super.overrideUserAgent,
-		required super.addIntrospectedHeaders
+		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc
 	});
 
 	@override

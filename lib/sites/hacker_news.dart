@@ -101,6 +101,7 @@ class SiteHackerNews extends ImageboardSite {
 		this.catalogThreadsPerPage = 30,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders
@@ -406,7 +407,7 @@ class SiteHackerNews extends ImageboardSite {
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		if (url.host == baseUrl && url.path == '/item') {
 			final id = url.queryParameters['id']?.tryParseInt;
 			if (id != null) {
@@ -416,7 +417,7 @@ class SiteHackerNews extends ImageboardSite {
 						// Must be OP
 						return id;
 					}
-					final object = await _getAlgolia(id, priority: RequestPriority.interactive);
+					final object = await _getAlgolia(id, priority: RequestPriority.interactive, cancelToken: cancelToken);
 					return object is _HNComment ? object.story : id;
 				});
 				return BoardThreadOrPostIdentifier('', threadId, id == threadId ? null : id);
@@ -434,7 +435,8 @@ class SiteHackerNews extends ImageboardSite {
 			name: '',
 			title: 'Hacker News',
 			isWorksafe: true,
-			webmAudioAllowed: true
+			webmAudioAllowed: true,
+			filesPerPost: 0
 		)];
 	}
 
@@ -701,6 +703,9 @@ class SiteHackerNews extends ImageboardSite {
 			}).toList()
 		);
 	}
+
+	@override
+	String formatBoardNameShort(String name) => 'HN';
 
 	@override
 	String formatBoardName(String name) => this.name;

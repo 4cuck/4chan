@@ -66,6 +66,16 @@ extension SafeWhere<T> on Iterable<T> {
 	}
 }
 
+extension WhereNotNull<T extends Object> on Iterable<T?> {
+	Iterable<T> get whereNotNull sync* {
+		for (final v in this) {
+			if (v != null) {
+				yield v;
+			}
+		}
+	}
+}
+
 extension SafeRemove<T> on List<T> {
 	T? tryRemoveFirst() {
 		if (isEmpty) {
@@ -104,6 +114,9 @@ extension IndexOfOrStr on String {
 extension EasySplit on String {
 	String beforeFirst(String delimiter) {
 		return substring(0, indexOfOrLength(delimiter));
+	}
+	String beforeLast(String delimiter) {
+		return substring(0, lastIndexOf(delimiter) + 1);
 	}
 	String afterLast(String delimiter) {
 		return substring(lastIndexOf(delimiter) + 1);
@@ -948,6 +961,32 @@ class Debouncer1Plus1PlusCancel<T, A1, A2> {
 	}
 }
 
+/// Key is only first argument
+/// First person to call wins second and third argument
+/// All callers can cancel
+class Debouncer1Plus2PlusCancel<T, A1, A2, A3> {
+	final Future<T> Function(A1, A2, A3, CancelToken?) function;
+	final Map<A1, (Future<T>, CancelToken)> _map = {};
+	Debouncer1Plus2PlusCancel(this.function);
+
+	Future<T> debounce(A1 arg1, A2 arg2, A3 arg3, CancelToken? cancelToken) async {
+		final existing = _map[arg1];
+		if (existing != null) {
+			cancelToken?.whenCancel.then(existing.$2.cancel);
+			return existing.$1;
+		}
+		final masterToken = CancelToken();
+		final data = _map[arg1] = (function(arg1, arg2, arg3, masterToken), masterToken);
+		cancelToken?.whenCancel.then(masterToken.cancel);
+		try {
+			return await data.$1;
+		}
+		finally {
+			_map.remove(arg1);
+		}
+	}
+}
+
 class Debouncer2<T, A1, A2> {
 	final Future<T> Function(A1, A2) function;
 	final Map<(A1, A2), Future<T>> _futures = {};
@@ -1051,6 +1090,21 @@ R rprint<R>(String str, R r) {
 	return r;
 }
 
+R Function() wprint0<R>(String str, R Function() f) => () {
+	print(str);
+	return f();
+};
+
+R Function(T) wprint1<T, R>(R Function(T) f, {String label = 'wprint1'}) => (obj) {
+	print('$label: $obj');
+	return f(obj);
+};
+
+R Function(T1, T2) wprint2<T1, T2, R>(R Function(T1, T2) f, {String label = 'wprint2'}) => (a, b) {
+	print('$label: $a, $b');
+	return f(a, b);
+};
+
 extension Bind1<In, Out> on Out Function(In) {
 	Out Function() bind1(In v) => () => this(v);
 	Out Function()? maybeBind1(In? v) {
@@ -1144,19 +1198,6 @@ extension DurationConversion on Duration {
 	double get inSecondsFloat {
 		return inMicroseconds / Duration.microsecondsPerSecond;
 	}
-}
-
-class ConstantValueListenable<T> implements ValueListenable<T> {
-	@override
-	final T value;
-
-	const ConstantValueListenable(this.value);
-
-	// Don't notify, it will never change
-	@override
-	void addListener(VoidCallback listener) {}
-	@override
-	void removeListener(VoidCallback listener) {}
 }
 
 extension Ellipsize on String {
@@ -1380,4 +1421,12 @@ extension NumberOfDigits on int {
 		}
 		return 19;
 	}
+}
+
+extension IfNotEmptyIterable<T extends Iterable> on T {
+  T? get ifNotEmpty => isNotEmpty ? this : null;
+}
+
+extension IfNotEmptyMap<K, V> on Map<K, V> {
+  Map<K, V>? get ifNotEmpty => isNotEmpty ? this : null;
 }

@@ -54,7 +54,7 @@ class _QuoteLinkLinkifier extends Linkifier {
 	final bool fake;
   const _QuoteLinkLinkifier({required this.fake});
 
-	static final _pattern1 = RegExp(r'(?:^|(?<= ))>(\d+)');
+	static final _pattern1 = RegExp(r'(?:^|(?<= ))>(\d{8,})');
 	static final _pattern2 = RegExp(r'(?:^|(?<= ))>>(\d+)');
 
   @override
@@ -91,7 +91,7 @@ class _QuoteLinkLinkifier extends Linkifier {
 }
 
 
-class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304CachingCatalogMixin {
+class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304CachingThreadTailMixin, Http304CachingCatalogMixin {
 	@override
 	final String name;
 	@override
@@ -612,6 +612,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 			attachmentDeleted: op['filedeleted'] == 1,
 			title: (title == null) ? null : unescape.convert(title),
 			isSticky: op['sticky'] == 1,
+			stickyReplyCap: op['sticky_cap'] as int?,
 			time: DateTimeConversion.fromSecondsSinceEpoch(op['time'] as int),
 			uniqueIPCount: op['unique_ips'] as int?,
 			customSpoilerId: op['custom_spoiler'] as int?
@@ -733,12 +734,45 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 			posts_: [threadAsPost, ...lastReplies],
 			title: (title == null) ? null : unescape.convert(title),
 			isSticky: threadData['sticky'] == 1,
+			stickyReplyCap: threadData['sticky_cap'] as int?,
 			isArchived: isArchived,
 			isLocked: threadData['closed'] == 1,
 			time: DateTimeConversion.fromSecondsSinceEpoch(threadData['time'] as int),
 			currentPage: currentPage
 		);
 	});
+
+	@override
+	RequestOptions? getThreadTailRequest(Thread thread, {ThreadVariant? variant}) {
+		if (thread.isArchived || thread.replyCount < 50) {
+			// Tail only works for live+long threads
+			return null;
+		}
+		return RequestOptions(
+			path: '/${thread.board}/thread/${thread.id}-tail.json',
+			baseUrl: 'https://$apiUrl',
+			responseType: ResponseType.json
+		);
+	}
+
+	@override
+	Future<ThreadTail> makeThreadTail(ThreadIdentifier thread, Response<dynamic> response, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
+		final data = response.data as Map;
+		final op = ((data['posts'] as List)[0] as Map);
+		return ThreadTail(
+			board: thread.board,
+			replyCount: op['replies'] as int,
+			imageCount: op['images'] as int,
+			isArchived: op['archived'] == 1,
+			isLocked: op['closed'] == 1,
+			posts: (data['posts'] as List? ?? []).skip(1).map<Post>((postData) {
+				return _makePost(thread.board, thread.id, postData as Map);
+			}).toList(),
+			id: op['no'] as int,
+			isSticky: op['sticky'] == 1,
+			stickyReplyCap: op['sticky_cap'] as int?
+		);
+	}
 
 	@override
 	RequestOptions getCatalogRequest(String board, {CatalogVariant? variant}) {
@@ -794,7 +828,8 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 				threadCooldown: cooldowns['threads'] as int?,
 				replyCooldown: cooldowns['replies'] as int?,
 				imageCooldown: cooldowns['images'] as int?,
-				spoilers: board['spoilers'] == 1
+				spoilers: board['spoilers'] == 1,
+				filesPerPost: 1
 			);
 		})).toList();
 	}
@@ -841,6 +876,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	@override
 	Future<EncodedWebPost> encodePostForWeb(DraftPost post, {CaptchaSolution? captchaSolution}) async {
 		final password = makeRandomBase64String(88);
+		final file = post.files.tryFirst;
 		return (
 			password: password,
 			fields: {
@@ -856,9 +892,9 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 				},
 				if (post.flag case final flag?) 'flag': flag.code
 				else 'flag': null,
-				if (post.file case final file?) 'upfile': await MultipartFile.fromFile(file, filename: post.overrideFilename)
+				if (file case final file?) 'upfile': await MultipartFile.fromFile(file.path, filename: file.overrideFilename)
 				else 'upfile': null,
-				if (post.spoiler == true) 'spoiler': 'on'
+				if (file?.spoiler == true) 'spoiler': 'on'
 				else 'spoiler': null,
 			},
 			javascript: '''
@@ -892,7 +928,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 				cancelToken: cancelToken
 			);
 		}
-		final file = post.file;
+		final file = post.files.tryFirst;
 		final response = await client.postUri(
 			Uri.https(sysUrl, '/${post.board}/post'),
 			data: FormData.fromMap({
@@ -1120,7 +1156,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 						return e.key.thread == post.thread;
 					})?.value ?? _cachedReportForms.entries.tryFirstWhere((e) {
 						// Try methods in the same board
-						return e.key.board == post.board;
+						return e.key.boardKey == post.boardKey;
 					})?.value;
 					if (cached != null) {
 						return ChoiceReportMethod(
@@ -1222,6 +1258,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 		required this.spamFilterCaptchaDelayYellow,
 		required this.spamFilterCaptchaDelayRed,
 		required this.stickyCloudflare,
+		required super.preferHttp3WithoutAltSvc,
 		this.owoVgUrl = 'owo.vg',
 	}) : _alternateBaseUrl = baseUrl.contains('chan') ? baseUrl.replaceFirst('chan', 'channel') : null;
 
@@ -1248,7 +1285,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		return _decodeUrl(url);
 	}
 	
@@ -1555,6 +1592,11 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	}
 
 	@override
+	bool isKnownHost(String host) {
+		return super.isKnownHost(host) || host == staticUrl || host == imageUrl || host == apiUrl || host == searchUrl || host == sysUrl || host == '4chan.org';
+	}
+
+	@override
 	void migrateFromPrevious(Site4Chan oldSite) {
 		super.migrateFromPrevious(oldSite);
 		_boardFlags.addAll(oldSite._boardFlags);
@@ -1611,6 +1653,7 @@ class Site4ChanPassLoginSystem extends ImageboardSiteLoginSystem {
 
   @override
   Future<void> login(Map<ImageboardSiteLoginField, String> fields, CancelToken cancelToken) async {
+		try {
 		final response = await parent.client.postUri(
 			Uri.https(parent.sysUrl, '/auth'),
 			data: FormData.fromMap({
@@ -1637,6 +1680,11 @@ class Site4ChanPassLoginSystem extends ImageboardSiteLoginSystem {
 			throw ImageboardSiteLoginException(message);
 		}
 		loggedIn[Persistence.currentCookies] = true;
+  }
+		catch (e) {
+			loggedIn[Persistence.currentCookies] = false;
+			rethrow;
+		}
   }
 
   @override

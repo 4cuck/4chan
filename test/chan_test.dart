@@ -11,6 +11,7 @@ import 'package:chan/services/json_cache.dart';
 import 'package:chan/services/m3u8.dart';
 import 'package:chan/services/persistence.dart';
 import 'package:chan/services/priority_queue.dart';
+import 'package:chan/services/soundposts.dart';
 import 'package:chan/services/streaming_mp4.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/sites/imageboard_site.dart';
@@ -93,7 +94,8 @@ void main() async {
               name: id.board,
               title: 'Fake board "${id.board}"',
               isWorksafe: false,
-              webmAudioAllowed: false
+              webmAudioAllowed: false,
+              filesPerPost: 1
             ));
             await Persistence.sharedThreadStateBox.put(
               '${imageboard.key}/${ImageboardBoard.getKey(id.board)}/${id.threadId ?? 0}',
@@ -124,6 +126,9 @@ void main() async {
         imageUrl: null,
         overrideUserAgent: null,
         addIntrospectedHeaders: false,
+        preferHttp3WithoutAltSvc: null,
+        maxUploadSizeBytes: null,
+        filesPerPost: 1,
         archives: const [],
         imageHeaders: const {},
         videoHeaders: const {},
@@ -875,24 +880,24 @@ void main() async {
       expect(d1a, isTrue);
       expect(d2b, isFalse);
       expect(sc, isFalse);
-      await q.end(a);
+      q.end(a);
       await Future.delayed(Duration.zero);
       expect(d2b, isTrue);
       expect(sc, isFalse);
-      await q.end(b);
+      q.end(b);
       await Future.delayed(Duration.zero);
       expect(sc, isTrue);
-      await q.end(c);
+      q.end(c);
       // Should be back in parallel mode
       const d = ('1', 'd');
       const e = ('1', 'e');
       const f = ('1', 'f');
       await q.start(d);
       await q.start(e);
-      await q.end(d);
+      q.end(d);
       await q.start(f);
-      await q.end(e);
-      await q.end(f);
+      q.end(e);
+      q.end(f);
       q.dispose();
     });
   });
@@ -1018,5 +1023,50 @@ CMAF_720.m3u8'''), '''#EXTM3U
 #EXT-X-MEDIA:URI="CMAF_AUDIO_128.m3u8",TYPE=AUDIO,GROUP-ID="6",NAME="audio 0",DEFAULT=YES,AUTOSELECT=YES
 #EXT-X-STREAM-INF:PROGRAM-ID=0,CLOSED-CAPTIONS=NONE,BANDWIDTH=2125016,AVERAGE-BANDWIDTH=1913686,RESOLUTION=720x1274,FRAME-RATE=30,CODECS="avc1.4d401f,mp4a.40.2",AUDIO="6"
 CMAF_720.m3u8''');
+  });
+
+  group('soundpost url conversion', () {
+    const raw = 'file [sound=https://example.com/file.mp3]';
+    const encoded = 'file [sound=https%3A%2F%2Fexample.com%2Ffile.mp3]';
+    test('first upload', () {
+      expect(SoundpostAttachment.encodeSoundSourceFilename(raw), encoded);
+    });
+    test('reupload', () {
+      expect(SoundpostAttachment.encodeSoundSourceFilename(encoded), encoded);
+    });
+    test('canonical scheme-less URL is unchanged', () {
+      const filename = 'file [sound=example.com%2Ffile.mp3]';
+      expect(SoundpostAttachment.encodeSoundSourceFilename(filename), filename);
+    });
+    test('audio tag', () {
+      expect(SoundpostAttachment.encodeSoundSourceFilename('file [audio=https://example.com/file.mp3]'),
+          'file [audio=https%3A%2F%2Fexample.com%2Ffile.mp3]');
+    });
+    test('multiple sounds', () {
+      expect(
+          SoundpostAttachment.encodeSoundSourceFilename(
+              'first [sound=https://example.com/1.mp3] second [audio=example.com%2F2.mp3]'),
+          'first [sound=https%3A%2F%2Fexample.com%2F1.mp3] second [audio=example.com%2F2.mp3]');
+    });
+    test('macOS filename separators', () {
+      expect(SoundpostAttachment.encodeSoundSourceFilename('file [sound=https:::example.com:file.mp3]'), encoded);
+    });
+    test('partially encoded URL', () {
+      expect(SoundpostAttachment.encodeSoundSourceFilename('file [sound=example.com%2Ftrack name.mp3]'),
+          'file [sound=example.com%2Ftrack%20name.mp3]');
+    });
+    test('malformed percent escape', () {
+      expect(SoundpostAttachment.encodeSoundSourceFilename('file [sound=example.com%ZZfile.mp3]'),
+          'file [sound=example.com%25ZZfile.mp3]');
+    });
+    test('random filenames are disabled for soundposts', () {
+      final previous = Persistence.settings.randomizeFilenames;
+      addTearDown(() => Persistence.settings.randomizeFilenames = previous);
+      Persistence.settings.randomizeFilenames = true;
+      final file = DraftPostFile(
+          path: '/tmp/file.jpg',
+          overrideFilenameWithoutExtension: 'file [sound=example.com%2Ffile.mp3]');
+      expect(file.overrideFilename, 'file [sound=example.com%2Ffile.mp3].jpg');
+    });
   });
 }

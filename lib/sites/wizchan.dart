@@ -7,13 +7,17 @@ class SiteWizchan extends SiteLainchanOrg {
 		required super.imageUrl,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders,
 		required super.turnstileSiteKey,
+		required super.maxUploadSizeBytes,
 		super.faviconPath,
 		super.defaultUsername = 'Anonymage'
-	});
+	}) : super(
+		filesPerPost: 3
+	);
 
 	@override
 	String? get imageThumbnailExtension => null;

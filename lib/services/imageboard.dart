@@ -1,6 +1,7 @@
 
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -10,6 +11,7 @@ import 'package:chan/models/post.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/pages/cookie_browser.dart';
 import 'package:chan/services/captcha.dart';
+import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/notifications.dart';
 import 'package:chan/services/outbox.dart';
 import 'package:chan/services/persistence.dart';
@@ -94,12 +96,9 @@ class Imageboard extends ChangeNotifier {
 		try {
 			final site = _site = makeSite(siteData);
 			if (forTesting) {
-				site.client.interceptors.insert(0, dio.InterceptorsWrapper(
+				site.client.interceptors.insert(0, InterceptorWrapperBase(
 					onRequest: (options, handler) {
-						handler.reject(dio.DioError(
-							requestOptions: options,
-							error: Exception('Not allowed to use network during test')
-						));
+						throw Exception('Not allowed to use network during test');
 					}
 				));
 			}
@@ -125,8 +124,11 @@ class Imageboard extends ChangeNotifier {
 				notifications.localWatcher = threadWatcher;
 				await threadWatcher.setInitialCounts(syncIO: true);
 				_threadWatcherInitialized = true;
-				if (persistence.boards.isEmpty) {
-					await setupBoards();
+				if (persistence.boards.isEmpty || (site.supportsPosting && !persistence.browserState.filesPerPostMigrated)) {
+					setupBoards().then((_) {
+						persistence.browserState.filesPerPostMigrated = true;
+						persistence.didUpdateBrowserState();
+					});
 				}
 			}
 			site.initState();
@@ -210,7 +212,7 @@ class Imageboard extends ChangeNotifier {
 		}
 	}
 
-	void _listenForSpamFilter(DraftPost submittedPost, PostReceipt receipt, CaptchaSolution captchaSolution, bool showToastOnSuccess) async {
+	void _listenForSpamFilter(DraftPost submittedPost, PostReceipt receipt, CaptchaSolution captchaSolution, String? showToastOnSuccess) async {
 		final threadIdentifier =
 			// Reply
 			submittedPost.thread ??
@@ -226,7 +228,7 @@ class Imageboard extends ChangeNotifier {
 				int attemptsRemaining = 1;
 				while (!postShowedUpCompleter.isCompleted) {
 					try {
-						await threadWatcher.updateThread(threadIdentifier);
+						await threadWatcher.updateThread(threadIdentifier, priority: RequestPriority.interactive);
 						if (attemptsRemaining > 0) {
 							attemptsRemaining--;
 							await Future.delayed(const Duration(seconds: 15));
@@ -299,10 +301,10 @@ class Imageboard extends ChangeNotifier {
 		if (postShowedUp) {
 			onSuccessfulCaptchaSubmitted(captchaSolution);
 			receipt.spamFiltered = false;
-			if (showToastOnSuccess) {
+			if (showToastOnSuccess != null) {
 				showToast(
 					context: ImageboardRegistry.instance.context!,
-					message: 'Post successful',
+					message: 'Post successful$showToastOnSuccess',
 					icon: captchaSolution.autoSolved ? CupertinoIcons.checkmark_seal : CupertinoIcons.check_mark,
 					hapticFeedback: false
 				);
@@ -335,7 +337,7 @@ class Imageboard extends ChangeNotifier {
 	}
 
 	void listenToReplyPosting(QueuedPost post) {
-		QueueState<PostReceipt>? lastState;
+		QueueState<QueuedPost, PostReceipt>? lastState;
 		void listener() async {
 			final state = post.state;
 			if (state == lastState) {
@@ -343,12 +345,12 @@ class Imageboard extends ChangeNotifier {
 				return;
 			}
 			lastState = state;
-			if (state is QueueStateDeleted<PostReceipt>) {
+			if (state is QueueStateDeleted<QueuedPost, PostReceipt>) {
 				// Don't remove listener, in case undeleted
 				// Who cares about a leak....
 				return;
 			}
-			if (state is QueueStateDone<PostReceipt>) {
+			if (state is QueueStateDone<QueuedPost, PostReceipt>) {
 				post.removeListener(listener);
 				print(state.result);
 				mediumHapticFeedback();
@@ -356,15 +358,23 @@ class Imageboard extends ChangeNotifier {
 				if (state.captchaSolution.autoSolved) {
 					Outbox.instance.headlessSolveFailed = false;
 				}
+				String suffix = '';
+				if (state.next != null) {
+					suffix = ' (${post.post.sequenceNumber}/${post.post.sequenceNumber + (post.post.calculateNeededPosts(persistence.getBoard(post.post.board)) - 1)})';
+				}
+				else if (post.post.sequenceNumber > 1) {
+					// Last post in sequence
+					suffix = ' (${post.post.sequenceNumber}/${post.post.sequenceNumber})';
+				}
 				if (state.result.spamFiltered) {
-					_listenForSpamFilter(post.post, state.result, state.captchaSolution, showTwoToasts);
+					_listenForSpamFilter(post.post, state.result, state.captchaSolution, showTwoToasts ? suffix : null);
 				}
 				else {
 					onSuccessfulCaptchaSubmitted(state.captchaSolution);
 				}
 				showToast(
 					context: ImageboardRegistry.instance.context!,
-					message: showTwoToasts ? 'Post submitted' : 'Post successful',
+					message: showTwoToasts ? 'Post submitted$suffix' : 'Post successful$suffix',
 					icon: showTwoToasts ? CupertinoIcons.clock : (state.captchaSolution.autoSolved ? CupertinoIcons.checkmark_seal : CupertinoIcons.check_mark),
 					hapticFeedback: false
 				);
@@ -395,7 +405,7 @@ class Imageboard extends ChangeNotifier {
 					);
 				}
 			}
-			else if (state is QueueStateFailed<PostReceipt>) {
+			else if (state is QueueStateFailed<QueuedPost, PostReceipt>) {
 				final e = state.error;
 				if (e is BannedException) {
 					final url = e.url;
@@ -488,9 +498,10 @@ class Imageboard extends ChangeNotifier {
 	}
 
 	Future<PostReceipt> submitPost(DraftPost post, CaptchaSolution captchaSolution, dio.CancelToken cancelToken) async {
-		final path = post.file;
-		if (path != null && !File(path).existsSync()) {
-			throw Exception('Selected file not found: $path');
+		for (final file in post.files) {
+			if (!File(file.path).existsSync()) {
+				throw Exception('Selected file not found: ${file.path}');
+			}
 		}
 		if (!persistence.browserState.outbox.contains(post)) {
 			// It may already be in the outbox if it's a draft
@@ -564,7 +575,8 @@ final kDevBoard = ImageboardBoard(
 	maxWebmDurationSeconds: 120,
 	webmAudioAllowed: false,
 	maxImageSizeBytes: 8000000,
-	maxWebmSizeBytes: 8000000
+	maxWebmSizeBytes: 8000000,
+	filesPerPost: 3
 );
 
 class ImageboardRegistry extends ChangeNotifier {
@@ -613,6 +625,7 @@ class ImageboardRegistry extends ChangeNotifier {
 		await tmpDev.initialize(
 			threadWatcherWatchForStickyOnBoards: [kDevBoard.name]
 		);
+		await tmpDev.persistence.setBoard(kDevBoard.name, kDevBoard);
 		notifyListeners();
 	}
 
@@ -741,15 +754,15 @@ class ImageboardRegistry extends ChangeNotifier {
 		return false;
 	}
 
-	Future<(Imageboard, BoardThreadOrPostIdentifier, String?)?> decodeUrl(Uri url) async {
+	Future<(Imageboard, BoardThreadOrPostIdentifier, String?)?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		for (final imageboard in imageboardsIncludingDev) {
-			BoardThreadOrPostIdentifier? dest = await imageboard.site.decodeUrl(url);
+			BoardThreadOrPostIdentifier? dest = await imageboard.site.decodeUrl(url, cancelToken: cancelToken);
 			String? usedArchive;
 			for (final archive in imageboard.site.archives) {
 				if (dest != null) {
 					break;
 				}
-				dest = await archive.decodeUrl(url);
+				dest = await archive.decodeUrl(url, cancelToken: cancelToken);
 				usedArchive = archive.name;
 			}
 			if (dest != null) {
@@ -821,4 +834,23 @@ class ImageboardScoped<T> {
 
 	@override
 	String toString() => 'ImageboardScoped(${imageboard.key}, $item)';
+}
+class ImageboardCoalescedError extends ExtendedException {
+	final Map<Imageboard, (Object, StackTrace)> errors;
+	ImageboardCoalescedError(this.errors) : super(
+		additionalFiles: {
+			for (final entry in errors.entries) ...{
+				'${entry.key.key}.txt': utf8.encode('${entry.value.$1}\n\n${entry.value.$2}'),
+				if (ExtendedException.extract(entry.value.$1) case ExtendedException e)
+					for (final file in e.additionalFiles.entries)
+						'${entry.key.key}_nested_${file.key}': file.value
+			}
+		}
+	);
+	
+	@override
+	String toString() => 'ImageboardCoalescedError(${errors.entries.map((e) => '${e.key.key}: ${e.value.$1.toStringDio()}')})';
+
+  @override
+  bool get isReportable => true;
 }

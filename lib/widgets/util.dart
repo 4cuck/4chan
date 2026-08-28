@@ -43,7 +43,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 Future<void> alert(BuildContext context, String title, String message, {
 	Map<String, FutureOr<void> Function()> actions = const {},
-	bool barrierDismissible = true
+	bool barrierDismissible = true,
+	bool selectable = false
 }) async {
 	final looksForeign = !containsHtml(message) && (title.looksForeign || message.looksForeign);
 	bool translating = false;
@@ -58,10 +59,12 @@ Future<void> alert(BuildContext context, String title, String message, {
 				title: Text(translatedTitle ?? title),
 				content: () {
 					final body = translatedMessage ?? message;
+					// HTML bodies (owo.vg/awoo.cf error payloads) render as rich text;
+					// SelectableText can't display them.
 					if (containsHtml(body)) {
 						return HtmlRichText(html: body);
 					}
-					return Text(body);
+					return selectable ? SelectableText(body) : Text(body);
 				}(),
 				actions: [
 					for (final action in actions.entries) AdaptiveDialogAction(
@@ -617,7 +620,7 @@ Future<void> openImageboardTarget(BuildContext context, (Imageboard, BoardThread
 	));
 }
 
-Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = false, bool useCooperativeBrowser = false, bool useGalleryIfPossible = true}) async {
+Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = false, bool useCooperativeBrowser = false, bool useGalleryIfPossible = true, bool useChanceIfPossible = true}) async {
 	if (url.isScheme('chance')) {
 		fakeLinkStream.add(url.toString());
 		return;
@@ -635,7 +638,9 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 		url = url.replace(host: context.read<Imageboard?>()?.site.baseUrl);
 	}
 	final settings = Settings.instance;
-	final imageboardTarget = await modalLoad(context, 'Checking url...', (_) => ImageboardRegistry.instance.decodeUrl(url), wait: const Duration(milliseconds: 50));
+	final imageboardTarget = useChanceIfPossible ? await modalLoad(context, 'Checking url...', (controller) {
+		return ImageboardRegistry.instance.decodeUrl(url, cancelToken: controller.cancelToken);
+	}, wait: const Duration(milliseconds: 50), cancellable: true) : null;
 	openInChance() {
 		openImageboardTarget(context, imageboardTarget!);
 	}
@@ -676,8 +681,7 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 	else if (context.mounted) {
 		if (isMediaLink) {
 			final attachment = Attachment(
-				type: url.path.endsWith('.webm') ? AttachmentType.webm :
-					['.png', '.jpg', '.jpeg', '.gif'].any((e) => url.path.endsWith(e)) ? AttachmentType.image : AttachmentType.mp4,
+				type: AttachmentType.fromFilename(url.pathSegments.last),
 				board: '',
 				id: url.toString(),
 				ext: '.${url.path.afterLast('.')}',
@@ -693,7 +697,7 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 			await showGalleryPretagged(
 				context: context,
 				attachments: [TaggedAttachment(
-					imageboard: context.read<Imageboard>(),
+					imageboard: context.read<Imageboard?>() ?? Persistence.tabs[Persistence.currentTabIndex].imageboard ?? ImageboardRegistry.instance.dev ?? ImageboardRegistry.instance.imageboards.first,
 					attachment: attachment,
 					semanticParentIds: [],
 					postId: 0
@@ -2941,5 +2945,38 @@ extension CopyWith on TextSpan {
 		semanticsIdentifier: semanticsIdentifier,
 		locale: locale,
 		spellOut: spellOut
+	);
+}
+
+class FasterSnappingPageScrollPhysics extends ScrollPhysics {
+  const FasterSnappingPageScrollPhysics({ScrollPhysics? parent})
+      : super(parent: parent);
+
+  @override
+  FasterSnappingPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return FasterSnappingPageScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  SpringDescription get spring => SpringDescription.withDampingRatio(
+		mass: 0.3,
+		stiffness: 150,
+		ratio: 1.1,
+	);
+}
+
+class VeryFastSnappingPageScrollPhysics extends ScrollPhysics {
+  const VeryFastSnappingPageScrollPhysics({ScrollPhysics? parent})
+      : super(parent: parent);
+
+  @override
+  VeryFastSnappingPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return VeryFastSnappingPageScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  SpringDescription get spring => SpringDescription.withDurationAndBounce(
+		duration: const Duration(milliseconds: 150),
+		bounce: 0,
 	);
 }

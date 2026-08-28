@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:chan/models/board.dart';
 import 'package:chan/models/flag.dart';
 import 'package:chan/models/intern.dart';
 import 'package:chan/models/thread.dart';
@@ -101,12 +102,12 @@ enum PostSpanFormat {
 	bool get hasWeakQuoteLinks => this == jForum;
 	/// Must update if any makeSpan function changes
 	int get _makeSpanVersion => 4 + switch (this) {
-		chan4 => 4,
+		chan4 => 5,
 		foolFuuka => 1,
 		lainchan => 4,
 		fuuka => 1,
 		futaba => 1,
-		reddit => 5,
+		reddit => 7,
 		hackerNews => 1,
 		stub => 1,
 		lynxchan => 1,
@@ -133,6 +134,7 @@ class Post implements Filterable {
 	@override
 	@HiveField(0)
 	final String board;
+	BoardKey get boardKey => ImageboardBoard.getKey(board);
 	@HiveField(1)
 	final String text;
 	@HiveField(2)
@@ -300,6 +302,8 @@ class Post implements Filterable {
 	String? archiveName;
 	@HiveField(24, isOptimized: true)
 	final String? email;
+	@HiveField(25, isOptimized: true)
+	DateTime? edited;
 
 	Post({
 		required String board,
@@ -323,7 +327,8 @@ class Post implements Filterable {
 		this.isDeleted = false,
 		this.ipNumber,
 		this.archiveName,
-		this.email
+		this.email,
+		this.edited
 	}) : board = intern(board), name = intern(name), attachments_ = attachments_.isEmpty ? const [] : List.of(attachments_, growable: false);
 
 	@override
@@ -399,7 +404,7 @@ class Post implements Filterable {
 	bool get containsLink => span.traverse(this).any((s) => s is PostLinkSpan);
 	Iterable<int> get _referencedPostIds sync* {
 		for (final s in span.traverse(this)) {
-			if (s is PostQuoteLinkSpan && s.board == board) {
+			if (s is PostQuoteLinkSpan && s.boardKey == boardKey) {
 				yield s.postId;
 			}
 		}
@@ -473,7 +478,8 @@ class Post implements Filterable {
 		other.archiveName == archiveName &&
 		other.email == email &&
 		other.capcode == capcode &&
-		mapEquals(other.extraMetadata, extraMetadata);
+		mapEquals(other.extraMetadata, extraMetadata) &&
+		edited == edited;
 	
 	bool isIdenticalForFilteringPurposes(Post other) {
 		return 
@@ -518,6 +524,7 @@ class Post implements Filterable {
 		ipNumber: ipNumber,
 		archiveName: archiveName != null ? archiveName.value : this.archiveName,
 		email: email,
+		edited: edited,
 	).._span = _span..replyIds = replyIds; // [text] hasn't changed
 
 	@override
@@ -526,6 +533,7 @@ class Post implements Filterable {
 
 class PostIdentifier {
 	final String board;
+	BoardKey get boardKey => ImageboardBoard.getKey(board);
 	final int threadId;
 	final int postId;
 	PostIdentifier(this.board, this.threadId, this.postId);

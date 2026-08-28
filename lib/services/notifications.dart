@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:chan/main.dart';
+import 'package:chan/models/board.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/services/apple.dart';
 import 'package:chan/services/imageboard.dart';
@@ -240,7 +241,7 @@ class Notifications {
 				Thread t => target.postId != null && !t.posts_.any((p) => p.id == target.postId),
 				null => true
 			}) {
-				await child.localWatcher?.updateThread(target.thread);
+				await child.localWatcher?.updateThread(target.thread, priority: RequestPriority.functional);
 			}
 			if (child.getThreadWatch(target.thread)?.foregroundMuted != true) {
 				child.foregroundStream.add(notification);
@@ -568,7 +569,8 @@ class Notifications {
 	}
 	
 	BoardWatch? getBoardWatch(String boardName) {
-		return boardWatches.tryFirstWhere((w) => w.board == boardName);
+		final boardKey = ImageboardBoard.getKey(boardName);
+		return boardWatches.tryFirstWhere((w) => w.boardKey == boardKey);
 	}
 
 	Future<void> insertWatch(ThreadWatch watch) async {
@@ -590,7 +592,7 @@ class Notifications {
 		required bool localYousOnly,
 		required bool pushYousOnly,
 		required bool push,
-		required List<int> youIds,
+		required Set<int> youIds,
 		bool foregroundMuted = false,
 		bool zombie = false,
 		required bool notifyOnSecondLastPage,
@@ -599,7 +601,7 @@ class Notifications {
 	}) async {
 		final existingWatch = threadWatches[thread];
 		if (existingWatch != null) {
-			existingWatch.youIds = youIds;
+			existingWatch.youIds = youIds.toList()..sort();
 			existingWatch.lastSeenId = lastSeenId;
 			existingWatch.notifyOnSecondLastPage = notifyOnSecondLastPage;
 			existingWatch.notifyOnLastPage = notifyOnLastPage;
@@ -613,7 +615,7 @@ class Notifications {
 				lastSeenId: lastSeenId,
 				localYousOnly: localYousOnly,
 				pushYousOnly: pushYousOnly,
-				youIds: youIds,
+				youIds: youIds.toList()..sort(),
 				push: push,
 				foregroundMuted: foregroundMuted,
 				zombie: zombie,

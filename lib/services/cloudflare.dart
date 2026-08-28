@@ -9,6 +9,7 @@ import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/persistence.dart';
 import 'package:chan/services/report_bug.dart';
 import 'package:chan/services/settings.dart';
+import 'package:chan/services/tls.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/sites/imageboard_site.dart';
 import 'package:chan/util.dart';
@@ -390,6 +391,10 @@ class CloudflareInterceptor extends InterceptorBase {
 			Duration? knownHeadlessTime;
 			if ((await Persistence.currentCookies.readPseudoCookie(headlessTimePseudoCookieKey))?.tryParseDouble case final seconds?) {
 				knownHeadlessTime = DurationConversion.max(headlessTime, DurationConversion.fromSeconds(seconds));
+				if (knownHeadlessTime > const Duration(seconds: 14)) {
+					// Unreasonable
+					knownHeadlessTime = null;
+				}
 			}
 			final manager = CookieManager.instance();
 			await manager.deleteAllCookies();
@@ -608,6 +613,7 @@ class CloudflareInterceptor extends InterceptorBase {
 					// Allow popup
 			}
 			if (cancelToken?.isCancelled ?? false) {
+				Persistence.currentCookies.deletePseudoCookie(headlessTimePseudoCookieKey);
 				throw CloudflareHandlerInterruptedException(gatewayName);
 			}
 			final navigator = Navigator.of(ImageboardRegistry.instance.context!);
@@ -737,6 +743,7 @@ class CloudflareInterceptor extends InterceptorBase {
 				initialUrlRequest: URLRequest(
 					url: WebUri.uri(options.uri),
 					mainDocumentURL: WebUri.uri(options.uri),
+					assumesHTTP3Capable: (enableQuic && Settings.instance.useHttp3) ? options.preferHttp3WithoutAltSvc : false,
 					method: options.method,
 					headers: {
 						for (final h in options.headers.entries)
@@ -763,21 +770,11 @@ class CloudflareInterceptor extends InterceptorBase {
 	@override
 	Future<void> onResponseImpl(Response response, ResponseInterceptorHandler handler) async {
 		if (await _responseMatchesBlock(response)) {
-			handler.reject(DioError(
-				requestOptions: response.requestOptions,
-				response: response,
-				error: const CloudflareHandlerBlockedException()
-			), true);
-			return;
+			throw const CloudflareHandlerBlockedException();
 		}
 		if (await _responseMatches(response)) {
 			if (!response.requestOptions.priority.shouldPopupCloudflare) {
-				handler.reject(DioError(
-					requestOptions: response.requestOptions,
-					response: response,
-					error: const CloudflareHandlerNotAllowedException()
-				), true);
-				return;
+				throw const CloudflareHandlerNotAllowedException();
 			}
 			final _CloudflareResponse data;
 			final gateway = await site?.getRedirectGateway(response.redirects.tryLast?.location.fillInFrom(response.requestOptions.uri) ?? response.realUri, () => response.htmlTitle, () async => response.html);
@@ -793,6 +790,7 @@ class CloudflareInterceptor extends InterceptorBase {
 					initialUrlRequest: URLRequest(
 						url: WebUri.uri(response.requestOptions.uri),
 						mainDocumentURL: WebUri.uri(response.requestOptions.uri),
+						assumesHTTP3Capable: (enableQuic && Settings.instance.useHttp3) ? response.requestOptions.preferHttp3WithoutAltSvc : false,
 						method: response.requestOptions.method,
 						headers: {
 							for (final h in response.requestOptions.headers.entries) h.key: h.value.toString(),
@@ -843,23 +841,13 @@ class CloudflareInterceptor extends InterceptorBase {
 		if (err.type == DioErrorType.response &&
 				err.response != null &&
 				await _responseMatchesBlock(err.response!)) {
-			handler.reject(DioError(
-				requestOptions: err.requestOptions,
-				response: err.response,
-				error: const CloudflareHandlerBlockedException()
-			), true);
-			return;
+			throw  const CloudflareHandlerBlockedException();
 		}
 		if (err.type == DioErrorType.response &&
 				err.response != null &&
 				await _responseMatches(err.response!)) {
 			if (!err.requestOptions.priority.shouldPopupCloudflare) {
-				handler.reject(DioError(
-					requestOptions: err.requestOptions,
-					response: err.response,
-					error: const CloudflareHandlerNotAllowedException()
-				), true);
-				return;
+				throw const CloudflareHandlerNotAllowedException();
 			}
 			final data = await _useWebviewForCloudflare(
 				handler: _buildHandler(err.requestOptions.uri),
@@ -934,7 +922,8 @@ Future<T> useCloudflareClearedWebview<T>({
 	required String gatewayName,
 	CancelToken? cancelToken,
 	bool skipHeadless = false,
-	Duration? headlessTime
+	Duration? headlessTime,
+	bool assumesHTTP3Capable = false
 }) async => (await CloudflareInterceptor._useWebview<Wrapper<T>>(
 	handler: (controller, uri, isCancelledMedia, statusCode) async {
 		if (isCancelledMedia) {
@@ -948,6 +937,7 @@ Future<T> useCloudflareClearedWebview<T>({
 	initialUrlRequest: URLRequest(
 		url: WebUri.uri(uri),
 		mainDocumentURL: WebUri.uri(uri),
+		assumesHTTP3Capable: assumesHTTP3Capable,
 		method: 'GET',
 		body: null
 	),

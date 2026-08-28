@@ -12,8 +12,8 @@ import 'package:chan/services/cookies.dart';
 import 'package:chan/services/default_user_agent.dart';
 import 'package:chan/services/filtering.dart';
 import 'package:chan/services/http_429_backoff.dart';
-import 'package:chan/services/http_client.dart';
 import 'package:chan/services/imageboard.dart';
+import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/json_cache.dart';
 import 'package:chan/services/network_logging.dart';
 import 'package:chan/services/owovg.dart';
@@ -51,8 +51,9 @@ part 'settings.g.dart';
 class ChanceLinkifier extends Linkifier {
   const ChanceLinkifier();
 
-  static final _pattern =
-      RegExp(r'^(.*?)((?:chance:\/\/|www\.)[^\s/$.?#].[^\s]*)');
+  static final _pattern = RegExp(
+    r'^(.*?)((?:chance:\/\/|www\.)[^\s/$.?#].[^\s]*)',
+  );
 
   @override
   List<LinkifyElement> parse(elements, options) {
@@ -111,19 +112,22 @@ const defaultSite = {
   'type': 'lainchan',
   'name': kTestchanKey,
   'baseUrl': 'boards.chance.surf',
-  'maxUploadSizeBytes': 8000000
+  'maxUploadSizeBytes': 8000000,
+  'filesPerPost': 3,
 };
 const defaultSites = {kTestchanKey: defaultSite};
 final defaultLightTheme = SavedTheme(
-    primaryColor: Colors.black,
-    secondaryColor: Colors.red,
-    barColor: const Color(0xFFF9F9F9),
-    backgroundColor: CupertinoColors.systemBackground);
+  primaryColor: Colors.black,
+  secondaryColor: Colors.red,
+  barColor: const Color(0xFFF9F9F9),
+  backgroundColor: CupertinoColors.systemBackground,
+);
 final defaultDarkTheme = SavedTheme(
-    primaryColor: Colors.white,
-    secondaryColor: Colors.red,
-    barColor: const Color.fromRGBO(40, 40, 40, 1),
-    backgroundColor: const Color.fromRGBO(20, 20, 20, 1));
+  primaryColor: Colors.white,
+  secondaryColor: Colors.red,
+  barColor: const Color.fromRGBO(40, 40, 40, 1),
+  backgroundColor: const Color.fromRGBO(20, 20, 20, 1),
+);
 const twoPaneSplitDenominator = 12;
 
 @HiveType(typeId: 1)
@@ -133,7 +137,7 @@ enum AutoloadAttachmentsSetting {
   @HiveField(1)
   wifi,
   @HiveField(2)
-  always
+  always,
 }
 
 @HiveType(typeId: 2)
@@ -143,7 +147,7 @@ enum TristateSystemSetting {
   @HiveField(1)
   system,
   @HiveField(2)
-  b
+  b,
 }
 
 @HiveType(typeId: 17)
@@ -169,7 +173,7 @@ enum ThreadSortingMethod {
   @HiveField(9)
   alphabeticByTitle,
   @HiveField(10)
-  postsPerMinuteWithNewThreadsAtTop;
+  postsPerMinuteWithNewThreadsAtTop,
 }
 
 Set<String> getDefaultSiteKeys() {
@@ -200,10 +204,18 @@ int addSitePickerSortIndex(String key) => key == kAwooSiteKey ? 0 : 1;
 ContentSettings getDefaultContentSettings() {
   if (Platform.isAndroid) {
     return ContentSettings(
-        images: true, nsfwImages: true, nsfwBoards: true, nsfwText: true);
+      images: true,
+      nsfwImages: true,
+      nsfwBoards: true,
+      nsfwText: true,
+    );
   }
   return ContentSettings(
-      images: true, nsfwImages: false, nsfwBoards: false, nsfwText: false);
+    images: true,
+    nsfwImages: false,
+    nsfwBoards: false,
+    nsfwText: false,
+  );
 }
 
 @HiveType(typeId: 20)
@@ -216,9 +228,11 @@ class ContentSettings {
   bool nsfwImages;
   @HiveField(3)
   bool nsfwText;
-  @HiveField(5,
-      merger: DeepCollectionEqualityMerger<Map<String, Map>?>(),
-      isDeprecated: true)
+  @HiveField(
+    5,
+    merger: DeepCollectionEqualityMerger<Map<String, Map>?>(),
+    isDeprecated: true,
+  )
   Map<String, Map>? deprecatedSites;
   @HiveField(6, merger: SetMerger<String>(PrimitiveMerger()))
   Set<String> siteKeys;
@@ -231,7 +245,7 @@ class ContentSettings {
     this.deprecatedSites,
     Set<String>? siteKeys,
   }) : siteKeys =
-            siteKeys ?? deprecatedSites?.keys.toSet() ?? getDefaultSiteKeys();
+           siteKeys ?? deprecatedSites?.keys.toSet() ?? getDefaultSiteKeys();
 
   @override
   bool operator ==(Object other) =>
@@ -244,17 +258,23 @@ class ContentSettings {
           setEquals(other.siteKeys, siteKeys);
 
   @override
-  int get hashCode => Object.hash(images, nsfwBoards, nsfwImages, nsfwText,
-      Object.hashAllUnordered(siteKeys));
+  int get hashCode => Object.hash(
+    images,
+    nsfwBoards,
+    nsfwImages,
+    nsfwText,
+    Object.hashAllUnordered(siteKeys),
+  );
 }
 
 class ColorFields {
   static int getARGB32OnColor(Color x) => x.toARGB32();
   static const value = ReadOnlyHiveFieldAdapter<Color, int>(
-      getter: getARGB32OnColor,
-      fieldNumber: 0,
-      fieldName: 'ARGB32',
-      merger: PrimitiveMerger());
+    getter: getARGB32OnColor,
+    fieldNumber: 0,
+    fieldName: 'ARGB32',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class ColorAdapter extends TypeAdapter<Color> {
@@ -307,23 +327,23 @@ class SavedTheme {
   @HiveField(9)
   Color linkColor;
 
-  SavedTheme(
-      {required this.backgroundColor,
-      required this.barColor,
-      required this.primaryColor,
-      required this.secondaryColor,
-      this.quoteColor = _defaultQuoteColor,
-      this.titleColor = _defaultTitleColor,
-      this.locked = false,
-      this.copiedFrom,
-      Color? textFieldColor,
-      Color? linkColor})
-      : textFieldColor = textFieldColor ??
-            (primaryColor.computeLuminance() >
-                    backgroundColor.computeLuminance()
-                ? Colors.black
-                : Colors.white),
-        linkColor = linkColor ?? secondaryColor;
+  SavedTheme({
+    required this.backgroundColor,
+    required this.barColor,
+    required this.primaryColor,
+    required this.secondaryColor,
+    this.quoteColor = _defaultQuoteColor,
+    this.titleColor = _defaultTitleColor,
+    this.locked = false,
+    this.copiedFrom,
+    Color? textFieldColor,
+    Color? linkColor,
+  }) : textFieldColor =
+           textFieldColor ??
+           (primaryColor.computeLuminance() > backgroundColor.computeLuminance()
+               ? Colors.black
+               : Colors.white),
+       linkColor = linkColor ?? secondaryColor;
 
   factory SavedTheme.decode(String data) {
     final b = base64Url.decode(data);
@@ -343,14 +363,15 @@ class SavedTheme {
       linkColor = Color.fromARGB(255, b[21], b[22], b[23]);
     }
     final theme = SavedTheme(
-        backgroundColor: Color.fromARGB(255, b[0], b[1], b[2]),
-        barColor: Color.fromARGB(255, b[3], b[4], b[5]),
-        primaryColor: Color.fromARGB(255, b[6], b[7], b[8]),
-        secondaryColor: Color.fromARGB(255, b[9], b[10], b[11]),
-        quoteColor: Color.fromARGB(255, b[12], b[13], b[14]),
-        titleColor: titleColor ?? _defaultTitleColor,
-        textFieldColor: textFieldColor,
-        linkColor: linkColor);
+      backgroundColor: Color.fromARGB(255, b[0], b[1], b[2]),
+      barColor: Color.fromARGB(255, b[3], b[4], b[5]),
+      primaryColor: Color.fromARGB(255, b[6], b[7], b[8]),
+      secondaryColor: Color.fromARGB(255, b[9], b[10], b[11]),
+      quoteColor: Color.fromARGB(255, b[12], b[13], b[14]),
+      titleColor: titleColor ?? _defaultTitleColor,
+      textFieldColor: textFieldColor,
+      linkColor: linkColor,
+    );
     return SavedTheme.copyFrom(theme);
   }
 
@@ -364,26 +385,26 @@ class SavedTheme {
         quoteColor,
         titleColor,
         textFieldColor,
-        linkColor
+        linkColor,
       ]) ...[
         (color.r * 255.0).round().clamp(0, 255),
         (color.g * 255.0).round().clamp(0, 255),
-        (color.b * 255.0).round().clamp(0, 255)
-      ]
+        (color.b * 255.0).round().clamp(0, 255),
+      ],
     ]);
   }
 
   SavedTheme.copyFrom(SavedTheme original)
-      : backgroundColor = original.backgroundColor,
-        barColor = original.barColor,
-        primaryColor = original.primaryColor,
-        secondaryColor = original.secondaryColor,
-        quoteColor = original.quoteColor,
-        copiedFrom = original,
-        locked = false,
-        titleColor = original.titleColor,
-        textFieldColor = original.textFieldColor,
-        linkColor = original.linkColor;
+    : backgroundColor = original.backgroundColor,
+      barColor = original.barColor,
+      primaryColor = original.primaryColor,
+      secondaryColor = original.secondaryColor,
+      quoteColor = original.quoteColor,
+      copiedFrom = original,
+      locked = false,
+      titleColor = original.titleColor,
+      textFieldColor = original.textFieldColor,
+      linkColor = original.linkColor;
 
   @override
   bool operator ==(Object other) =>
@@ -402,200 +423,204 @@ class SavedTheme {
 
   @override
   int get hashCode => Object.hash(
-      backgroundColor,
-      barColor,
-      primaryColor,
-      secondaryColor,
-      quoteColor,
-      copiedFrom,
-      locked,
-      titleColor,
-      textFieldColor,
-      linkColor);
+    backgroundColor,
+    barColor,
+    primaryColor,
+    secondaryColor,
+    quoteColor,
+    copiedFrom,
+    locked,
+    titleColor,
+    textFieldColor,
+    linkColor,
+  );
 
   final Map<double, Color> _primaryColorWithBrightnessCache = {};
   Color primaryColorWithBrightness(double factor) =>
       _primaryColorWithBrightnessCache.putIfAbsent(factor, () {
         return Color.from(
-            red: (primaryColor.r * factor) + (backgroundColor.r * (1 - factor)),
-            green:
-                (primaryColor.g * factor) + (backgroundColor.g * (1 - factor)),
-            blue:
-                (primaryColor.b * factor) + (backgroundColor.b * (1 - factor)),
-            alpha: primaryColor.a);
+          red: (primaryColor.r * factor) + (backgroundColor.r * (1 - factor)),
+          green: (primaryColor.g * factor) + (backgroundColor.g * (1 - factor)),
+          blue: (primaryColor.b * factor) + (backgroundColor.b * (1 - factor)),
+          alpha: primaryColor.a,
+        );
       });
 
   Brightness get brightness =>
       primaryColor.computeLuminance() > backgroundColor.computeLuminance()
-          ? Brightness.dark
-          : Brightness.light;
+      ? Brightness.dark
+      : Brightness.light;
 
   CupertinoThemeData get cupertinoThemeData => CupertinoThemeData(
-      brightness: brightness,
-      scaffoldBackgroundColor: backgroundColor,
-      barBackgroundColor: barColor,
-      primaryColor: primaryColor,
-      primaryContrastingColor: backgroundColor,
-      applyThemeToAll: true,
-      textTheme: CupertinoTextThemeData(
-        textStyle: Persistence.settings.textStyle.copyWith(
-            fontSize: 17.0,
-            letterSpacing: -0.41,
-            fontWeight:
-                PlatformDispatcher.instance.accessibilityFeatures.boldText
-                    ? FontWeight.w500
-                    : null,
-            fontVariations:
-                PlatformDispatcher.instance.accessibilityFeatures.boldText
-                    ? CommonFontVariations.w500
-                    : null,
-            color: primaryColor),
-        actionTextStyle:
-            Persistence.settings.textStyle.copyWith(color: secondaryColor),
-        navActionTextStyle:
-            Persistence.settings.textStyle.copyWith(color: primaryColor),
-        navTitleTextStyle: Persistence.settings.textStyle.copyWith(
-          inherit: false,
-          fontSize: 17.0,
-          letterSpacing: -0.41,
-          fontWeight: FontWeight.w600,
-          fontVariations: CommonFontVariations.w600,
-          color: primaryColor,
-          decoration: TextDecoration.none,
-        ),
-        navLargeTitleTextStyle: Persistence.settings.textStyle.copyWith(
-          inherit: false,
-          fontSize: 34.0,
-          fontWeight: FontWeight.w700,
-          fontVariations: CommonFontVariations.bold,
-          letterSpacing: 0.41,
-          color: primaryColor,
-        ),
-        tabLabelTextStyle: Persistence.settings.textStyle.copyWith(
-          inherit: false,
-          fontSize: 10.0,
-          fontWeight: FontWeight.w500,
-          fontVariations: CommonFontVariations.w500,
-          letterSpacing: -0.24,
-          color: CupertinoColors.inactiveGray,
-        ),
-      ));
+    brightness: brightness,
+    scaffoldBackgroundColor: backgroundColor,
+    barBackgroundColor: barColor,
+    primaryColor: primaryColor,
+    primaryContrastingColor: backgroundColor,
+    applyThemeToAll: true,
+    textTheme: CupertinoTextThemeData(
+      textStyle: Persistence.settings.textStyle.copyWith(
+        fontSize: 17.0,
+        letterSpacing: -0.41,
+        fontWeight: PlatformDispatcher.instance.accessibilityFeatures.boldText
+            ? FontWeight.w500
+            : null,
+        fontVariations:
+            PlatformDispatcher.instance.accessibilityFeatures.boldText
+            ? CommonFontVariations.w500
+            : null,
+        color: primaryColor,
+      ),
+      actionTextStyle: Persistence.settings.textStyle.copyWith(
+        color: secondaryColor,
+      ),
+      navActionTextStyle: Persistence.settings.textStyle.copyWith(
+        color: primaryColor,
+      ),
+      navTitleTextStyle: Persistence.settings.textStyle.copyWith(
+        inherit: false,
+        fontSize: 17.0,
+        letterSpacing: -0.41,
+        fontWeight: FontWeight.w600,
+        fontVariations: CommonFontVariations.w600,
+        color: primaryColor,
+        decoration: TextDecoration.none,
+      ),
+      navLargeTitleTextStyle: Persistence.settings.textStyle.copyWith(
+        inherit: false,
+        fontSize: 34.0,
+        fontWeight: FontWeight.w700,
+        fontVariations: CommonFontVariations.bold,
+        letterSpacing: 0.41,
+        color: primaryColor,
+      ),
+      tabLabelTextStyle: Persistence.settings.textStyle.copyWith(
+        inherit: false,
+        fontSize: 10.0,
+        fontWeight: FontWeight.w500,
+        fontVariations: CommonFontVariations.w500,
+        letterSpacing: -0.24,
+        color: CupertinoColors.inactiveGray,
+      ),
+    ),
+  );
 
   ThemeData get materialThemeData {
     final colorScheme = ColorScheme.fromSwatch(
-            brightness: brightness,
-            primarySwatch: MaterialColor(
-                primaryColor.toARGB32(),
-                Map.fromEntries([
-                  0.05,
-                  0.1,
-                  0.2,
-                  0.3,
-                  0.4,
-                  0.5,
-                  0.6,
-                  0.7,
-                  0.8,
-                  0.9
-                ].map((strength) {
-                  final ds = 0.5 - strength;
-                  return MapEntry<int, Color>(
-                      (strength * 1000).round(),
-                      Color.from(
-                          red: primaryColor.r +
-                              ((ds < 0)
-                                  ? primaryColor.r
-                                  : (1 - primaryColor.r) * ds),
-                          green: primaryColor.g +
-                              ((ds < 0)
-                                  ? primaryColor.g
-                                  : (1 - primaryColor.g) * ds),
-                          blue: primaryColor.b +
-                              ((ds < 0)
-                                  ? primaryColor.b
-                                  : (1 - primaryColor.b) * ds),
-                          alpha: 1));
-                }))),
-            accentColor: secondaryColor,
-            cardColor: barColor,
-            backgroundColor: backgroundColor)
-        .copyWith(onSurface: primaryColor);
-    final textTheme = (brightness == Brightness.dark
-            ? Typography.whiteMountainView
-            : Typography.blackMountainView)
-        .apply(
-            bodyColor: primaryColor,
-            displayColor: primaryColor,
-            decorationColor: primaryColor,
-            fontFamily: Persistence.settings.textStyle.fontFamily ??
-                (platformIsMaterial ? 'Roboto' : 'CupertinoSystemText'));
+      brightness: brightness,
+      primarySwatch: MaterialColor(
+        primaryColor.toARGB32(),
+        Map.fromEntries(
+          [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map((strength) {
+            final ds = 0.5 - strength;
+            return MapEntry<int, Color>(
+              (strength * 1000).round(),
+              Color.from(
+                red:
+                    primaryColor.r +
+                    ((ds < 0) ? primaryColor.r : (1 - primaryColor.r) * ds),
+                green:
+                    primaryColor.g +
+                    ((ds < 0) ? primaryColor.g : (1 - primaryColor.g) * ds),
+                blue:
+                    primaryColor.b +
+                    ((ds < 0) ? primaryColor.b : (1 - primaryColor.b) * ds),
+                alpha: 1,
+              ),
+            );
+          }),
+        ),
+      ),
+      accentColor: secondaryColor,
+      cardColor: barColor,
+      backgroundColor: backgroundColor,
+    ).copyWith(onSurface: primaryColor);
+    final textTheme =
+        (brightness == Brightness.dark
+                ? Typography.whiteMountainView
+                : Typography.blackMountainView)
+            .apply(
+              bodyColor: primaryColor,
+              displayColor: primaryColor,
+              decorationColor: primaryColor,
+              fontFamily:
+                  Persistence.settings.textStyle.fontFamily ??
+                  (platformIsMaterial ? 'Roboto' : 'CupertinoSystemText'),
+            );
     return ThemeData.from(
-            colorScheme: colorScheme,
-            useMaterial3: true,
-            textTheme: textTheme.copyWith(
-                bodyMedium:
-                    textTheme.bodyMedium?.copyWith(fontSize: 17, height: 1.3)))
-        .copyWith(
-            platform: switch ((
-              platformIsMaterial,
-              Settings.instance.materialStyle
-            )) {
-              (true, true) => null,
-              (false, true) => TargetPlatform.android,
-              (false, false) => null,
-              (true, false) => TargetPlatform.iOS
-            },
-            pageTransitionsTheme: const PageTransitionsTheme(builders: {}),
-            iconTheme: IconThemeData(color: primaryColor),
-            buttonTheme: ButtonThemeData(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4))),
-            outlinedButtonTheme: OutlinedButtonThemeData(
-                style: ButtonStyle(
-                    side: WidgetStateProperty.all(
-                        BorderSide(color: primaryColor)))),
-            listTileTheme: ListTileThemeData(
-                iconColor: primaryColor,
-                textColor: primaryColor,
-                selectedTileColor: primaryColorWithBrightness(0.3)),
-            segmentedButtonTheme: SegmentedButtonThemeData(
-                style: ButtonStyle(
-                    backgroundColor: WidgetStateProperty.resolveWith((s) {
-                      if (s.contains(WidgetState.selected)) {
-                        return primaryColor;
-                      }
-                      return null;
-                    }),
-                    foregroundColor: WidgetStateProperty.resolveWith((s) {
-                      if (s.contains(WidgetState.selected)) {
-                        return backgroundColor;
-                      }
-                      return null;
-                    }),
-                    shape: WidgetStateProperty.all(RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(4),
-                        side: BorderSide(color: primaryColor))),
-                    side: WidgetStateProperty.resolveWith((s) {
-                      if (s.contains(WidgetState.disabled)) {
-                        return null;
-                      }
-                      return BorderSide(color: primaryColor);
-                    }))),
-            iconButtonTheme: IconButtonThemeData(
-                style: ButtonStyle(
-                    iconColor: WidgetStateProperty.all(primaryColor))),
-            switchTheme: SwitchThemeData(
-                thumbColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.hovered) ||
-                  states.contains(WidgetState.pressed)) {
-                return primaryColorWithBrightness(0.1);
-              }
+      colorScheme: colorScheme,
+      useMaterial3: true,
+      textTheme: textTheme.copyWith(
+        bodyMedium: textTheme.bodyMedium?.copyWith(fontSize: 17, height: 1.3),
+      ),
+    ).copyWith(
+      platform: switch ((platformIsMaterial, Settings.instance.materialStyle)) {
+        (true, true) => null,
+        (false, true) => TargetPlatform.android,
+        (false, false) => null,
+        (true, false) => TargetPlatform.iOS,
+      },
+      pageTransitionsTheme: const PageTransitionsTheme(builders: {}),
+      iconTheme: IconThemeData(color: primaryColor),
+      buttonTheme: ButtonThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(
+          side: WidgetStateProperty.all(BorderSide(color: primaryColor)),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: primaryColor,
+        textColor: primaryColor,
+        selectedTileColor: primaryColorWithBrightness(0.3),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith((s) {
+            if (s.contains(WidgetState.selected)) {
+              return primaryColor;
+            }
+            return null;
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((s) {
+            if (s.contains(WidgetState.selected)) {
+              return backgroundColor;
+            }
+            return null;
+          }),
+          shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(4),
+              side: BorderSide(color: primaryColor),
+            ),
+          ),
+          side: WidgetStateProperty.resolveWith((s) {
+            if (s.contains(WidgetState.disabled)) {
               return null;
-            })),
-            sliderTheme: const SliderThemeData(
-                allowedInteraction: SliderInteraction.slideThumb),
-            cupertinoOverrideTheme: cupertinoThemeData,
-            scaffoldBackgroundColor: backgroundColor);
+            }
+            return BorderSide(color: primaryColor);
+          }),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(iconColor: WidgetStateProperty.all(primaryColor)),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.pressed)) {
+            return primaryColorWithBrightness(0.1);
+          }
+          return null;
+        }),
+      ),
+      sliderTheme: const SliderThemeData(
+        allowedInteraction: SliderInteraction.slideThumb,
+      ),
+      cupertinoOverrideTheme: cupertinoThemeData,
+      scaffoldBackgroundColor: backgroundColor,
+    );
   }
 
   Color get searchTextFieldColor {
@@ -616,22 +641,25 @@ Future<bool> updateDynamicColors() async {
   final colors = await DynamicColorPlugin.getCorePalette();
   if (colors != null) {
     final light = SavedTheme(
-        backgroundColor: Color(colors.neutral.get(99)),
-        barColor: Color(colors.neutralVariant.get(90)),
-        primaryColor: Color(colors.primary.get(10)),
-        secondaryColor: Color(colors.primary.get(40)),
-        quoteColor: _defaultQuoteColor,
-        titleColor: Color(colors.tertiary.get(40)),
-        locked: true);
+      backgroundColor: Color(colors.neutral.get(99)),
+      barColor: Color(colors.neutralVariant.get(90)),
+      primaryColor: Color(colors.primary.get(10)),
+      secondaryColor: Color(colors.primary.get(40)),
+      quoteColor: _defaultQuoteColor,
+      titleColor: Color(colors.tertiary.get(40)),
+      locked: true,
+    );
     final dark = SavedTheme(
-        backgroundColor: Color(colors.neutral.get(10)),
-        barColor: Color(colors.neutralVariant.get(30)),
-        primaryColor: Color(colors.primary.get(99)),
-        secondaryColor: Color(colors.primary.get(70)),
-        quoteColor: _defaultQuoteColor,
-        titleColor: Color(colors.tertiary.get(70)),
-        locked: true);
-    final updated = ((Persistence.settings.lightThemeKey == _dynamicLightKey) &&
+      backgroundColor: Color(colors.neutral.get(10)),
+      barColor: Color(colors.neutralVariant.get(30)),
+      primaryColor: Color(colors.primary.get(99)),
+      secondaryColor: Color(colors.primary.get(70)),
+      quoteColor: _defaultQuoteColor,
+      titleColor: Color(colors.tertiary.get(70)),
+      locked: true,
+    );
+    final updated =
+        ((Persistence.settings.lightThemeKey == _dynamicLightKey) &&
             (light != Persistence.settings.themes[_dynamicLightKey])) ||
         ((Persistence.settings.darkThemeKey == _dynamicDarkKey) &&
             (dark != Persistence.settings.themes[_dynamicDarkKey]));
@@ -669,7 +697,7 @@ enum PostDisplayField {
   @HiveField(11)
   lineBreak1,
   @HiveField(12)
-  lineBreak2
+  lineBreak2,
 }
 
 extension PostDisplayFieldName on PostDisplayField {
@@ -724,7 +752,7 @@ enum SettingsQuickAction {
   @HiveField(7)
   togglePixelatedThumbnails,
   @HiveField(8)
-  toggleDimmedThumbnails
+  toggleDimmedThumbnails,
 }
 
 @HiveType(typeId: 32)
@@ -734,7 +762,7 @@ enum WebmTranscodingSetting {
   @HiveField(1)
   vp9,
   @HiveField(2)
-  always
+  always,
 }
 
 extension SettingsQuickActionName on SettingsQuickAction? {
@@ -787,7 +815,7 @@ enum GallerySavePathOrganizing {
   @HiveField(9)
   siteBoardAndThreadNameSubfolders,
   @HiveField(10)
-  siteAndThreadNameSubfolders
+  siteAndThreadNameSubfolders,
 }
 
 final allowedGoogleFonts = {
@@ -803,7 +831,7 @@ final allowedGoogleFonts = {
   'Roboto': GoogleFonts.roboto,
   'Roboto Slab': GoogleFonts.robotoSlab,
   'Slabo 27px': GoogleFonts.slabo27px,
-  'Source Sans 3': GoogleFonts.sourceSans3
+  'Source Sans 3': GoogleFonts.sourceSans3,
 };
 
 @HiveType(typeId: 43)
@@ -815,7 +843,7 @@ enum ImagePeekingSetting {
   @HiveField(2)
   unsafe,
   @HiveField(3)
-  ultraUnsafe;
+  ultraUnsafe,
 }
 
 @HiveType(typeId: 44)
@@ -825,7 +853,7 @@ enum MouseModeQuoteLinkBehavior {
   @HiveField(1)
   scrollToPost,
   @HiveField(2)
-  popupPostsPage
+  popupPostsPage,
 }
 
 @HiveType(typeId: 45)
@@ -837,7 +865,7 @@ enum DrawerMode {
   @HiveField(2)
   savedThreads,
   @HiveField(3)
-  history;
+  history,
 }
 
 class _LaunchCountMerger extends FieldMerger<int> {
@@ -903,7 +931,6 @@ class SavedSettings extends HiveObject {
   @HiveField(9)
   bool useTouchLayout;
   @HiveField(10)
-
   /// Preserved for some future sync use or something
   String userId;
   @HiveField(11)
@@ -1353,6 +1380,19 @@ class SavedSettings extends HiveObject {
   bool useAlternativeGalleryLayout;
   @HiveField(235)
   int megucaThreadLastN;
+  // Upstream added these as 217-221, which collide with the fork's existing
+  // owo.vg/download fields already persisted on users' devices. Renumbered to
+  // 236+ so no stored setting is misread.
+  @HiveField(236)
+  TlsClientHello? cachedWebViewTlsHello3;
+  @HiveField(237)
+  bool showAttachmentsPageButton;
+  @HiveField(238)
+  bool tabBarPagesAlignedToEnd;
+  @HiveField(239)
+  bool usePaginatedTabBar;
+  @HiveField(240)
+  bool useHttp3;
 
   SavedSettings({
     AutoloadAttachmentsSetting? autoloadAttachments,
@@ -1590,322 +1630,351 @@ class SavedSettings extends HiveObject {
     bool? showActiveDownloadsAboveArchivedDownloads,
     bool? useAlternativeGalleryLayout,
     int? megucaThreadLastN,
-  })  : autoloadAttachments =
-            autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
-        theme = theme ?? TristateSystemSetting.system,
-        hideOldStickiedThreads = hideOldStickiedThreads ?? false,
-        deprecatedCatalogSortingMethod =
-            deprecatedCatalogSortingMethod ?? ThreadSortingMethod.unsorted,
-        deprecatedReverseCatalogSorting =
-            deprecatedReverseCatalogSorting ?? false,
-        savedThreadsSortingMethod =
-            savedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
-        autoRotateInGallery = autoRotateInGallery ?? false,
-        useTouchLayout =
-            useTouchLayout ?? (Platform.isAndroid || Platform.isIOS),
-        userId = userId ?? (const Uuid()).v4(),
-        contentSettings = contentSettings ?? getDefaultContentSettings(),
-        filterConfiguration = filterConfiguration ?? '',
-        boardSwitcherHasKeyboardFocus = boardSwitcherHasKeyboardFocus ?? true,
-        deprecatedLightTheme = deprecatedLightTheme ??
-            SavedTheme(
-                primaryColor: defaultLightTheme.primaryColor,
-                secondaryColor: defaultLightTheme.secondaryColor,
-                barColor: defaultLightTheme.barColor,
-                backgroundColor: defaultLightTheme.backgroundColor),
-        deprecatedDarkTheme = deprecatedDarkTheme ??
-            SavedTheme(
-                primaryColor: defaultDarkTheme.primaryColor,
-                secondaryColor: defaultDarkTheme.secondaryColor,
-                barColor: defaultDarkTheme.barColor,
-                backgroundColor: defaultDarkTheme.backgroundColor),
-        deprecatedRecentSearchesBySite = deprecatedRecentSearchesBySite ?? {},
-        browserStateBySite = browserStateBySite ?? {},
-        savedPostsBySite = savedPostsBySite ?? {},
-        savedAttachmentsBySite = savedAttachmentsBySite ?? {},
-        deprecatedBoardsBySite = deprecatedBoardsBySite ?? {},
-        twoPaneBreakpoint = twoPaneBreakpoint ?? 700,
-        twoPaneSplit = twoPaneSplit ?? twoPaneSplitDenominator ~/ 4,
-        useCatalogGrid = useCatalogGrid ?? false,
-        catalogGridWidth = catalogGridWidth ?? 200,
-        catalogGridHeight = catalogGridHeight ?? 300,
-        showImageCountInCatalog = showImageCountInCatalog ?? true,
-        showClockIconInCatalog = showClockIconInCatalog ?? true,
-        deprecatedEmbedRegexes = deprecatedEmbedRegexes ?? const [],
-        supportMouse = supportMouse ?? TristateSystemSetting.system,
-        showNameInCatalog = showNameInCatalog ?? true,
-        interfaceScale = interfaceScale ?? 1.0,
-        showAnimations = showAnimations ?? true,
-        imagesOnRight = imagesOnRight ?? false,
-        replyBoxHeightOffset = replyBoxHeightOffset ?? 0.0,
-        blurThumbnails = blurThumbnails ?? false,
-        showTimeInCatalogHeader = showTimeInCatalogHeader ?? true,
-        showTimeInCatalogStats = showTimeInCatalogStats ?? true,
-        showIdInCatalogHeader = showIdInCatalogHeader ?? true,
-        showFlagInCatalogHeader = showFlagInCatalogHeader ?? true,
-        onlyShowFavouriteBoardsInSwitcher =
-            onlyShowFavouriteBoardsInSwitcher ?? false,
-        useBoardSwitcherList = useBoardSwitcherList ?? false,
-        showReplyCountsInGallery = showReplyCountsInGallery ?? false,
-        useNewCaptchaForm = useNewCaptchaForm ?? true,
-        showScrollbars = showScrollbars ?? true,
-        randomizeFilenames = randomizeFilenames ?? false,
-        showNameOnPosts = showNameOnPosts ?? true,
-        showTripOnPosts = showTripOnPosts ?? true,
-        showAbsoluteTimeOnPosts = showAbsoluteTimeOnPosts ?? true,
-        showRelativeTimeOnPosts = showRelativeTimeOnPosts ?? false,
-        showCountryNameOnPosts = showCountryNameOnPosts ?? true,
-        showPassOnPosts = showPassOnPosts ?? true,
-        showFilenameOnPosts = showFilenameOnPosts ?? false,
-        showFilesizeOnPosts = showFilesizeOnPosts ?? false,
-        showFileDimensionsOnPosts = showFileDimensionsOnPosts ?? false,
-        showFlagOnPosts = showFlagOnPosts ?? true,
-        thumbnailSize = thumbnailSize ?? 75,
-        muteAudio = muteAudio ?? false,
-        useEmbeds = useEmbeds ?? true,
-        automaticCacheClearDays = automaticCacheClearDays ?? 60,
-        alwaysAutoloadTappedAttachment = alwaysAutoloadTappedAttachment ?? true,
-        postDisplayFieldOrder = postDisplayFieldOrder ??
-            [
-              PostDisplayField.postNumber,
-              PostDisplayField.ipNumber,
-              PostDisplayField.name,
-              PostDisplayField.posterId,
-              PostDisplayField.attachmentInfo,
-              PostDisplayField.pass,
-              PostDisplayField.lineBreak1,
-              PostDisplayField.flag,
-              PostDisplayField.countryName,
-              PostDisplayField.lineBreak2,
-              PostDisplayField.absoluteTime,
-              PostDisplayField.relativeTime,
-              PostDisplayField.postId
-            ],
-        tabs = tabs ?? [PersistentBrowserTab()],
-        currentTabIndex = currentTabIndex ?? 0,
-        recentSearches = recentSearches ?? PersistentRecentSearches(),
-        hideDefaultNamesOnPosts = hideDefaultNamesOnPosts ?? false,
-        showThumbnailsInGallery = showThumbnailsInGallery ?? true,
-        watchedThreadsSortingMethod =
-            watchedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
-        closeTabSwitcherAfterUse = closeTabSwitcherAfterUse ?? false,
-        textScale = textScale ?? 1.0,
-        catalogGridModeAttachmentInBackground =
-            catalogGridModeAttachmentInBackground ?? false,
-        themes = themes ??
-            {
-              'Light': SavedTheme(
-                  primaryColor:
-                      (deprecatedLightTheme ?? defaultLightTheme).primaryColor,
-                  secondaryColor: (deprecatedLightTheme ?? defaultLightTheme)
-                      .secondaryColor,
-                  barColor:
-                      (deprecatedLightTheme ?? defaultLightTheme).barColor,
-                  backgroundColor: (deprecatedLightTheme ?? defaultLightTheme)
-                      .backgroundColor,
-                  copiedFrom: defaultLightTheme),
-              'Dark': SavedTheme(
-                  primaryColor:
-                      (deprecatedDarkTheme ?? defaultDarkTheme).primaryColor,
-                  secondaryColor:
-                      (deprecatedDarkTheme ?? defaultDarkTheme).secondaryColor,
-                  barColor: (deprecatedDarkTheme ?? defaultDarkTheme).barColor,
-                  backgroundColor:
-                      (deprecatedDarkTheme ?? defaultDarkTheme).backgroundColor,
-                  copiedFrom: defaultDarkTheme)
+    this.cachedWebViewTlsHello3,
+    bool? showAttachmentsPageButton,
+    bool? tabBarPagesAlignedToEnd,
+    bool? usePaginatedTabBar,
+    bool? useHttp3,
+  }) : autoloadAttachments =
+           autoloadAttachments ?? AutoloadAttachmentsSetting.wifi,
+       theme = theme ?? TristateSystemSetting.system,
+       hideOldStickiedThreads = hideOldStickiedThreads ?? false,
+       deprecatedCatalogSortingMethod =
+           deprecatedCatalogSortingMethod ?? ThreadSortingMethod.unsorted,
+       deprecatedReverseCatalogSorting =
+           deprecatedReverseCatalogSorting ?? false,
+       savedThreadsSortingMethod =
+           savedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
+       autoRotateInGallery = autoRotateInGallery ?? false,
+       useTouchLayout =
+           useTouchLayout ?? (Platform.isAndroid || Platform.isIOS),
+       userId = userId ?? (const Uuid()).v4(),
+       contentSettings = contentSettings ?? getDefaultContentSettings(),
+       filterConfiguration = filterConfiguration ?? '',
+       boardSwitcherHasKeyboardFocus = boardSwitcherHasKeyboardFocus ?? true,
+       deprecatedLightTheme =
+           deprecatedLightTheme ??
+           SavedTheme(
+             primaryColor: defaultLightTheme.primaryColor,
+             secondaryColor: defaultLightTheme.secondaryColor,
+             barColor: defaultLightTheme.barColor,
+             backgroundColor: defaultLightTheme.backgroundColor,
+           ),
+       deprecatedDarkTheme =
+           deprecatedDarkTheme ??
+           SavedTheme(
+             primaryColor: defaultDarkTheme.primaryColor,
+             secondaryColor: defaultDarkTheme.secondaryColor,
+             barColor: defaultDarkTheme.barColor,
+             backgroundColor: defaultDarkTheme.backgroundColor,
+           ),
+       deprecatedRecentSearchesBySite = deprecatedRecentSearchesBySite ?? {},
+       browserStateBySite = browserStateBySite ?? {},
+       savedPostsBySite = savedPostsBySite ?? {},
+       savedAttachmentsBySite = savedAttachmentsBySite ?? {},
+       deprecatedBoardsBySite = deprecatedBoardsBySite ?? {},
+       twoPaneBreakpoint = twoPaneBreakpoint ?? 700,
+       twoPaneSplit = twoPaneSplit ?? twoPaneSplitDenominator ~/ 4,
+       useCatalogGrid = useCatalogGrid ?? false,
+       catalogGridWidth = catalogGridWidth ?? 200,
+       catalogGridHeight = catalogGridHeight ?? 300,
+       showImageCountInCatalog = showImageCountInCatalog ?? true,
+       showClockIconInCatalog = showClockIconInCatalog ?? true,
+       deprecatedEmbedRegexes = deprecatedEmbedRegexes ?? const [],
+       supportMouse = supportMouse ?? TristateSystemSetting.system,
+       showNameInCatalog = showNameInCatalog ?? true,
+       interfaceScale = interfaceScale ?? 1.0,
+       showAnimations = showAnimations ?? true,
+       imagesOnRight = imagesOnRight ?? false,
+       replyBoxHeightOffset = replyBoxHeightOffset ?? 0.0,
+       blurThumbnails = blurThumbnails ?? false,
+       showTimeInCatalogHeader = showTimeInCatalogHeader ?? true,
+       showTimeInCatalogStats = showTimeInCatalogStats ?? true,
+       showIdInCatalogHeader = showIdInCatalogHeader ?? true,
+       showFlagInCatalogHeader = showFlagInCatalogHeader ?? true,
+       onlyShowFavouriteBoardsInSwitcher =
+           onlyShowFavouriteBoardsInSwitcher ?? false,
+       useBoardSwitcherList = useBoardSwitcherList ?? false,
+       showReplyCountsInGallery = showReplyCountsInGallery ?? false,
+       useNewCaptchaForm = useNewCaptchaForm ?? true,
+       showScrollbars = showScrollbars ?? true,
+       randomizeFilenames = randomizeFilenames ?? false,
+       showNameOnPosts = showNameOnPosts ?? true,
+       showTripOnPosts = showTripOnPosts ?? true,
+       showAbsoluteTimeOnPosts = showAbsoluteTimeOnPosts ?? true,
+       showRelativeTimeOnPosts = showRelativeTimeOnPosts ?? false,
+       showCountryNameOnPosts = showCountryNameOnPosts ?? true,
+       showPassOnPosts = showPassOnPosts ?? true,
+       showFilenameOnPosts = showFilenameOnPosts ?? false,
+       showFilesizeOnPosts = showFilesizeOnPosts ?? false,
+       showFileDimensionsOnPosts = showFileDimensionsOnPosts ?? false,
+       showFlagOnPosts = showFlagOnPosts ?? true,
+       thumbnailSize = thumbnailSize ?? 75,
+       muteAudio = muteAudio ?? false,
+       useEmbeds = useEmbeds ?? true,
+       automaticCacheClearDays = automaticCacheClearDays ?? 60,
+       alwaysAutoloadTappedAttachment = alwaysAutoloadTappedAttachment ?? true,
+       postDisplayFieldOrder =
+           postDisplayFieldOrder ??
+           [
+             PostDisplayField.postNumber,
+             PostDisplayField.ipNumber,
+             PostDisplayField.name,
+             PostDisplayField.posterId,
+             PostDisplayField.attachmentInfo,
+             PostDisplayField.pass,
+             PostDisplayField.lineBreak1,
+             PostDisplayField.flag,
+             PostDisplayField.countryName,
+             PostDisplayField.lineBreak2,
+             PostDisplayField.absoluteTime,
+             PostDisplayField.relativeTime,
+             PostDisplayField.postId,
+           ],
+       tabs = tabs ?? [PersistentBrowserTab()],
+       currentTabIndex = currentTabIndex ?? 0,
+       recentSearches = recentSearches ?? PersistentRecentSearches(),
+       hideDefaultNamesOnPosts = hideDefaultNamesOnPosts ?? false,
+       showThumbnailsInGallery = showThumbnailsInGallery ?? true,
+       watchedThreadsSortingMethod =
+           watchedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
+       closeTabSwitcherAfterUse = closeTabSwitcherAfterUse ?? false,
+       textScale = textScale ?? 1.0,
+       catalogGridModeAttachmentInBackground =
+           catalogGridModeAttachmentInBackground ?? false,
+       themes =
+           themes ??
+           {
+             'Light': SavedTheme(
+               primaryColor:
+                   (deprecatedLightTheme ?? defaultLightTheme).primaryColor,
+               secondaryColor:
+                   (deprecatedLightTheme ?? defaultLightTheme).secondaryColor,
+               barColor: (deprecatedLightTheme ?? defaultLightTheme).barColor,
+               backgroundColor:
+                   (deprecatedLightTheme ?? defaultLightTheme).backgroundColor,
+               copiedFrom: defaultLightTheme,
+             ),
+             'Dark': SavedTheme(
+               primaryColor:
+                   (deprecatedDarkTheme ?? defaultDarkTheme).primaryColor,
+               secondaryColor:
+                   (deprecatedDarkTheme ?? defaultDarkTheme).secondaryColor,
+               barColor: (deprecatedDarkTheme ?? defaultDarkTheme).barColor,
+               backgroundColor:
+                   (deprecatedDarkTheme ?? defaultDarkTheme).backgroundColor,
+               copiedFrom: defaultDarkTheme,
+             ),
+           },
+       lightThemeKey = lightThemeKey ?? 'Light',
+       darkThemeKey = darkThemeKey ?? 'Dark',
+       hostsToOpenExternally =
+           hostsToOpenExternally ?? ['youtube.com', 'youtu.be'],
+       useFullWidthForCatalogCounters = useFullWidthForCatalogCounters ?? false,
+       allowSwipingInGallery = allowSwipingInGallery ?? true,
+       settingsQuickAction =
+           settingsQuickAction ?? SettingsQuickAction.toggleTheme,
+       useHapticFeedback = useHapticFeedback ?? true,
+       promptedAboutCrashlytics = promptedAboutCrashlytics ?? false,
+       showCountryNameInCatalogHeader =
+           showCountryNameInCatalogHeader ?? (showFlagInCatalogHeader ?? true),
+       webmTranscoding = webmTranscoding ?? WebmTranscodingSetting.never,
+       showListPositionIndicatorsOnLeft =
+           showListPositionIndicatorsOnLeft ?? false,
+       appliedMigrations = appliedMigrations ?? [],
+       enableIMEPersonalizedLearning = enableIMEPersonalizedLearning ?? true,
+       catalogVariant = catalogVariant ?? CatalogVariant.unsorted,
+       redditCatalogVariant = redditCatalogVariant ?? CatalogVariant.redditHot,
+       dimReadThreads = dimReadThreads ?? true,
+       hackerNewsCatalogVariant =
+           hackerNewsCatalogVariant ?? CatalogVariant.hackerNewsTop,
+       hideDefaultNamesInCatalog = hideDefaultNamesInCatalog ?? false,
+       launchCount = launchCount ?? 0,
+       captcha4ChanCustomNumLetters = captcha4ChanCustomNumLetters ?? 6,
+       tabMenuHidesWhenScrollingDown = tabMenuHidesWhenScrollingDown ?? true,
+       doubleTapScrollToReplies = doubleTapScrollToReplies ?? true,
+       webImageSearchMethod =
+           webImageSearchMethod ?? WebImageSearchMethod.google,
+       showIPNumberOnPosts = showIPNumberOnPosts ?? true,
+       showNoBeforeIdOnPosts = showNoBeforeIdOnPosts ?? false,
+       blurEffects = blurEffects ?? true,
+       scrollbarsOnLeft = scrollbarsOnLeft ?? false,
+       exactTimeIsTwelveHour = exactTimeIsTwelveHour ?? false,
+       exactTimeShowsDateForToday = exactTimeShowsDateForToday ?? false,
+       attachmentsPageMaxCrossAxisExtent =
+           attachmentsPageMaxCrossAxisExtent ?? 400,
+       catalogGridModeCellBorderRadiusAndMargin =
+           catalogGridModeCellBorderRadiusAndMargin ?? false,
+       catalogGridModeShowMoreImageIfLessText =
+           catalogGridModeShowMoreImageIfLessText ?? true,
+       showPostNumberOnPosts = showPostNumberOnPosts ?? true,
+       overscrollModalTapPopsAll = overscrollModalTapPopsAll ?? true,
+       squareThumbnails = squareThumbnails ?? false,
+       alwaysShowSpoilers = alwaysShowSpoilers ?? false,
+       gallerySavePathOrganizing =
+           gallerySavePathOrganizing ?? GallerySavePathOrganizing.noSubfolders,
+       fullQualityThumbnails =
+           fullQualityThumbnails ?? AutoloadAttachmentsSetting.never,
+       recordThreadsInHistory = recordThreadsInHistory ?? true,
+       autoCacheAttachments =
+           autoCacheAttachments ?? AutoloadAttachmentsSetting.never,
+       exactTimeUsesCustomDateFormat = exactTimeUsesCustomDateFormat ?? false,
+       deprecatedUnsafeImagePeeking = deprecatedUnsafeImagePeeking ?? false,
+       showOverlaysInGallery = showOverlaysInGallery ?? true,
+       verticalTwoPaneMinimumPaneSize = verticalTwoPaneMinimumPaneSize ?? -400,
+       hiddenImageMD5s = hiddenImageMD5s ?? {},
+       showLastRepliesInCatalog = showLastRepliesInCatalog ?? false,
+       loadThumbnails = loadThumbnails ?? AutoloadAttachmentsSetting.always,
+       applyImageFilterToThreads = applyImageFilterToThreads ?? false,
+       askForAuthenticationOnLaunch = askForAuthenticationOnLaunch ?? false,
+       enableSpellCheck = enableSpellCheck ?? true,
+       openCrossThreadLinksInNewTab = openCrossThreadLinksInNewTab ?? false,
+       backgroundThreadAutoUpdatePeriodSeconds =
+           backgroundThreadAutoUpdatePeriodSeconds ?? 60,
+       currentThreadAutoUpdatePeriodSeconds =
+           currentThreadAutoUpdatePeriodSeconds ?? 60,
+       lastShareablePostsStyle =
+           lastShareablePostsStyle ?? const ShareablePostsStyle(),
+       highlightRepeatingDigitsInPostIds =
+           highlightRepeatingDigitsInPostIds ?? false,
+       includeThreadsYouRepliedToWhenDeletingHistory =
+           includeThreadsYouRepliedToWhenDeletingHistory ?? false,
+       newPostHighlightBrightness = newPostHighlightBrightness ?? 0.1,
+       imagePeeking =
+           imagePeeking ??
+           (deprecatedUnsafeImagePeeking == true
+               ? ImagePeekingSetting.unsafe
+               : ImagePeekingSetting.standard),
+       hideBarsWhenScrollingDown = hideBarsWhenScrollingDown ?? false,
+       showPerformanceOverlay = showPerformanceOverlay ?? false,
+       customDateFormat =
+           customDateFormat ?? DateTimeConversion.kISO8601DateFormat,
+       hoverPopupDelayMilliseconds = hoverPopupDelayMilliseconds ?? 0,
+       mouseModeQuoteLinkBehavior =
+           mouseModeQuoteLinkBehavior ??
+           MouseModeQuoteLinkBehavior.expandInline,
+       drawerMode = drawerMode ?? DrawerMode.tabs,
+       showLineBreak1InPostInfoRow = showLineBreak1InPostInfoRow ?? false,
+       removeMetadataOnUploadedFiles = removeMetadataOnUploadedFiles ?? true,
+       randomizeChecksumOnUploadedFiles =
+           randomizeChecksumOnUploadedFiles ?? false,
+       recentWebImageSearches = recentWebImageSearches ?? [],
+       cloverStyleRepliesButton = cloverStyleRepliesButton ?? false,
+       watchThreadAutomaticallyWhenReplying =
+           watchThreadAutomaticallyWhenReplying ?? true,
+       saveThreadAutomaticallyWhenReplying =
+           saveThreadAutomaticallyWhenReplying ?? false,
+       cancellableRepliesSlideGesture = cancellableRepliesSlideGesture ?? true,
+       openBoardSwitcherSlideGesture = openBoardSwitcherSlideGesture ?? true,
+       persistentDrawer = persistentDrawer ?? false,
+       showGalleryGridButton = showGalleryGridButton ?? false,
+       centeredPostThumbnailSize = centeredPostThumbnailSize ?? -300,
+       ellipsizeLongFilenamesOnPosts = ellipsizeLongFilenamesOnPosts ?? true,
+       muteAudioWhenOpeningGallery =
+           muteAudioWhenOpeningGallery ??
+           switch (deprecatedAlwaysStartVideosMuted) {
+             true => TristateSystemSetting.b,
+             false || null => TristateSystemSetting.a,
+           },
+       translationTargetLanguage = translationTargetLanguage ?? 'en',
+       homeBoardName = homeBoardName ?? '',
+       tapPostIdToReply = tapPostIdToReply ?? true,
+       downloadUsingServerSideFilenames =
+           downloadUsingServerSideFilenames ?? false,
+       catalogGridModeTextScale = catalogGridModeTextScale ?? 1.0,
+       catalogGridModeCropThumbnails = catalogGridModeCropThumbnails ?? true,
+       useSpamFilterWorkarounds = useSpamFilterWorkarounds ?? true,
+       scrollbarThickness = scrollbarThickness ?? 6,
+       thumbnailPixelation = thumbnailPixelation ?? -12,
+       catalogGridModeTextAboveAttachment =
+           catalogGridModeTextAboveAttachment ?? false,
+       swipeGesturesOnBottomBar = swipeGesturesOnBottomBar ?? true,
+       mpvOptions = mpvOptions ?? {},
+       dynamicIPKeepAlivePeriodSeconds = dynamicIPKeepAlivePeriodSeconds ?? -15,
+       postingRegretDelaySeconds = postingRegretDelaySeconds ?? -10,
+       showHiddenItemsFooter = showHiddenItemsFooter ?? true,
+       attachmentsPageUsePageView = attachmentsPageUsePageView ?? false,
+       showReplyCountInCatalog = showReplyCountInCatalog ?? true,
+       watchThreadAutomaticallyWhenCreating =
+           watchThreadAutomaticallyWhenCreating ?? true,
+       imageMetaFilterDepth = imageMetaFilterDepth ?? 0,
+       useStaggeredCatalogGrid = useStaggeredCatalogGrid ?? false,
+       doubleTapToHidePosts = doubleTapToHidePosts ?? false,
+       doubleTapToHideThreads = doubleTapToHideThreads ?? false,
+       cloverStyleCatalogCounters = cloverStyleCatalogCounters ?? false,
+       alwaysUseWideDrawerGesture = alwaysUseWideDrawerGesture ?? false,
+       openDrawerThreadsInNewTabs = openDrawerThreadsInNewTabs ?? false,
+       closeReplyBoxAfterSubmitting = closeReplyBoxAfterSubmitting ?? true,
+       onlyShowUnreadWatches = onlyShowUnreadWatches ?? false,
+       showYousInScrollbar = showYousInScrollbar ?? false,
+       separateWiFiAndCellularCookies = separateWiFiAndCellularCookies ?? true,
+       showActiveWatchesAboveZombieWatches =
+           showActiveWatchesAboveZombieWatches ?? true,
+       showLineBreak2InPostInfoRow = showLineBreak2InPostInfoRow ?? false,
+       reverseSavedThreadsSorting = reverseSavedThreadsSorting ?? false,
+       reverseWatchedThreadsSorting = reverseWatchedThreadsSorting ?? false,
+       thumbnailOpacity = thumbnailOpacity ?? -0.5,
+       replyButtonAtBottom = replyButtonAtBottom ?? false,
+       videoContextMenuInGallery = videoContextMenuInGallery ?? false,
+       doubleTapToSeekVideo = doubleTapToSeekVideo ?? false,
+       showHotPostsInScrollbar = showHotPostsInScrollbar ?? false,
+       showTabPopup = showTabPopup ?? false,
+       didHideTabPopupAutomatically = didHideTabPopupAutomatically ?? false,
+       fourChanPostingBackend = fourChanPostingBackend ?? 0,
+       owoVgPool = owoVgPool ?? 's',
+       owoVgEmailIps = owoVgEmailIps ?? false,
+       owoVgManualCaptcha = owoVgManualCaptcha ?? false,
+       owoVgRecycleIps = owoVgRecycleIps ?? 'all',
+       owoVgEmailVerificationStock = owoVgEmailVerificationStock ?? '',
+       owoVgInstallDate = owoVgInstallDate,
+       owoVgRecompression = owoVgRecompression ?? false,
+       owoVgAntiphash = owoVgAntiphash ?? false,
+       copypartyEnabled = copypartyEnabled ?? false,
+       copypartyServerUrl = copypartyServerUrl ?? '',
+       copypartyDestRoot = copypartyDestRoot ?? '/chan/',
+       downloadInterFileDelayMs = downloadInterFileDelayMs ?? 0,
+       copypartyAutoUpload = copypartyAutoUpload ?? true,
+       downloadedThreadsSortingMethod =
+           downloadedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
+       reverseDownloadedThreadsSorting =
+           reverseDownloadedThreadsSorting ?? false,
+       showActiveDownloadsAboveArchivedDownloads =
+           showActiveDownloadsAboveArchivedDownloads ?? true,
+       useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false,
+       megucaThreadLastN = megucaThreadLastN ?? 1000,
+       showAttachmentsPageButton = showAttachmentsPageButton ?? false,
+       tabBarPagesAlignedToEnd = tabBarPagesAlignedToEnd ?? false,
+       usePaginatedTabBar = usePaginatedTabBar ?? true,
+       useHttp3 = useHttp3 ?? true {
+    if (!this.appliedMigrations.contains('filters')) {
+      this.filterConfiguration = this.filterConfiguration
+          .replaceAllMapped(
+            RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true),
+            (m) {
+              return '${m.group(1)};save;highlight${m.group(3)}';
             },
-        lightThemeKey = lightThemeKey ?? 'Light',
-        darkThemeKey = darkThemeKey ?? 'Dark',
-        hostsToOpenExternally =
-            hostsToOpenExternally ?? ['youtube.com', 'youtu.be'],
-        useFullWidthForCatalogCounters =
-            useFullWidthForCatalogCounters ?? false,
-        allowSwipingInGallery = allowSwipingInGallery ?? true,
-        settingsQuickAction =
-            settingsQuickAction ?? SettingsQuickAction.toggleTheme,
-        useHapticFeedback = useHapticFeedback ?? true,
-        promptedAboutCrashlytics = promptedAboutCrashlytics ?? false,
-        showCountryNameInCatalogHeader =
-            showCountryNameInCatalogHeader ?? (showFlagInCatalogHeader ?? true),
-        webmTranscoding = webmTranscoding ?? WebmTranscodingSetting.never,
-        showListPositionIndicatorsOnLeft =
-            showListPositionIndicatorsOnLeft ?? false,
-        appliedMigrations = appliedMigrations ?? [],
-        enableIMEPersonalizedLearning = enableIMEPersonalizedLearning ?? true,
-        catalogVariant = catalogVariant ?? CatalogVariant.unsorted,
-        redditCatalogVariant = redditCatalogVariant ?? CatalogVariant.redditHot,
-        dimReadThreads = dimReadThreads ?? true,
-        hackerNewsCatalogVariant =
-            hackerNewsCatalogVariant ?? CatalogVariant.hackerNewsTop,
-        hideDefaultNamesInCatalog = hideDefaultNamesInCatalog ?? false,
-        launchCount = launchCount ?? 0,
-        captcha4ChanCustomNumLetters = captcha4ChanCustomNumLetters ?? 6,
-        tabMenuHidesWhenScrollingDown = tabMenuHidesWhenScrollingDown ?? true,
-        doubleTapScrollToReplies = doubleTapScrollToReplies ?? true,
-        webImageSearchMethod =
-            webImageSearchMethod ?? WebImageSearchMethod.google,
-        showIPNumberOnPosts = showIPNumberOnPosts ?? true,
-        showNoBeforeIdOnPosts = showNoBeforeIdOnPosts ?? false,
-        blurEffects = blurEffects ?? true,
-        scrollbarsOnLeft = scrollbarsOnLeft ?? false,
-        exactTimeIsTwelveHour = exactTimeIsTwelveHour ?? false,
-        exactTimeShowsDateForToday = exactTimeShowsDateForToday ?? false,
-        attachmentsPageMaxCrossAxisExtent =
-            attachmentsPageMaxCrossAxisExtent ?? 400,
-        catalogGridModeCellBorderRadiusAndMargin =
-            catalogGridModeCellBorderRadiusAndMargin ?? false,
-        catalogGridModeShowMoreImageIfLessText =
-            catalogGridModeShowMoreImageIfLessText ?? true,
-        showPostNumberOnPosts = showPostNumberOnPosts ?? true,
-        overscrollModalTapPopsAll = overscrollModalTapPopsAll ?? true,
-        squareThumbnails = squareThumbnails ?? false,
-        alwaysShowSpoilers = alwaysShowSpoilers ?? false,
-        gallerySavePathOrganizing =
-            gallerySavePathOrganizing ?? GallerySavePathOrganizing.noSubfolders,
-        fullQualityThumbnails =
-            fullQualityThumbnails ?? AutoloadAttachmentsSetting.never,
-        recordThreadsInHistory = recordThreadsInHistory ?? true,
-        autoCacheAttachments =
-            autoCacheAttachments ?? AutoloadAttachmentsSetting.never,
-        exactTimeUsesCustomDateFormat = exactTimeUsesCustomDateFormat ?? false,
-        deprecatedUnsafeImagePeeking = deprecatedUnsafeImagePeeking ?? false,
-        showOverlaysInGallery = showOverlaysInGallery ?? true,
-        verticalTwoPaneMinimumPaneSize = verticalTwoPaneMinimumPaneSize ?? -400,
-        hiddenImageMD5s = hiddenImageMD5s ?? {},
-        showLastRepliesInCatalog = showLastRepliesInCatalog ?? false,
-        loadThumbnails = loadThumbnails ?? AutoloadAttachmentsSetting.always,
-        applyImageFilterToThreads = applyImageFilterToThreads ?? false,
-        askForAuthenticationOnLaunch = askForAuthenticationOnLaunch ?? false,
-        enableSpellCheck = enableSpellCheck ?? true,
-        openCrossThreadLinksInNewTab = openCrossThreadLinksInNewTab ?? false,
-        backgroundThreadAutoUpdatePeriodSeconds =
-            backgroundThreadAutoUpdatePeriodSeconds ?? 60,
-        currentThreadAutoUpdatePeriodSeconds =
-            currentThreadAutoUpdatePeriodSeconds ?? 60,
-        lastShareablePostsStyle =
-            lastShareablePostsStyle ?? const ShareablePostsStyle(),
-        highlightRepeatingDigitsInPostIds =
-            highlightRepeatingDigitsInPostIds ?? false,
-        includeThreadsYouRepliedToWhenDeletingHistory =
-            includeThreadsYouRepliedToWhenDeletingHistory ?? false,
-        newPostHighlightBrightness = newPostHighlightBrightness ?? 0.1,
-        imagePeeking = imagePeeking ??
-            (deprecatedUnsafeImagePeeking == true
-                ? ImagePeekingSetting.unsafe
-                : ImagePeekingSetting.standard),
-        hideBarsWhenScrollingDown = hideBarsWhenScrollingDown ?? false,
-        showPerformanceOverlay = showPerformanceOverlay ?? false,
-        customDateFormat =
-            customDateFormat ?? DateTimeConversion.kISO8601DateFormat,
-        hoverPopupDelayMilliseconds = hoverPopupDelayMilliseconds ?? 0,
-        mouseModeQuoteLinkBehavior = mouseModeQuoteLinkBehavior ??
-            MouseModeQuoteLinkBehavior.expandInline,
-        drawerMode = drawerMode ?? DrawerMode.tabs,
-        showLineBreak1InPostInfoRow = showLineBreak1InPostInfoRow ?? false,
-        removeMetadataOnUploadedFiles = removeMetadataOnUploadedFiles ?? true,
-        randomizeChecksumOnUploadedFiles =
-            randomizeChecksumOnUploadedFiles ?? false,
-        recentWebImageSearches = recentWebImageSearches ?? [],
-        cloverStyleRepliesButton = cloverStyleRepliesButton ?? false,
-        watchThreadAutomaticallyWhenReplying =
-            watchThreadAutomaticallyWhenReplying ?? true,
-        saveThreadAutomaticallyWhenReplying =
-            saveThreadAutomaticallyWhenReplying ?? false,
-        cancellableRepliesSlideGesture = cancellableRepliesSlideGesture ?? true,
-        openBoardSwitcherSlideGesture = openBoardSwitcherSlideGesture ?? true,
-        persistentDrawer = persistentDrawer ?? false,
-        showGalleryGridButton = showGalleryGridButton ?? false,
-        centeredPostThumbnailSize = centeredPostThumbnailSize ?? -300,
-        ellipsizeLongFilenamesOnPosts = ellipsizeLongFilenamesOnPosts ?? true,
-        muteAudioWhenOpeningGallery = muteAudioWhenOpeningGallery ??
-            switch (deprecatedAlwaysStartVideosMuted) {
-              true => TristateSystemSetting.b,
-              false || null => TristateSystemSetting.a
+          )
+          .replaceAllMapped(
+            RegExp(r'^(\/.*\/.*)(;top)(.*)$', multiLine: true),
+            (m) {
+              return '${m.group(1)};top;highlight${m.group(3)}';
             },
-        translationTargetLanguage = translationTargetLanguage ?? 'en',
-        homeBoardName = homeBoardName ?? '',
-        tapPostIdToReply = tapPostIdToReply ?? true,
-        downloadUsingServerSideFilenames =
-            downloadUsingServerSideFilenames ?? false,
-        catalogGridModeTextScale = catalogGridModeTextScale ?? 1.0,
-        catalogGridModeCropThumbnails = catalogGridModeCropThumbnails ?? true,
-        useSpamFilterWorkarounds = useSpamFilterWorkarounds ?? true,
-        scrollbarThickness = scrollbarThickness ?? 6,
-        thumbnailPixelation = thumbnailPixelation ?? -12,
-        catalogGridModeTextAboveAttachment =
-            catalogGridModeTextAboveAttachment ?? false,
-        swipeGesturesOnBottomBar = swipeGesturesOnBottomBar ?? true,
-        mpvOptions = mpvOptions ?? {},
-        dynamicIPKeepAlivePeriodSeconds =
-            dynamicIPKeepAlivePeriodSeconds ?? -15,
-        postingRegretDelaySeconds = postingRegretDelaySeconds ?? -10,
-        showHiddenItemsFooter = showHiddenItemsFooter ?? true,
-        attachmentsPageUsePageView = attachmentsPageUsePageView ?? false,
-        showReplyCountInCatalog = showReplyCountInCatalog ?? true,
-        watchThreadAutomaticallyWhenCreating =
-            watchThreadAutomaticallyWhenCreating ?? true,
-        imageMetaFilterDepth = imageMetaFilterDepth ?? 0,
-        useStaggeredCatalogGrid = useStaggeredCatalogGrid ?? false,
-        doubleTapToHidePosts = doubleTapToHidePosts ?? false,
-        doubleTapToHideThreads = doubleTapToHideThreads ?? false,
-        cloverStyleCatalogCounters = cloverStyleCatalogCounters ?? false,
-        alwaysUseWideDrawerGesture = alwaysUseWideDrawerGesture ?? false,
-        openDrawerThreadsInNewTabs = openDrawerThreadsInNewTabs ?? false,
-        closeReplyBoxAfterSubmitting = closeReplyBoxAfterSubmitting ?? true,
-        onlyShowUnreadWatches = onlyShowUnreadWatches ?? false,
-        showYousInScrollbar = showYousInScrollbar ?? false,
-        separateWiFiAndCellularCookies = separateWiFiAndCellularCookies ?? true,
-        showActiveWatchesAboveZombieWatches =
-            showActiveWatchesAboveZombieWatches ?? true,
-        showLineBreak2InPostInfoRow = showLineBreak2InPostInfoRow ?? false,
-        reverseSavedThreadsSorting = reverseSavedThreadsSorting ?? false,
-        reverseWatchedThreadsSorting = reverseWatchedThreadsSorting ?? false,
-        thumbnailOpacity = thumbnailOpacity ?? -0.5,
-        replyButtonAtBottom = replyButtonAtBottom ?? false,
-        videoContextMenuInGallery = videoContextMenuInGallery ?? false,
-        doubleTapToSeekVideo = doubleTapToSeekVideo ?? false,
-        showHotPostsInScrollbar = showHotPostsInScrollbar ?? false,
-        showTabPopup = showTabPopup ?? false,
-        didHideTabPopupAutomatically = didHideTabPopupAutomatically ?? false,
-        fourChanPostingBackend = fourChanPostingBackend ?? 0,
-        owoVgPool = owoVgPool ?? 's',
-        owoVgEmailIps = owoVgEmailIps ?? false,
-        owoVgManualCaptcha = owoVgManualCaptcha ?? false,
-        owoVgRecycleIps = owoVgRecycleIps ?? 'all',
-        owoVgEmailVerificationStock = owoVgEmailVerificationStock ?? '',
-        owoVgInstallDate = owoVgInstallDate,
-        owoVgRecompression = owoVgRecompression ?? false,
-        owoVgAntiphash = owoVgAntiphash ?? false,
-        copypartyEnabled = copypartyEnabled ?? false,
-        copypartyServerUrl = copypartyServerUrl ?? '',
-        copypartyDestRoot = copypartyDestRoot ?? '/chan/',
-        downloadInterFileDelayMs = downloadInterFileDelayMs ?? 0,
-        copypartyAutoUpload = copypartyAutoUpload ?? true,
-        downloadedThreadsSortingMethod = downloadedThreadsSortingMethod ?? ThreadSortingMethod.savedTime,
-        reverseDownloadedThreadsSorting = reverseDownloadedThreadsSorting ?? false,
-        showActiveDownloadsAboveArchivedDownloads = showActiveDownloadsAboveArchivedDownloads ?? true,
-        useAlternativeGalleryLayout = useAlternativeGalleryLayout ?? false,
-        megucaThreadLastN = megucaThreadLastN ?? 1000 {
-        if (!this.appliedMigrations.contains('filters')) {
-      this.filterConfiguration = this.filterConfiguration.replaceAllMapped(
-          RegExp(r'^(\/.*\/.*)(;save)(.*)$', multiLine: true), (m) {
-        return '${m.group(1)};save;highlight${m.group(3)}';
-      }).replaceAllMapped(RegExp(r'^(\/.*\/.*)(;top)(.*)$', multiLine: true),
-          (m) {
-        return '${m.group(1)};top;highlight${m.group(3)}';
-      });
+          );
       this.appliedMigrations.add('filters');
     }
     if (!this.appliedMigrations.contains('catalogVariant')) {
       this.catalogVariant = CatalogVariantMetadata.migrate(
-          this.deprecatedCatalogSortingMethod,
-          this.deprecatedReverseCatalogSorting);
+        this.deprecatedCatalogSortingMethod,
+        this.deprecatedReverseCatalogSorting,
+      );
       for (final browserState in this.browserStateBySite.values) {
         for (final board in browserState.deprecatedBoardSortingMethods.keys) {
-          browserState.catalogVariants[ImageboardBoard.getKey(board)] =
-              CatalogVariantMetadata.migrate(
-                  browserState.deprecatedBoardSortingMethods[board],
-                  browserState.deprecatedBoardReverseSortings[board]);
+          browserState.catalogVariants[ImageboardBoard.getKey(
+            board,
+          )] = CatalogVariantMetadata.migrate(
+            browserState.deprecatedBoardSortingMethods[board],
+            browserState.deprecatedBoardReverseSortings[board],
+          );
         }
       }
       this.appliedMigrations.add('catalogVariant');
@@ -1928,10 +1997,11 @@ class SavedSettings extends HiveObject {
     }
     if (!this.appliedMigrations.contains('uif')) {
       // uif means unifiedImageFilter
-      this.hiddenImageMD5s.addAll(this
-          .browserStateBySite
-          .values
-          .expand((s) => s.deprecatedHiddenImageMD5s));
+      this.hiddenImageMD5s.addAll(
+        this.browserStateBySite.values.expand(
+          (s) => s.deprecatedHiddenImageMD5s,
+        ),
+      );
       for (final s in this.browserStateBySite.values) {
         s.deprecatedHiddenImageMD5s.clear();
       }
@@ -1939,13 +2009,15 @@ class SavedSettings extends HiveObject {
     }
     if (!this.postDisplayFieldOrder.contains(PostDisplayField.lineBreak1)) {
       this.postDisplayFieldOrder.insert(
-          min(this.postDisplayFieldOrder.length - 1, 6),
-          PostDisplayField.lineBreak1);
+        min(this.postDisplayFieldOrder.length - 1, 6),
+        PostDisplayField.lineBreak1,
+      );
     }
     if (!this.postDisplayFieldOrder.contains(PostDisplayField.lineBreak2)) {
       this.postDisplayFieldOrder.insert(
-          min(this.postDisplayFieldOrder.length - 1, 6),
-          PostDisplayField.lineBreak2);
+        min(this.postDisplayFieldOrder.length - 1, 6),
+        PostDisplayField.lineBreak2,
+      );
     }
     if (!this.appliedMigrations.contains('mk')) {
       // mk means media-kit
@@ -2009,11 +2081,12 @@ class SavedSettings extends HiveObject {
     final googleFont = allowedGoogleFonts[name]?.call();
     if (googleFont != null && fallback != null) {
       return googleFont.copyWith(
-          // Render the [package] into fontFamily, as it may not be the same as fallback
-          fontFamily: googleFont.fontFamily,
-          package: null,
-          fontFamilyFallback: fallback,
-          fontSize: 16);
+        // Render the [package] into fontFamily, as it may not be the same as fallback
+        fontFamily: googleFont.fontFamily,
+        package: null,
+        fontFamilyFallback: fallback,
+        fontSize: 16,
+      );
     }
     return googleFont?.copyWith(fontSize: 16) ??
         TextStyle(fontFamily: name, fontFamilyFallback: fallback, fontSize: 16);
@@ -2078,8 +2151,11 @@ class CustomMutableSetting<T> extends MutableSetting<T> {
   final T Function(BuildContext)? watcher;
   final Future<void> Function(BuildContext) didMutater;
 
-  const CustomMutableSetting(
-      {required this.reader, required this.didMutater, this.watcher});
+  const CustomMutableSetting({
+    required this.reader,
+    required this.didMutater,
+    this.watcher,
+  });
 
   @override
   T read(BuildContext context) => reader(context);
@@ -2129,8 +2205,11 @@ class CustomImmutableSetting<T> extends ImmutableSetting<T> {
   final T Function(BuildContext)? watcher;
   final Future<void> Function(BuildContext, T) writer;
 
-  const CustomImmutableSetting(
-      {required this.reader, required this.watcher, required this.writer});
+  const CustomImmutableSetting({
+    required this.reader,
+    required this.watcher,
+    required this.writer,
+  });
 
   @override
   T read(BuildContext context) => reader(context);
@@ -2203,7 +2282,6 @@ class SavedSettingEquals<T> extends MutableSetting<bool> {
       context.select<Settings, T>((s) => setting.getter(s.settings)) == value;
 
   @override
-
   /// This should never be called...
   Future<void> didMutate(BuildContext context) => Settings.instance.didEdit();
 
@@ -2308,8 +2386,10 @@ class CombinedSetting<T1, T2> extends ImmutableSetting<(T1, T2)> {
       (setting1.watch(context), setting2.watch(context));
 
   @override
-  Future<void> write(BuildContext context, (T1, T2) value) => Future.wait(
-      [setting1.write(context, value.$1), setting2.write(context, value.$2)]);
+  Future<void> write(BuildContext context, (T1, T2) value) => Future.wait([
+    setting1.write(context, value.$1),
+    setting2.write(context, value.$2),
+  ]);
 
   @override
   List<String> get syncPaths => [...setting1.syncPaths, ...setting2.syncPaths];
@@ -2423,11 +2503,14 @@ class SettingWithFallback<T> extends ImmutableSetting<T> {
 class HookedSetting<T> extends ImmutableSetting<T> {
   final ImmutableSetting<T> setting;
   final Future<bool> Function(BuildContext context, T oldValue, T newValue)?
-      beforeChange;
+  beforeChange;
   final VoidCallback? afterChange;
 
-  const HookedSetting(
-      {required this.setting, this.beforeChange, this.afterChange});
+  const HookedSetting({
+    required this.setting,
+    this.beforeChange,
+    this.afterChange,
+  });
 
   @override
   T read(BuildContext context) => setting.read(context);
@@ -2463,11 +2546,12 @@ class AssociatedSetting<Old, Associated, New> extends ImmutableSetting<New> {
   final MutableSetting<Associated> associated;
   final New Function(Old, Associated) forwards;
   final Old Function(New, Associated) reverse;
-  const AssociatedSetting(
-      {required this.setting,
-      required this.associated,
-      required this.forwards,
-      required this.reverse});
+  const AssociatedSetting({
+    required this.setting,
+    required this.associated,
+    required this.forwards,
+    required this.reverse,
+  });
 
   @override
   New read(BuildContext context) =>
@@ -2504,7 +2588,32 @@ class Settings extends ChangeNotifier {
   static SavedSettings get _settings => Persistence.settings;
   SavedSettings get settings => _settings;
 
-  final client = Dio();
+  static Dio _makeClient(Settings settings) {
+    final client = Dio();
+    client.interceptors.add(CloudflareBlockingInterceptor());
+    client.interceptors.add(HTTP429BackoffInterceptor(client: client));
+    client.interceptors.add(FixupInterceptor());
+    client.interceptors.add(SeparatedCookieManager());
+    client.interceptors.add(
+      InterceptorWrapperBase(
+        onRequest: (options, handler) async {
+          options.headers['user-agent'] ??= settings.userAgent;
+          handler.next(options);
+        },
+      ),
+    );
+    client.interceptors.add(BasedFlareInterceptor(client));
+    client.interceptors.add(CloudflareInterceptor(null));
+    client.interceptors.add(RetryIfCloudflareInterceptor(client));
+    client.interceptors.add(StrictJsonInterceptor());
+    if (!kInUnitTest) {
+      client.interceptors.add(LoggingInterceptor.instance);
+    }
+    client.httpClientAdapter = myHttpClientAdapter;
+    return client;
+  }
+
+  late final client = _makeClient(this);
   ConnectivityResult? _connectivity;
   ConnectivityResult? get connectivity {
     return _connectivity;
@@ -2524,9 +2633,9 @@ class Settings extends ChangeNotifier {
 
   bool get isNetworkDown => _connectivity == ConnectivityResult.none;
   bool get isConnectedToWifi => switch (_connectivity) {
-        ConnectivityResult.mobile || null => false,
-        _ => true
-      };
+    ConnectivityResult.mobile || null => false,
+    _ => true,
+  };
 
   /// if ![separateWiFiAndCellularCookies], then we always use wi-fi cookies
   bool get isConnectedToWifiForCookies =>
@@ -2539,8 +2648,9 @@ class Settings extends ChangeNotifier {
     }
   }
 
-  static const autoloadAttachmentsSetting =
-      SavedSetting(SavedSettingsFields.autoloadAttachments);
+  static const autoloadAttachmentsSetting = SavedSetting(
+    SavedSettingsFields.autoloadAttachments,
+  );
   bool get autoloadAttachments {
     return (_settings.autoloadAttachments ==
             AutoloadAttachmentsSetting.always) ||
@@ -2558,16 +2668,19 @@ class Settings extends ChangeNotifier {
     return _systemBrightness ?? PlatformDispatcher.instance.platformBrightness;
   }
 
-  static const hideOldStickiedThreadsSetting =
-      SavedSetting(SavedSettingsFields.hideOldStickiedThreads);
+  static const hideOldStickiedThreadsSetting = SavedSetting(
+    SavedSettingsFields.hideOldStickiedThreads,
+  );
   bool get hideOldStickiedThreads => hideOldStickiedThreadsSetting(this);
 
-  static const savedThreadsSortingMethodSetting =
-      SavedSetting(SavedSettingsFields.savedThreadsSortingMethod);
+  static const savedThreadsSortingMethodSetting = SavedSetting(
+    SavedSettingsFields.savedThreadsSortingMethod,
+  );
   ThreadSortingMethod get savedThreadsSortingMethod =>
       savedThreadsSortingMethodSetting(this);
-  static const autoRotateInGallerySetting =
-      SavedSetting(SavedSettingsFields.autoRotateInGallery);
+  static const autoRotateInGallerySetting = SavedSetting(
+    SavedSettingsFields.autoRotateInGallery,
+  );
   bool get autoRotateInGallery => autoRotateInGallerySetting(this);
   ContentSettings get contentSettings => _settings.contentSettings;
 
@@ -2647,8 +2760,9 @@ class Settings extends ChangeNotifier {
     }
   }
 
-  static const filterConfigurationSetting =
-      SavedSetting(SavedSettingsFields.filterConfiguration);
+  static const filterConfigurationSetting = SavedSetting(
+    SavedSettingsFields.filterConfiguration,
+  );
   String get filterConfiguration => filterConfigurationSetting(this);
   set filterConfiguration(String setting) {
     _settings.filterConfiguration = setting;
@@ -2691,55 +2805,68 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const twoPaneBreakpointSetting =
-      SavedSetting(SavedSettingsFields.twoPaneBreakpoint);
+  static const twoPaneBreakpointSetting = SavedSetting(
+    SavedSettingsFields.twoPaneBreakpoint,
+  );
   double get twoPaneBreakpoint => twoPaneBreakpointSetting(this);
 
-  static const twoPaneSplitSetting =
-      SavedSetting(SavedSettingsFields.twoPaneSplit);
+  static const twoPaneSplitSetting = SavedSetting(
+    SavedSettingsFields.twoPaneSplit,
+  );
   int get twoPaneSplit => twoPaneSplitSetting(this);
 
-  static const useCatalogGridSetting =
-      SavedSetting(SavedSettingsFields.useCatalogGrid);
+  static const useCatalogGridSetting = SavedSetting(
+    SavedSettingsFields.useCatalogGrid,
+  );
   bool get useCatalogGrid => useCatalogGridSetting(this);
 
-  static const catalogGridWidthSetting =
-      SavedSetting(SavedSettingsFields.catalogGridWidth);
+  static const catalogGridWidthSetting = SavedSetting(
+    SavedSettingsFields.catalogGridWidth,
+  );
   double get catalogGridWidth => catalogGridWidthSetting(this);
 
-  static const catalogGridHeightSetting =
-      SavedSetting(SavedSettingsFields.catalogGridHeight);
+  static const catalogGridHeightSetting = SavedSetting(
+    SavedSettingsFields.catalogGridHeight,
+  );
   double get catalogGridHeight => catalogGridHeightSetting(this);
 
-  static const showImageCountInCatalogSetting =
-      SavedSetting(SavedSettingsFields.showImageCountInCatalog);
+  static const showImageCountInCatalogSetting = SavedSetting(
+    SavedSettingsFields.showImageCountInCatalog,
+  );
   bool get showImageCountInCatalog => showImageCountInCatalogSetting(this);
 
-  static const showClockIconInCatalogSetting =
-      SavedSetting(SavedSettingsFields.showClockIconInCatalog);
+  static const showClockIconInCatalogSetting = SavedSetting(
+    SavedSettingsFields.showClockIconInCatalog,
+  );
   bool get showClockIconInCatalog => showClockIconInCatalogSetting(this);
 
-  static const supportMouseSetting =
-      SavedSetting(SavedSettingsFields.supportMouse);
+  static const supportMouseSetting = SavedSetting(
+    SavedSettingsFields.supportMouse,
+  );
   TristateSystemSetting get supportMouse => supportMouseSetting(this);
 
-  static const interfaceScaleSetting =
-      SavedSetting(SavedSettingsFields.interfaceScale);
+  static const interfaceScaleSetting = SavedSetting(
+    SavedSettingsFields.interfaceScale,
+  );
   double get interfaceScale => interfaceScaleSetting(this);
 
-  static const showNameInCatalogSetting =
-      SavedSetting(SavedSettingsFields.showNameInCatalog);
+  static const showNameInCatalogSetting = SavedSetting(
+    SavedSettingsFields.showNameInCatalog,
+  );
   bool get showNameInCatalog => showNameInCatalogSetting(this);
 
-  static const showAnimationsSetting =
-      SavedSetting(SavedSettingsFields.showAnimations);
+  static const showAnimationsSetting = SavedSetting(
+    SavedSettingsFields.showAnimations,
+  );
   bool get showAnimations => showAnimationsSetting(this);
 
-  static const imagesOnRightSetting =
-      SavedSetting(SavedSettingsFields.imagesOnRight);
+  static const imagesOnRightSetting = SavedSetting(
+    SavedSettingsFields.imagesOnRight,
+  );
   bool get imagesOnRight => imagesOnRightSetting(this);
-  static const gallerySavePathSetting =
-      SavedSetting(SavedSettingsFields.gallerySavePath);
+  static const gallerySavePathSetting = SavedSetting(
+    SavedSettingsFields.gallerySavePath,
+  );
   String? get gallerySavePath => gallerySavePathSetting(this);
 
   double get replyBoxHeightOffset => _settings.replyBoxHeightOffset;
@@ -2752,106 +2879,131 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const blurThumbnailsSetting =
-      SavedSetting(SavedSettingsFields.blurThumbnails);
+  static const blurThumbnailsSetting = SavedSetting(
+    SavedSettingsFields.blurThumbnails,
+  );
   bool get blurThumbnails => blurThumbnailsSetting(this);
 
-  static const showTimeInCatalogHeaderSetting =
-      SavedSetting(SavedSettingsFields.showTimeInCatalogHeader);
+  static const showTimeInCatalogHeaderSetting = SavedSetting(
+    SavedSettingsFields.showTimeInCatalogHeader,
+  );
   bool get showTimeInCatalogHeader => showTimeInCatalogHeaderSetting(this);
 
-  static const showTimeInCatalogStatsSetting =
-      SavedSetting(SavedSettingsFields.showTimeInCatalogStats);
+  static const showTimeInCatalogStatsSetting = SavedSetting(
+    SavedSettingsFields.showTimeInCatalogStats,
+  );
   bool get showTimeInCatalogStats => showTimeInCatalogStatsSetting(this);
 
-  static const showIdInCatalogHeaderSetting =
-      SavedSetting(SavedSettingsFields.showIdInCatalogHeader);
+  static const showIdInCatalogHeaderSetting = SavedSetting(
+    SavedSettingsFields.showIdInCatalogHeader,
+  );
   bool get showIdInCatalogHeader => showIdInCatalogHeaderSetting(this);
 
-  static const showFlagInCatalogHeaderSetting =
-      SavedSetting(SavedSettingsFields.showFlagInCatalogHeader);
+  static const showFlagInCatalogHeaderSetting = SavedSetting(
+    SavedSettingsFields.showFlagInCatalogHeader,
+  );
   bool get showFlagInCatalogHeader => showFlagInCatalogHeaderSetting(this);
 
-  static const showCountryNameInCatalogHeaderSetting =
-      SavedSetting(SavedSettingsFields.showCountryNameInCatalogHeader);
+  static const showCountryNameInCatalogHeaderSetting = SavedSetting(
+    SavedSettingsFields.showCountryNameInCatalogHeader,
+  );
   bool get showCountryNameInCatalogHeader =>
       showCountryNameInCatalogHeaderSetting(this);
 
-  static const onlyShowFavouriteBoardsInSwitcherSetting =
-      SavedSetting(SavedSettingsFields.onlyShowFavouriteBoardsInSwitcher);
+  static const onlyShowFavouriteBoardsInSwitcherSetting = SavedSetting(
+    SavedSettingsFields.onlyShowFavouriteBoardsInSwitcher,
+  );
   bool get onlyShowFavouriteBoardsInSwitcher =>
       onlyShowFavouriteBoardsInSwitcherSetting(this);
 
-  static const useBoardSwitcherListSetting =
-      SavedSetting(SavedSettingsFields.useBoardSwitcherList);
+  static const useBoardSwitcherListSetting = SavedSetting(
+    SavedSettingsFields.useBoardSwitcherList,
+  );
   bool get useBoardSwitcherList => useBoardSwitcherListSetting(this);
 
-  static const contributeCaptchasSetting =
-      SavedSetting(SavedSettingsFields.contributeCaptchas);
+  static const contributeCaptchasSetting = SavedSetting(
+    SavedSettingsFields.contributeCaptchas,
+  );
   bool? get contributeCaptchas => contributeCaptchasSetting(this);
 
-  static const showReplyCountsInGallerySetting =
-      SavedSetting(SavedSettingsFields.showReplyCountsInGallery);
+  static const showReplyCountsInGallerySetting = SavedSetting(
+    SavedSettingsFields.showReplyCountsInGallery,
+  );
   bool get showReplyCountsInGallery => showReplyCountsInGallerySetting(this);
 
-  static const useNewCaptchaFormSetting =
-      SavedSetting(SavedSettingsFields.useNewCaptchaForm);
+  static const useNewCaptchaFormSetting = SavedSetting(
+    SavedSettingsFields.useNewCaptchaForm,
+  );
   bool get useNewCaptchaForm => useNewCaptchaFormSetting(this);
 
-  static const autoLoginOnMobileNetworkSetting =
-      SavedSetting(SavedSettingsFields.autoLoginOnMobileNetwork);
+  static const autoLoginOnMobileNetworkSetting = SavedSetting(
+    SavedSettingsFields.autoLoginOnMobileNetwork,
+  );
   bool? get autoLoginOnMobileNetwork => autoLoginOnMobileNetworkSetting(this);
 
-  static const showScrollbarsSetting =
-      SavedSetting(SavedSettingsFields.showScrollbars);
+  static const showScrollbarsSetting = SavedSetting(
+    SavedSettingsFields.showScrollbars,
+  );
   bool get showScrollbars => showScrollbarsSetting(this);
 
-  static const randomizeFilenamesSetting =
-      SavedSetting(SavedSettingsFields.randomizeFilenames);
+  static const randomizeFilenamesSetting = SavedSetting(
+    SavedSettingsFields.randomizeFilenames,
+  );
   bool get randomizeFilenames => randomizeFilenamesSetting(this);
 
-  static const showNameOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showNameOnPosts);
+  static const showNameOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showNameOnPosts,
+  );
   bool get showNameOnPosts => showNameOnPostsSetting(this);
 
-  static const showTripOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showTripOnPosts);
+  static const showTripOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showTripOnPosts,
+  );
   bool get showTripOnPosts => showTripOnPostsSetting(this);
 
-  static const showAbsoluteTimeOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showAbsoluteTimeOnPosts);
+  static const showAbsoluteTimeOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showAbsoluteTimeOnPosts,
+  );
   bool get showAbsoluteTimeOnPosts => showAbsoluteTimeOnPostsSetting(this);
 
-  static const showRelativeTimeOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showRelativeTimeOnPosts);
+  static const showRelativeTimeOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showRelativeTimeOnPosts,
+  );
   bool get showRelativeTimeOnPosts => showRelativeTimeOnPostsSetting(this);
 
-  static const showCountryNameOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showCountryNameOnPosts);
+  static const showCountryNameOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showCountryNameOnPosts,
+  );
   bool get showCountryNameOnPosts => showCountryNameOnPostsSetting(this);
 
-  static const showPassOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showPassOnPosts);
+  static const showPassOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showPassOnPosts,
+  );
   bool get showPassOnPosts => showPassOnPostsSetting(this);
 
-  static const showFilenameOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showFilenameOnPosts);
+  static const showFilenameOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showFilenameOnPosts,
+  );
   bool get showFilenameOnPosts => showFilenameOnPostsSetting(this);
 
-  static const showFilesizeOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showFilesizeOnPosts);
+  static const showFilesizeOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showFilesizeOnPosts,
+  );
   bool get showFilesizeOnPosts => showFilesizeOnPostsSetting(this);
 
-  static const showFileDimensionsOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showFileDimensionsOnPosts);
+  static const showFileDimensionsOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showFileDimensionsOnPosts,
+  );
   bool get showFileDimensionsOnPosts => showFileDimensionsOnPostsSetting(this);
 
-  static const showFlagOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showFlagOnPosts);
+  static const showFlagOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showFlagOnPosts,
+  );
   bool get showFlagOnPosts => showFlagOnPostsSetting(this);
 
-  static const thumbnailSizeSetting =
-      SavedSetting(SavedSettingsFields.thumbnailSize);
+  static const thumbnailSizeSetting = SavedSetting(
+    SavedSettingsFields.thumbnailSize,
+  );
   double get thumbnailSize => thumbnailSizeSetting(this);
 
   final muteAudio = ValueNotifier<bool>(true);
@@ -2861,8 +3013,9 @@ class Settings extends ChangeNotifier {
     muteAudio.value = setting;
   }
 
-  static const usePushNotificationsSetting =
-      SavedSetting(SavedSettingsFields.usePushNotifications);
+  static const usePushNotificationsSetting = SavedSetting(
+    SavedSettingsFields.usePushNotifications,
+  );
   bool? get usePushNotifications => usePushNotificationsSetting(this);
   set usePushNotifications(bool? setting) {
     _settings.usePushNotifications = setting;
@@ -2872,131 +3025,160 @@ class Settings extends ChangeNotifier {
 
   static const useEmbedsSetting = SavedSetting(SavedSettingsFields.useEmbeds);
   bool get useEmbeds => useEmbedsSetting(this);
-  static const useInternalBrowserSetting =
-      SavedSetting(SavedSettingsFields.useInternalBrowser);
+  static const useInternalBrowserSetting = SavedSetting(
+    SavedSettingsFields.useInternalBrowser,
+  );
   bool? get useInternalBrowser => useInternalBrowserSetting(this);
-  static const automaticCacheClearDaysSetting =
-      SavedSetting(SavedSettingsFields.automaticCacheClearDays);
+  static const automaticCacheClearDaysSetting = SavedSetting(
+    SavedSettingsFields.automaticCacheClearDays,
+  );
   int get automaticCacheClearDays => automaticCacheClearDaysSetting(this);
-  static const alwaysAutoloadTappedAttachmentSetting =
-      SavedSetting(SavedSettingsFields.alwaysAutoloadTappedAttachment);
+  static const alwaysAutoloadTappedAttachmentSetting = SavedSetting(
+    SavedSettingsFields.alwaysAutoloadTappedAttachment,
+  );
   bool get alwaysAutoloadTappedAttachment =>
       alwaysAutoloadTappedAttachmentSetting(this);
-  static const postDisplayFieldOrderSetting =
-      SavedSetting(SavedSettingsFields.postDisplayFieldOrder);
+  static const postDisplayFieldOrderSetting = SavedSetting(
+    SavedSettingsFields.postDisplayFieldOrder,
+  );
   List<PostDisplayField> get postDisplayFieldOrder =>
       postDisplayFieldOrderSetting(this);
-  static const maximumImageUploadDimensionSetting =
-      SavedSetting(SavedSettingsFields.maximumImageUploadDimension);
+  static const maximumImageUploadDimensionSetting = SavedSetting(
+    SavedSettingsFields.maximumImageUploadDimension,
+  );
   int? get maximumImageUploadDimension =>
       maximumImageUploadDimensionSetting(this);
-  static const hideDefaultNamesOnPostsSetting =
-      SavedSetting(SavedSettingsFields.hideDefaultNamesOnPosts);
+  static const hideDefaultNamesOnPostsSetting = SavedSetting(
+    SavedSettingsFields.hideDefaultNamesOnPosts,
+  );
   bool get hideDefaultNamesOnPosts => hideDefaultNamesOnPostsSetting(this);
-  static const showThumbnailsInGallerySetting =
-      SavedSetting(SavedSettingsFields.showThumbnailsInGallery);
+  static const showThumbnailsInGallerySetting = SavedSetting(
+    SavedSettingsFields.showThumbnailsInGallery,
+  );
   bool get showThumbnailsInGallery => showThumbnailsInGallerySetting(this);
-  static const watchedThreadsSortingMethodSetting =
-      SavedSetting(SavedSettingsFields.watchedThreadsSortingMethod);
+  static const watchedThreadsSortingMethodSetting = SavedSetting(
+    SavedSettingsFields.watchedThreadsSortingMethod,
+  );
   ThreadSortingMethod get watchedThreadsSortingMethod =>
       watchedThreadsSortingMethodSetting(this);
 
-  static const closeTabSwitcherAfterUseSetting =
-      SavedSetting(SavedSettingsFields.closeTabSwitcherAfterUse);
+  static const closeTabSwitcherAfterUseSetting = SavedSetting(
+    SavedSettingsFields.closeTabSwitcherAfterUse,
+  );
   bool get closeTabSwitcherAfterUse => closeTabSwitcherAfterUseSetting(this);
 
   static const textScaleSetting = SavedSetting(SavedSettingsFields.textScale);
   double get textScale => textScaleSetting(this);
 
-  static const catalogGridModeTextLinesLimitSetting =
-      SavedSetting(SavedSettingsFields.catalogGridModeTextLinesLimit);
+  static const catalogGridModeTextLinesLimitSetting = SavedSetting(
+    SavedSettingsFields.catalogGridModeTextLinesLimit,
+  );
   int? get catalogGridModeTextLinesLimit =>
       catalogGridModeTextLinesLimitSetting(this);
 
-  static const catalogGridModeAttachmentInBackgroundSetting =
-      SavedSetting(SavedSettingsFields.catalogGridModeAttachmentInBackground);
+  static const catalogGridModeAttachmentInBackgroundSetting = SavedSetting(
+    SavedSettingsFields.catalogGridModeAttachmentInBackground,
+  );
   bool get catalogGridModeAttachmentInBackground =>
       catalogGridModeAttachmentInBackgroundSetting(this);
 
-  static const maxCatalogRowHeightSetting =
-      SavedSetting(SavedSettingsFields.maxCatalogRowHeight);
+  static const maxCatalogRowHeightSetting = SavedSetting(
+    SavedSettingsFields.maxCatalogRowHeight,
+  );
   double? get maxCatalogRowHeight => maxCatalogRowHeightSetting(this);
 
-  static const lightThemeKeySetting =
-      SavedSetting(SavedSettingsFields.lightThemeKey);
+  static const lightThemeKeySetting = SavedSetting(
+    SavedSettingsFields.lightThemeKey,
+  );
   String get lightThemeKey => lightThemeKeySetting(this);
-  static const darkThemeKeySetting =
-      SavedSetting(SavedSettingsFields.darkThemeKey);
+  static const darkThemeKeySetting = SavedSetting(
+    SavedSettingsFields.darkThemeKey,
+  );
   String get darkThemeKey => darkThemeKeySetting(this);
   Map<String, SavedTheme> get themes => _settings.themes;
 
-  static const hostsToOpenExternallySetting =
-      SavedSetting(SavedSettingsFields.hostsToOpenExternally);
+  static const hostsToOpenExternallySetting = SavedSetting(
+    SavedSettingsFields.hostsToOpenExternally,
+  );
   List<String> get hostsToOpenExternally => hostsToOpenExternallySetting(this);
   void didUpdateHostsToOpenExternally() {
     _settings.save();
     notifyListeners();
   }
 
-  static const useFullWidthForCatalogCountersSetting =
-      SavedSetting(SavedSettingsFields.useFullWidthForCatalogCounters);
+  static const useFullWidthForCatalogCountersSetting = SavedSetting(
+    SavedSettingsFields.useFullWidthForCatalogCounters,
+  );
   bool get useFullWidthForCatalogCounters =>
       useFullWidthForCatalogCountersSetting(this);
 
-  static const allowSwipingInGallerySetting =
-      SavedSetting(SavedSettingsFields.allowSwipingInGallery);
+  static const allowSwipingInGallerySetting = SavedSetting(
+    SavedSettingsFields.allowSwipingInGallery,
+  );
   bool get allowSwipingInGallery => allowSwipingInGallerySetting(this);
 
-  static const settingsQuickActionSetting =
-      SavedSetting(SavedSettingsFields.settingsQuickAction);
+  static const settingsQuickActionSetting = SavedSetting(
+    SavedSettingsFields.settingsQuickAction,
+  );
   SettingsQuickAction? get settingsQuickAction =>
       settingsQuickActionSetting(this);
 
-  static const useHapticFeedbackSetting =
-      SavedSetting(SavedSettingsFields.useHapticFeedback);
+  static const useHapticFeedbackSetting = SavedSetting(
+    SavedSettingsFields.useHapticFeedback,
+  );
   bool get useHapticFeedback => useHapticFeedbackSetting(this);
 
-  static const promptedAboutCrashlyticsSetting =
-      SavedSetting(SavedSettingsFields.promptedAboutCrashlytics);
+  static const promptedAboutCrashlyticsSetting = SavedSetting(
+    SavedSettingsFields.promptedAboutCrashlytics,
+  );
   bool get promptedAboutCrashlytics => promptedAboutCrashlyticsSetting(this);
 
-  static const webmTranscodingSetting =
-      SavedSetting(SavedSettingsFields.webmTranscoding);
+  static const webmTranscodingSetting = SavedSetting(
+    SavedSettingsFields.webmTranscoding,
+  );
   WebmTranscodingSetting get webmTranscoding => webmTranscodingSetting(this);
 
-  static const showListPositionIndicatorsOnLeftSetting =
-      SavedSetting(SavedSettingsFields.showListPositionIndicatorsOnLeft);
+  static const showListPositionIndicatorsOnLeftSetting = SavedSetting(
+    SavedSettingsFields.showListPositionIndicatorsOnLeft,
+  );
   bool get showListPositionIndicatorsOnLeft =>
       showListPositionIndicatorsOnLeftSetting(this);
 
-  static const useStatusBarWorkaroundSetting =
-      SavedSetting(SavedSettingsFields.useStatusBarWorkaround);
+  static const useStatusBarWorkaroundSetting = SavedSetting(
+    SavedSettingsFields.useStatusBarWorkaround,
+  );
   bool? get useStatusBarWorkaround => useStatusBarWorkaroundSetting(this);
 
-  static const enableIMEPersonalizedLearningSetting =
-      SavedSetting(SavedSettingsFields.enableIMEPersonalizedLearning);
+  static const enableIMEPersonalizedLearningSetting = SavedSetting(
+    SavedSettingsFields.enableIMEPersonalizedLearning,
+  );
   bool get enableIMEPersonalizedLearning =>
       enableIMEPersonalizedLearningSetting(this);
 
-  static const catalogVariantSetting =
-      SavedSetting(SavedSettingsFields.catalogVariant);
+  static const catalogVariantSetting = SavedSetting(
+    SavedSettingsFields.catalogVariant,
+  );
   CatalogVariant get catalogVariant => catalogVariantSetting(this);
 
-  static const redditCatalogVariantSetting =
-      SavedSetting(SavedSettingsFields.redditCatalogVariant);
+  static const redditCatalogVariantSetting = SavedSetting(
+    SavedSettingsFields.redditCatalogVariant,
+  );
   CatalogVariant get redditCatalogVariant => redditCatalogVariantSetting(this);
 
-  static const dimReadThreadsSetting =
-      SavedSetting(SavedSettingsFields.dimReadThreads);
+  static const dimReadThreadsSetting = SavedSetting(
+    SavedSettingsFields.dimReadThreads,
+  );
   bool get dimReadThreads => dimReadThreadsSetting(this);
 
-  static const hackerNewsCatalogVariantSetting =
-      SavedSetting(SavedSettingsFields.hackerNewsCatalogVariant);
+  static const hackerNewsCatalogVariantSetting = SavedSetting(
+    SavedSettingsFields.hackerNewsCatalogVariant,
+  );
   CatalogVariant get hackerNewsCatalogVariant =>
       hackerNewsCatalogVariantSetting(this);
 
-  static const hideDefaultNamesInCatalogSetting =
-      SavedSetting(SavedSettingsFields.hideDefaultNamesInCatalog);
+  static const hideDefaultNamesInCatalogSetting = SavedSetting(
+    SavedSettingsFields.hideDefaultNamesInCatalog,
+  );
   bool get hideDefaultNamesInCatalog => hideDefaultNamesInCatalogSetting(this);
 
   int get launchCount => _settings.launchCount;
@@ -3007,92 +3189,112 @@ class Settings extends ChangeNotifier {
       defaultUserAgent ??
       getAppropriateUserAgents().first;
 
-  static const captcha4ChanCustomNumLettersSetting =
-      SavedSetting(SavedSettingsFields.captcha4ChanCustomNumLetters);
+  static const captcha4ChanCustomNumLettersSetting = SavedSetting(
+    SavedSettingsFields.captcha4ChanCustomNumLetters,
+  );
   int get captcha4ChanCustomNumLetters =>
       captcha4ChanCustomNumLettersSetting(this);
 
-  static const tabMenuHidesWhenScrollingDownSetting =
-      SavedSetting(SavedSettingsFields.tabMenuHidesWhenScrollingDown);
+  static const tabMenuHidesWhenScrollingDownSetting = SavedSetting(
+    SavedSettingsFields.tabMenuHidesWhenScrollingDown,
+  );
   bool get tabMenuHidesWhenScrollingDown =>
       tabMenuHidesWhenScrollingDownSetting(this);
 
-  static const doubleTapScrollToRepliesSetting =
-      SavedSetting(SavedSettingsFields.doubleTapScrollToReplies);
+  static const doubleTapScrollToRepliesSetting = SavedSetting(
+    SavedSettingsFields.doubleTapScrollToReplies,
+  );
   bool get doubleTapScrollToReplies => doubleTapScrollToRepliesSetting(this);
 
-  static const lastUnifiedPushEndpointSetting =
-      SavedSetting(SavedSettingsFields.lastUnifiedPushEndpoint);
+  static const lastUnifiedPushEndpointSetting = SavedSetting(
+    SavedSettingsFields.lastUnifiedPushEndpoint,
+  );
   String? get lastUnifiedPushEndpoint => lastUnifiedPushEndpointSetting(this);
 
-  static const webImageSearchMethodSetting =
-      SavedSetting(SavedSettingsFields.webImageSearchMethod);
+  static const webImageSearchMethodSetting = SavedSetting(
+    SavedSettingsFields.webImageSearchMethod,
+  );
   WebImageSearchMethod get webImageSearchMethod =>
       webImageSearchMethodSetting(this);
 
-  static const showIPNumberOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showIPNumberOnPosts);
+  static const showIPNumberOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showIPNumberOnPosts,
+  );
   bool get showIPNumberOnPosts => showIPNumberOnPostsSetting(this);
 
-  static const showNoBeforeIdOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showNoBeforeIdOnPosts);
+  static const showNoBeforeIdOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showNoBeforeIdOnPosts,
+  );
   bool get showNoBeforeIdOnPosts => showNoBeforeIdOnPostsSetting(this);
 
-  static const blurEffectsSetting =
-      SavedSetting(SavedSettingsFields.blurEffects);
+  static const blurEffectsSetting = SavedSetting(
+    SavedSettingsFields.blurEffects,
+  );
   bool get blurEffects => blurEffectsSetting(this);
 
-  static const scrollbarsOnLeftSetting =
-      SavedSetting(SavedSettingsFields.scrollbarsOnLeft);
+  static const scrollbarsOnLeftSetting = SavedSetting(
+    SavedSettingsFields.scrollbarsOnLeft,
+  );
   bool get scrollbarsOnLeft => scrollbarsOnLeftSetting(this);
 
-  static const exactTimeIsTwelveHourSetting =
-      SavedSetting(SavedSettingsFields.exactTimeIsTwelveHour);
+  static const exactTimeIsTwelveHourSetting = SavedSetting(
+    SavedSettingsFields.exactTimeIsTwelveHour,
+  );
   bool get exactTimeIsTwelveHour => exactTimeIsTwelveHourSetting(this);
 
-  static const exactTimeShowsDateForTodaySetting =
-      SavedSetting(SavedSettingsFields.exactTimeShowsDateForToday);
+  static const exactTimeShowsDateForTodaySetting = SavedSetting(
+    SavedSettingsFields.exactTimeShowsDateForToday,
+  );
   bool get exactTimeShowsDateForToday =>
       exactTimeShowsDateForTodaySetting(this);
 
-  static const attachmentsPageMaxCrossAxisExtentSetting =
-      SavedSetting(SavedSettingsFields.attachmentsPageMaxCrossAxisExtent);
+  static const attachmentsPageMaxCrossAxisExtentSetting = SavedSetting(
+    SavedSettingsFields.attachmentsPageMaxCrossAxisExtent,
+  );
   double get attachmentsPageMaxCrossAxisExtent =>
       attachmentsPageMaxCrossAxisExtentSetting(this);
 
   static const catalogGridModeCellBorderRadiusAndMarginSetting = SavedSetting(
-      SavedSettingsFields.catalogGridModeCellBorderRadiusAndMargin);
+    SavedSettingsFields.catalogGridModeCellBorderRadiusAndMargin,
+  );
   bool get catalogGridModeCellBorderRadiusAndMargin =>
       catalogGridModeCellBorderRadiusAndMarginSetting(this);
 
-  static const catalogGridModeShowMoreImageIfLessTextSetting =
-      SavedSetting(SavedSettingsFields.catalogGridModeShowMoreImageIfLessText);
+  static const catalogGridModeShowMoreImageIfLessTextSetting = SavedSetting(
+    SavedSettingsFields.catalogGridModeShowMoreImageIfLessText,
+  );
   bool get catalogGridModeShowMoreImageIfLessText =>
       catalogGridModeShowMoreImageIfLessTextSetting(this);
 
-  static const showPostNumberOnPostsSetting =
-      SavedSetting(SavedSettingsFields.showPostNumberOnPosts);
+  static const showPostNumberOnPostsSetting = SavedSetting(
+    SavedSettingsFields.showPostNumberOnPosts,
+  );
   bool get showPostNumberOnPosts => showPostNumberOnPostsSetting(this);
 
-  static const overscrollModalTapPopsAllSetting =
-      SavedSetting(SavedSettingsFields.overscrollModalTapPopsAll);
+  static const overscrollModalTapPopsAllSetting = SavedSetting(
+    SavedSettingsFields.overscrollModalTapPopsAll,
+  );
   bool get overscrollModalTapPopsAll => overscrollModalTapPopsAllSetting(this);
 
-  static const squareThumbnailsSetting =
-      SavedSetting(SavedSettingsFields.squareThumbnails);
+  static const squareThumbnailsSetting = SavedSetting(
+    SavedSettingsFields.squareThumbnails,
+  );
   bool get squareThumbnails => squareThumbnailsSetting(this);
 
-  static const alwaysShowSpoilersSetting =
-      SavedSetting(SavedSettingsFields.alwaysShowSpoilers);
+  static const alwaysShowSpoilersSetting = SavedSetting(
+    SavedSettingsFields.alwaysShowSpoilers,
+  );
   bool get alwaysShowSpoilers => alwaysShowSpoilersSetting(this);
 
-  static const gallerySavePathOrganizingSetting =
-      SavedSetting(SavedSettingsFields.gallerySavePathOrganizing);
+  static const gallerySavePathOrganizingSetting = SavedSetting(
+    SavedSettingsFields.gallerySavePathOrganizing,
+  );
   GallerySavePathOrganizing get gallerySavePathOrganizing =>
       gallerySavePathOrganizingSetting(this);
 
-  static const fullQualityThumbnailsSettingSetting =
-      SavedSetting(SavedSettingsFields.fullQualityThumbnails);
+  static const fullQualityThumbnailsSettingSetting = SavedSetting(
+    SavedSettingsFields.fullQualityThumbnails,
+  );
   AutoloadAttachmentsSetting get fullQualityThumbnailsSetting =>
       fullQualityThumbnailsSettingSetting(this);
   bool get fullQualityThumbnails {
@@ -3102,18 +3304,21 @@ class Settings extends ChangeNotifier {
             isConnectedToWifi);
   }
 
-  static const recordThreadsInHistorySetting =
-      SavedSetting(SavedSettingsFields.recordThreadsInHistory);
+  static const recordThreadsInHistorySetting = SavedSetting(
+    SavedSettingsFields.recordThreadsInHistory,
+  );
   bool get recordThreadsInHistory => recordThreadsInHistorySetting(this);
 
   static const fontFamilySetting = SavedSetting(SavedSettingsFields.fontFamily);
   String? get fontFamily => fontFamilySetting(this);
-  static const fontFamilyFallbackSetting =
-      SavedSetting(SavedSettingsFields.fontFamilyFallback);
+  static const fontFamilyFallbackSetting = SavedSetting(
+    SavedSettingsFields.fontFamilyFallback,
+  );
   String? get fontFamilyFallback => fontFamilyFallbackSetting(this);
 
-  static const autoCacheAttachmentsSettingSetting =
-      SavedSetting(SavedSettingsFields.autoCacheAttachments);
+  static const autoCacheAttachmentsSettingSetting = SavedSetting(
+    SavedSettingsFields.autoCacheAttachments,
+  );
   AutoloadAttachmentsSetting get autoCacheAttachmentsSetting =>
       autoCacheAttachmentsSettingSetting(this);
   bool get autoCacheAttachments {
@@ -3122,26 +3327,31 @@ class Settings extends ChangeNotifier {
             isConnectedToWifi);
   }
 
-  static const exactTimeUsesCustomDateFormatSetting =
-      SavedSetting(SavedSettingsFields.exactTimeUsesCustomDateFormat);
+  static const exactTimeUsesCustomDateFormatSetting = SavedSetting(
+    SavedSettingsFields.exactTimeUsesCustomDateFormat,
+  );
   bool get exactTimeUsesCustomDateFormat =>
       exactTimeUsesCustomDateFormatSetting(this);
 
-  static const showOverlaysInGallerySetting =
-      SavedSetting(SavedSettingsFields.showOverlaysInGallery);
+  static const showOverlaysInGallerySetting = SavedSetting(
+    SavedSettingsFields.showOverlaysInGallery,
+  );
   bool get showOverlaysInGallery => showOverlaysInGallerySetting(this);
 
-  static const verticalTwoPaneMinimumPaneSizeSetting =
-      SavedSetting(SavedSettingsFields.verticalTwoPaneMinimumPaneSize);
+  static const verticalTwoPaneMinimumPaneSizeSetting = SavedSetting(
+    SavedSettingsFields.verticalTwoPaneMinimumPaneSize,
+  );
   double get verticalTwoPaneMinimumPaneSize =>
       verticalTwoPaneMinimumPaneSizeSetting(this);
 
-  static const showLastRepliesInCatalogSetting =
-      SavedSetting(SavedSettingsFields.showLastRepliesInCatalog);
+  static const showLastRepliesInCatalogSetting = SavedSetting(
+    SavedSettingsFields.showLastRepliesInCatalog,
+  );
   bool get showLastRepliesInCatalog => showLastRepliesInCatalogSetting(this);
 
-  static const loadThumbnailsSettingSetting =
-      SavedSetting(SavedSettingsFields.loadThumbnails);
+  static const loadThumbnailsSettingSetting = SavedSetting(
+    SavedSettingsFields.loadThumbnails,
+  );
   AutoloadAttachmentsSetting get loadThumbnailsSetting =>
       loadThumbnailsSettingSetting(this);
   bool get loadThumbnails {
@@ -3150,102 +3360,128 @@ class Settings extends ChangeNotifier {
             isConnectedToWifi);
   }
 
-  static const applyImageFilterToThreadsSetting =
-      SavedSetting(SavedSettingsFields.applyImageFilterToThreads);
+  static const applyImageFilterToThreadsSetting = SavedSetting(
+    SavedSettingsFields.applyImageFilterToThreads,
+  );
   bool get applyImageFilterToThreads => applyImageFilterToThreadsSetting(this);
 
-  static const askForAuthenticationOnLaunchSetting =
-      SavedSetting(SavedSettingsFields.askForAuthenticationOnLaunch);
+  static const askForAuthenticationOnLaunchSetting = SavedSetting(
+    SavedSettingsFields.askForAuthenticationOnLaunch,
+  );
   bool get askForAuthenticationOnLaunch =>
       askForAuthenticationOnLaunchSetting(this);
 
-  static const enableSpellCheckSetting =
-      SavedSetting(SavedSettingsFields.enableSpellCheck);
+  static const enableSpellCheckSetting = SavedSetting(
+    SavedSettingsFields.enableSpellCheck,
+  );
   bool get enableSpellCheck => enableSpellCheckSetting(this);
 
-  static const openCrossThreadLinksInNewTabSetting =
-      SavedSetting(SavedSettingsFields.openCrossThreadLinksInNewTab);
+  static const openCrossThreadLinksInNewTabSetting = SavedSetting(
+    SavedSettingsFields.openCrossThreadLinksInNewTab,
+  );
   bool get openCrossThreadLinksInNewTab =>
       openCrossThreadLinksInNewTabSetting(this);
 
-  static const backgroundThreadAutoUpdatePeriodSecondsSetting =
-      SavedSetting(SavedSettingsFields.backgroundThreadAutoUpdatePeriodSeconds);
+  static const backgroundThreadAutoUpdatePeriodSecondsSetting = SavedSetting(
+    SavedSettingsFields.backgroundThreadAutoUpdatePeriodSeconds,
+  );
   int get backgroundThreadAutoUpdatePeriodSeconds =>
       backgroundThreadAutoUpdatePeriodSecondsSetting(this);
 
-  static const currentThreadAutoUpdatePeriodSecondsSetting =
-      SavedSetting(SavedSettingsFields.currentThreadAutoUpdatePeriodSeconds);
+  static const currentThreadAutoUpdatePeriodSecondsSetting = SavedSetting(
+    SavedSettingsFields.currentThreadAutoUpdatePeriodSeconds,
+  );
   int get currentThreadAutoUpdatePeriodSeconds =>
       currentThreadAutoUpdatePeriodSecondsSetting(this);
 
-  static const lastShareablePostsStyleSetting =
-      SavedSetting(SavedSettingsFields.lastShareablePostsStyle);
+  static const lastShareablePostsStyleSetting = SavedSetting(
+    SavedSettingsFields.lastShareablePostsStyle,
+  );
   ShareablePostsStyle get lastShareablePostsStyle =>
       lastShareablePostsStyleSetting(this);
 
-  static const defaultThreadWatchSetting =
-      SavedSetting(SavedSettingsFields.defaultThreadWatch);
+  static const defaultThreadWatchSetting = SavedSetting(
+    SavedSettingsFields.defaultThreadWatch,
+  );
   ThreadWatch? get defaultThreadWatch => defaultThreadWatchSetting(this);
 
-  static const highlightRepeatingDigitsInPostIdsSetting =
-      SavedSetting(SavedSettingsFields.highlightRepeatingDigitsInPostIds);
+  static const highlightRepeatingDigitsInPostIdsSetting = SavedSetting(
+    SavedSettingsFields.highlightRepeatingDigitsInPostIds,
+  );
   bool get highlightRepeatingDigitsInPostIds =>
       highlightRepeatingDigitsInPostIdsSetting(this);
 
   static const includeThreadsYouRepliedToWhenDeletingHistorySetting =
       SavedSetting(
-          SavedSettingsFields.includeThreadsYouRepliedToWhenDeletingHistory);
+        SavedSettingsFields.includeThreadsYouRepliedToWhenDeletingHistory,
+      );
   bool get includeThreadsYouRepliedToWhenDeletingHistory =>
       includeThreadsYouRepliedToWhenDeletingHistorySetting(this);
 
-  static const newPostHighlightBrightnessSetting =
-      SavedSetting(SavedSettingsFields.newPostHighlightBrightness);
+  static const newPostHighlightBrightnessSetting = SavedSetting(
+    SavedSettingsFields.newPostHighlightBrightness,
+  );
   double get newPostHighlightBrightness =>
       newPostHighlightBrightnessSetting(this);
 
-  static const imagePeekingSetting =
-      SavedSetting(SavedSettingsFields.imagePeeking);
+  static const imagePeekingSetting = SavedSetting(
+    SavedSettingsFields.imagePeeking,
+  );
   ImagePeekingSetting get imagePeeking => imagePeekingSetting(this);
 
-  static const _useMaterialStyleSetting =
-      SavedSetting(SavedSettingsFields.useMaterialStyle);
-  static final materialStyleSetting =
-      SettingWithFallback(_useMaterialStyleSetting, platformIsMaterial);
+  static const _useMaterialStyleSetting = SavedSetting(
+    SavedSettingsFields.useMaterialStyle,
+  );
+  static final materialStyleSetting = SettingWithFallback(
+    _useMaterialStyleSetting,
+    platformIsMaterial,
+  );
   bool get materialStyle =>
       _useMaterialStyleSetting(this) ?? materialStyleSetting.fallback;
 
-  static const _useAndroidDrawerSetting =
-      SavedSetting(SavedSettingsFields.useAndroidDrawer);
-  static final androidDrawerSetting =
-      SettingWithFallback(_useAndroidDrawerSetting, platformIsMaterial);
+  static const _useAndroidDrawerSetting = SavedSetting(
+    SavedSettingsFields.useAndroidDrawer,
+  );
+  static final androidDrawerSetting = SettingWithFallback(
+    _useAndroidDrawerSetting,
+    platformIsMaterial,
+  );
   bool get androidDrawer =>
       _useAndroidDrawerSetting(this) ?? androidDrawerSetting.fallback;
 
-  static const _useMaterialRoutesSetting =
-      SavedSetting(SavedSettingsFields.useMaterialRoutes);
-  static const materialRoutesSetting =
-      SettingWithFallback(_useMaterialRoutesSetting, false);
+  static const _useMaterialRoutesSetting = SavedSetting(
+    SavedSettingsFields.useMaterialRoutes,
+  );
+  static const materialRoutesSetting = SettingWithFallback(
+    _useMaterialRoutesSetting,
+    false,
+  );
   bool get materialRoutes => false;
 
-  static const hideBarsWhenScrollingDownSetting =
-      SavedSetting(SavedSettingsFields.hideBarsWhenScrollingDown);
+  static const hideBarsWhenScrollingDownSetting = SavedSetting(
+    SavedSettingsFields.hideBarsWhenScrollingDown,
+  );
   bool get hideBarsWhenScrollingDown => hideBarsWhenScrollingDownSetting(this);
 
-  static const showPerformanceOverlaySetting =
-      SavedSetting(SavedSettingsFields.showPerformanceOverlay);
+  static const showPerformanceOverlaySetting = SavedSetting(
+    SavedSettingsFields.showPerformanceOverlay,
+  );
   bool get showPerformanceOverlay => showPerformanceOverlaySetting(this);
 
-  static const customDateFormatSetting =
-      SavedSetting(SavedSettingsFields.customDateFormat);
+  static const customDateFormatSetting = SavedSetting(
+    SavedSettingsFields.customDateFormat,
+  );
   String get customDateFormat => customDateFormatSetting(this);
 
-  static const hoverPopupDelayMillisecondsSetting =
-      SavedSetting(SavedSettingsFields.hoverPopupDelayMilliseconds);
+  static const hoverPopupDelayMillisecondsSetting = SavedSetting(
+    SavedSettingsFields.hoverPopupDelayMilliseconds,
+  );
   int get hoverPopupDelayMilliseconds =>
       hoverPopupDelayMillisecondsSetting(this);
 
-  static const mouseModeQuoteLinkBehaviorSetting =
-      SavedSetting(SavedSettingsFields.mouseModeQuoteLinkBehavior);
+  static const mouseModeQuoteLinkBehaviorSetting = SavedSetting(
+    SavedSettingsFields.mouseModeQuoteLinkBehavior,
+  );
   MouseModeQuoteLinkBehavior get mouseModeQuoteLinkBehavior =>
       mouseModeQuoteLinkBehaviorSetting(this);
 
@@ -3257,65 +3493,78 @@ class Settings extends ChangeNotifier {
     // Don't notify on purpose
   }
 
-  static const showLineBreak1InPostInfoRowSetting =
-      SavedSetting(SavedSettingsFields.showLineBreak1InPostInfoRow);
+  static const showLineBreak1InPostInfoRowSetting = SavedSetting(
+    SavedSettingsFields.showLineBreak1InPostInfoRow,
+  );
   bool get showLineBreak1InPostInfoRow =>
       showLineBreak1InPostInfoRowSetting(this);
 
-  static const showLineBreak2InPostInfoRowSetting =
-      SavedSetting(SavedSettingsFields.showLineBreak2InPostInfoRow);
+  static const showLineBreak2InPostInfoRowSetting = SavedSetting(
+    SavedSettingsFields.showLineBreak2InPostInfoRow,
+  );
   bool get showLineBreak2InPostInfoRow =>
       showLineBreak2InPostInfoRowSetting(this);
 
-  static const useCloudCaptchaSolverSetting =
-      SavedSetting(SavedSettingsFields.useCloudCaptchaSolver);
+  static const useCloudCaptchaSolverSetting = SavedSetting(
+    SavedSettingsFields.useCloudCaptchaSolver,
+  );
   bool? get useCloudCaptchaSolver => useCloudCaptchaSolverSetting(this);
 
-  static const useHeadlessCloudCaptchaSolverSetting =
-      SavedSetting(SavedSettingsFields.useHeadlessCloudCaptchaSolver);
+  static const useHeadlessCloudCaptchaSolverSetting = SavedSetting(
+    SavedSettingsFields.useHeadlessCloudCaptchaSolver,
+  );
   bool? get useHeadlessCloudCaptchaSolver =>
       useHeadlessCloudCaptchaSolverSetting(this);
 
-  static const removeMetadataOnUploadedFilesSetting =
-      SavedSetting(SavedSettingsFields.removeMetadataOnUploadedFiles);
+  static const removeMetadataOnUploadedFilesSetting = SavedSetting(
+    SavedSettingsFields.removeMetadataOnUploadedFiles,
+  );
   bool get removeMetadataOnUploadedFiles =>
       removeMetadataOnUploadedFilesSetting(this);
 
-  static const randomizeChecksumOnUploadedFilesSetting =
-      SavedSetting(SavedSettingsFields.randomizeChecksumOnUploadedFiles);
+  static const randomizeChecksumOnUploadedFilesSetting = SavedSetting(
+    SavedSettingsFields.randomizeChecksumOnUploadedFiles,
+  );
   bool get randomizeChecksumOnUploadedFiles =>
       randomizeChecksumOnUploadedFilesSetting(this);
 
-  static const cloverStyleRepliesButtonSetting =
-      SavedSetting(SavedSettingsFields.cloverStyleRepliesButton);
+  static const cloverStyleRepliesButtonSetting = SavedSetting(
+    SavedSettingsFields.cloverStyleRepliesButton,
+  );
   bool get cloverStyleRepliesButton => cloverStyleRepliesButtonSetting(this);
 
-  static const watchThreadAutomaticallyWhenReplyingSetting =
-      SavedSetting(SavedSettingsFields.watchThreadAutomaticallyWhenReplying);
+  static const watchThreadAutomaticallyWhenReplyingSetting = SavedSetting(
+    SavedSettingsFields.watchThreadAutomaticallyWhenReplying,
+  );
   bool get watchThreadAutomaticallyWhenReplying =>
       watchThreadAutomaticallyWhenReplyingSetting(this);
 
-  static const saveThreadAutomaticallyWhenReplyingSetting =
-      SavedSetting(SavedSettingsFields.saveThreadAutomaticallyWhenReplying);
+  static const saveThreadAutomaticallyWhenReplyingSetting = SavedSetting(
+    SavedSettingsFields.saveThreadAutomaticallyWhenReplying,
+  );
   bool get saveThreadAutomaticallyWhenReplying =>
       saveThreadAutomaticallyWhenReplyingSetting(this);
 
-  static const cancellableRepliesSlideGestureSetting =
-      SavedSetting(SavedSettingsFields.cancellableRepliesSlideGesture);
+  static const cancellableRepliesSlideGestureSetting = SavedSetting(
+    SavedSettingsFields.cancellableRepliesSlideGesture,
+  );
   bool get cancellableRepliesSlideGesture =>
       cancellableRepliesSlideGestureSetting(this);
 
-  static const openBoardSwitcherSlideGestureSetting =
-      SavedSetting(SavedSettingsFields.openBoardSwitcherSlideGesture);
+  static const openBoardSwitcherSlideGestureSetting = SavedSetting(
+    SavedSettingsFields.openBoardSwitcherSlideGesture,
+  );
   bool get openBoardSwitcherSlideGesture =>
       openBoardSwitcherSlideGestureSetting(this);
 
-  static const persistentDrawerSetting =
-      SavedSetting(SavedSettingsFields.persistentDrawer);
+  static const persistentDrawerSetting = SavedSetting(
+    SavedSettingsFields.persistentDrawer,
+  );
   bool get persistentDrawer => persistentDrawerSetting(this);
 
-  static const showGalleryGridButtonSetting =
-      SavedSetting(SavedSettingsFields.showGalleryGridButton);
+  static const showGalleryGridButtonSetting = SavedSetting(
+    SavedSettingsFields.showGalleryGridButton,
+  );
   bool get showGalleryGridButton => showGalleryGridButtonSetting(this);
 
   double? get centeredPostThumbnailSize {
@@ -3325,80 +3574,96 @@ class Settings extends ChangeNotifier {
     return _settings.centeredPostThumbnailSize;
   }
 
-  static const centeredPostThumbnailSizeSettingSetting =
-      SavedSetting(SavedSettingsFields.centeredPostThumbnailSize);
+  static const centeredPostThumbnailSizeSettingSetting = SavedSetting(
+    SavedSettingsFields.centeredPostThumbnailSize,
+  );
   double get centeredPostThumbnailSizeSetting =>
       centeredPostThumbnailSizeSettingSetting(this);
 
-  static const ellipsizeLongFilenamesOnPostsSetting =
-      SavedSetting(SavedSettingsFields.ellipsizeLongFilenamesOnPosts);
+  static const ellipsizeLongFilenamesOnPostsSetting = SavedSetting(
+    SavedSettingsFields.ellipsizeLongFilenamesOnPosts,
+  );
   bool get ellipsizeLongFilenamesOnPosts =>
       ellipsizeLongFilenamesOnPostsSetting(this);
 
-  static const muteAudioWhenOpeningGallerySetting =
-      SavedSetting(SavedSettingsFields.muteAudioWhenOpeningGallery);
+  static const muteAudioWhenOpeningGallerySetting = SavedSetting(
+    SavedSettingsFields.muteAudioWhenOpeningGallery,
+  );
   TristateSystemSetting get muteAudioWhenOpeningGallery =>
       muteAudioWhenOpeningGallerySetting(this);
 
-  static const translationTargetLanguageSetting =
-      SavedSetting(SavedSettingsFields.translationTargetLanguage);
+  static const translationTargetLanguageSetting = SavedSetting(
+    SavedSettingsFields.translationTargetLanguage,
+  );
   String get translationTargetLanguage =>
       translationTargetLanguageSetting(this);
 
-  static const homeImageboardKeySetting =
-      SavedSetting(SavedSettingsFields.homeImageboardKey);
+  static const homeImageboardKeySetting = SavedSetting(
+    SavedSettingsFields.homeImageboardKey,
+  );
   String? get homeImageboardKey => homeImageboardKeySetting(this);
   Imageboard? get homeImageboard =>
       ImageboardRegistry.instance.getImageboard(homeImageboardKey);
-  static const homeBoardNameSetting =
-      SavedSetting(SavedSettingsFields.homeBoardName);
+  static const homeBoardNameSetting = SavedSetting(
+    SavedSettingsFields.homeBoardName,
+  );
   String get homeBoardName => homeBoardNameSetting(this);
   bool get usingHomeBoard => homeImageboardKey != null;
 
-  static const tapPostIdToReplySetting =
-      SavedSetting(SavedSettingsFields.tapPostIdToReply);
+  static const tapPostIdToReplySetting = SavedSetting(
+    SavedSettingsFields.tapPostIdToReply,
+  );
   bool get tapPostIdToReply => tapPostIdToReplySetting(this);
 
-  static const downloadUsingServerSideFilenamesSetting =
-      SavedSetting(SavedSettingsFields.downloadUsingServerSideFilenames);
+  static const downloadUsingServerSideFilenamesSetting = SavedSetting(
+    SavedSettingsFields.downloadUsingServerSideFilenames,
+  );
   bool get downloadUsingServerSideFilenames =>
       downloadUsingServerSideFilenamesSetting(this);
 
-  static const catalogGridModeTextScaleSetting =
-      SavedSetting(SavedSettingsFields.catalogGridModeTextScale);
+  static const catalogGridModeTextScaleSetting = SavedSetting(
+    SavedSettingsFields.catalogGridModeTextScale,
+  );
   double get catalogGridModeTextScale => catalogGridModeTextScaleSetting(this);
 
-  static const catalogGridModeCropThumbnailsSetting =
-      SavedSetting(SavedSettingsFields.catalogGridModeCropThumbnails);
+  static const catalogGridModeCropThumbnailsSetting = SavedSetting(
+    SavedSettingsFields.catalogGridModeCropThumbnails,
+  );
   bool get catalogGridModeCropThumbnails =>
       catalogGridModeCropThumbnailsSetting(this);
 
-  static const useSpamFilterWorkaroundsSetting =
-      SavedSetting(SavedSettingsFields.useSpamFilterWorkarounds);
+  static const useSpamFilterWorkaroundsSetting = SavedSetting(
+    SavedSettingsFields.useSpamFilterWorkarounds,
+  );
   bool get useSpamFilterWorkarounds => useSpamFilterWorkaroundsSetting(this);
 
-  static const scrollbarThicknessSetting =
-      SavedSetting(SavedSettingsFields.scrollbarThickness);
+  static const scrollbarThicknessSetting = SavedSetting(
+    SavedSettingsFields.scrollbarThickness,
+  );
   double get scrollbarThickness => scrollbarThicknessSetting(this);
 
-  static const thumbnailPixelationSetting =
-      SavedSetting(SavedSettingsFields.thumbnailPixelation);
+  static const thumbnailPixelationSetting = SavedSetting(
+    SavedSettingsFields.thumbnailPixelation,
+  );
   int get thumbnailPixelation => thumbnailPixelationSetting(this);
 
-  static const catalogGridModeTextAboveAttachmentSetting =
-      SavedSetting(SavedSettingsFields.catalogGridModeTextAboveAttachment);
+  static const catalogGridModeTextAboveAttachmentSetting = SavedSetting(
+    SavedSettingsFields.catalogGridModeTextAboveAttachment,
+  );
   bool get catalogGridModeTextAboveAttachment =>
       catalogGridModeTextAboveAttachmentSetting(this);
 
-  static const swipeGesturesOnBottomBarSetting =
-      SavedSetting(SavedSettingsFields.swipeGesturesOnBottomBar);
+  static const swipeGesturesOnBottomBarSetting = SavedSetting(
+    SavedSettingsFields.swipeGesturesOnBottomBar,
+  );
   bool get swipeGesturesOnBottomBar => swipeGesturesOnBottomBarSetting(this);
 
   static const mpvOptionsSetting = SavedSetting(SavedSettingsFields.mpvOptions);
   Map<String, String> get mpvOptions => mpvOptionsSetting(this);
 
-  static const dynamicIPKeepAlivePeriodSecondsSetting =
-      SavedSetting(SavedSettingsFields.dynamicIPKeepAlivePeriodSeconds);
+  static const dynamicIPKeepAlivePeriodSecondsSetting = SavedSetting(
+    SavedSettingsFields.dynamicIPKeepAlivePeriodSeconds,
+  );
   int get dynamicIPKeepAlivePeriodSeconds =>
       dynamicIPKeepAlivePeriodSecondsSetting(this);
   Duration? get dynamicIPKeepAlivePeriod {
@@ -3408,8 +3673,9 @@ class Settings extends ChangeNotifier {
     return Duration(seconds: dynamicIPKeepAlivePeriodSeconds);
   }
 
-  static const postingRegretDelaySecondsSetting =
-      SavedSetting(SavedSettingsFields.postingRegretDelaySeconds);
+  static const postingRegretDelaySecondsSetting = SavedSetting(
+    SavedSettingsFields.postingRegretDelaySeconds,
+  );
   int get postingRegretDelaySeconds => postingRegretDelaySecondsSetting(this);
   Duration get postingRegretDelay {
     if (postingRegretDelaySeconds <= 0) {
@@ -3418,206 +3684,278 @@ class Settings extends ChangeNotifier {
     return Duration(seconds: postingRegretDelaySeconds);
   }
 
-  static const showHiddenItemsFooterSetting =
-      SavedSetting(SavedSettingsFields.showHiddenItemsFooter);
+  static const showHiddenItemsFooterSetting = SavedSetting(
+    SavedSettingsFields.showHiddenItemsFooter,
+  );
   bool get showHiddenItemsFooter => showHiddenItemsFooterSetting(this);
 
-  static const attachmentsPageUsePageViewSetting =
-      SavedSetting(SavedSettingsFields.attachmentsPageUsePageView);
+  static const attachmentsPageUsePageViewSetting = SavedSetting(
+    SavedSettingsFields.attachmentsPageUsePageView,
+  );
   bool get attachmentsPageUsePageView =>
       attachmentsPageUsePageViewSetting(this);
 
-  static const showReplyCountInCatalogSetting =
-      SavedSetting(SavedSettingsFields.showReplyCountInCatalog);
+  static const showReplyCountInCatalogSetting = SavedSetting(
+    SavedSettingsFields.showReplyCountInCatalog,
+  );
   bool get showReplyCountInCatalog => showReplyCountInCatalogSetting(this);
 
-  static const watchThreadAutomaticallyWhenCreatingSetting =
-      SavedSetting(SavedSettingsFields.watchThreadAutomaticallyWhenCreating);
+  static const watchThreadAutomaticallyWhenCreatingSetting = SavedSetting(
+    SavedSettingsFields.watchThreadAutomaticallyWhenCreating,
+  );
   bool get watchThreadAutomaticallyWhenCreating =>
       watchThreadAutomaticallyWhenCreatingSetting(this);
 
-  static const imageMetaFilterDepthSetting =
-      SavedSetting(SavedSettingsFields.imageMetaFilterDepth);
+  static const imageMetaFilterDepthSetting = SavedSetting(
+    SavedSettingsFields.imageMetaFilterDepth,
+  );
   int get imageMetaFilterDepth => imageMetaFilterDepthSetting(this);
 
-  static const useStaggeredCatalogGridSetting =
-      SavedSetting(SavedSettingsFields.useStaggeredCatalogGrid);
+  static const useStaggeredCatalogGridSetting = SavedSetting(
+    SavedSettingsFields.useStaggeredCatalogGrid,
+  );
   bool get useStaggeredCatalogGrid => useStaggeredCatalogGridSetting(this);
 
-  static const doubleTapToHidePostsSetting =
-      SavedSetting(SavedSettingsFields.doubleTapToHidePosts);
+  static const doubleTapToHidePostsSetting = SavedSetting(
+    SavedSettingsFields.doubleTapToHidePosts,
+  );
   bool get doubleTapToHidePosts => doubleTapToHidePostsSetting(this);
 
-  static const doubleTapToHideThreadsSetting =
-      SavedSetting(SavedSettingsFields.doubleTapToHideThreads);
+  static const doubleTapToHideThreadsSetting = SavedSetting(
+    SavedSettingsFields.doubleTapToHideThreads,
+  );
   bool get doubleTapToHideThreads => doubleTapToHideThreadsSetting(this);
 
-  static const cloverStyleCatalogCountersSetting =
-      SavedSetting(SavedSettingsFields.cloverStyleCatalogCounters);
+  static const cloverStyleCatalogCountersSetting = SavedSetting(
+    SavedSettingsFields.cloverStyleCatalogCounters,
+  );
   bool get cloverStyleCatalogCounters =>
       cloverStyleCatalogCountersSetting(this);
 
-  static const alwaysUseWideDrawerGestureSetting =
-      SavedSetting(SavedSettingsFields.alwaysUseWideDrawerGesture);
+  static const alwaysUseWideDrawerGestureSetting = SavedSetting(
+    SavedSettingsFields.alwaysUseWideDrawerGesture,
+  );
   bool get alwaysUseWideDrawerGesture =>
       alwaysUseWideDrawerGestureSetting(this);
 
-  static const openDrawerThreadsInNewTabsSetting =
-      SavedSetting(SavedSettingsFields.openDrawerThreadsInNewTabs);
+  static const openDrawerThreadsInNewTabsSetting = SavedSetting(
+    SavedSettingsFields.openDrawerThreadsInNewTabs,
+  );
   bool get openDrawerThreadsInNewTabs =>
       openDrawerThreadsInNewTabsSetting(this);
 
-  static const closeReplyBoxAfterSubmittingSetting =
-      SavedSetting(SavedSettingsFields.closeReplyBoxAfterSubmitting);
+  static const closeReplyBoxAfterSubmittingSetting = SavedSetting(
+    SavedSettingsFields.closeReplyBoxAfterSubmitting,
+  );
   bool get closeReplyBoxAfterSubmitting =>
       closeReplyBoxAfterSubmittingSetting(this);
 
-  static const androidGalleryPickerSetting =
-      SavedSetting(SavedSettingsFields.androidGalleryPicker);
+  static const androidGalleryPickerSetting = SavedSetting(
+    SavedSettingsFields.androidGalleryPicker,
+  );
   String? get androidGalleryPicker => androidGalleryPickerSetting(this);
   set androidGalleryPicker(String? setting) =>
       androidGalleryPickerSetting.set(this, setting);
 
-  static const onlyShowUnreadWatchesSetting =
-      SavedSetting(SavedSettingsFields.onlyShowUnreadWatches);
+  static const onlyShowUnreadWatchesSetting = SavedSetting(
+    SavedSettingsFields.onlyShowUnreadWatches,
+  );
   bool get onlyShowUnreadWatches => onlyShowUnreadWatchesSetting(this);
   set onlyShowUnreadWatches(bool setting) =>
       onlyShowUnreadWatchesSetting.set(this, setting);
 
-  static const showYousInScrollbarSetting =
-      SavedSetting(SavedSettingsFields.showYousInScrollbar);
+  static const showYousInScrollbarSetting = SavedSetting(
+    SavedSettingsFields.showYousInScrollbar,
+  );
   bool get showYousInScrollbar => showYousInScrollbarSetting(this);
 
-  static const separateWiFiAndCellularCookiesSetting =
-      SavedSetting(SavedSettingsFields.separateWiFiAndCellularCookies);
+  static const separateWiFiAndCellularCookiesSetting = SavedSetting(
+    SavedSettingsFields.separateWiFiAndCellularCookies,
+  );
   bool get separateWiFiAndCellularCookies =>
       separateWiFiAndCellularCookiesSetting(this);
 
-  static const showActiveWatchesAboveZombieWatchesSetting =
-      SavedSetting(SavedSettingsFields.showActiveWatchesAboveZombieWatches);
+  static const showActiveWatchesAboveZombieWatchesSetting = SavedSetting(
+    SavedSettingsFields.showActiveWatchesAboveZombieWatches,
+  );
   bool get showActiveWatchesAboveZombieWatches =>
       showActiveWatchesAboveZombieWatchesSetting(this);
 
-  static const reverseSavedThreadsSortingSetting =
-      SavedSetting(SavedSettingsFields.reverseSavedThreadsSorting);
+  static const reverseSavedThreadsSortingSetting = SavedSetting(
+    SavedSettingsFields.reverseSavedThreadsSorting,
+  );
   bool get reverseSavedThreadsSorting =>
       reverseSavedThreadsSortingSetting(this);
   set reverseSavedThreadsSorting(bool setting) =>
       reverseSavedThreadsSortingSetting.set(this, setting);
 
-  static const reverseWatchedThreadsSortingSetting =
-      SavedSetting(SavedSettingsFields.reverseWatchedThreadsSorting);
+  static const reverseWatchedThreadsSortingSetting = SavedSetting(
+    SavedSettingsFields.reverseWatchedThreadsSorting,
+  );
   bool get reverseWatchedThreadsSorting =>
       reverseWatchedThreadsSortingSetting(this);
   set reverseWatchedThreadsSorting(bool setting) =>
       reverseWatchedThreadsSortingSetting.set(this, setting);
 
-  static const downloadedThreadsSortingMethodSetting =
-      SavedSetting(SavedSettingsFields.downloadedThreadsSortingMethod);
+  static const downloadedThreadsSortingMethodSetting = SavedSetting(
+    SavedSettingsFields.downloadedThreadsSortingMethod,
+  );
   ThreadSortingMethod get downloadedThreadsSortingMethod =>
       downloadedThreadsSortingMethodSetting(this);
   set downloadedThreadsSortingMethod(ThreadSortingMethod setting) =>
       downloadedThreadsSortingMethodSetting.set(this, setting);
 
-  static const reverseDownloadedThreadsSortingSetting =
-      SavedSetting(SavedSettingsFields.reverseDownloadedThreadsSorting);
+  static const reverseDownloadedThreadsSortingSetting = SavedSetting(
+    SavedSettingsFields.reverseDownloadedThreadsSorting,
+  );
   bool get reverseDownloadedThreadsSorting =>
       reverseDownloadedThreadsSortingSetting(this);
   set reverseDownloadedThreadsSorting(bool setting) =>
       reverseDownloadedThreadsSortingSetting.set(this, setting);
 
-  static const showActiveDownloadsAboveArchivedDownloadsSetting =
-      SavedSetting(SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads);
+  static const showActiveDownloadsAboveArchivedDownloadsSetting = SavedSetting(
+    SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads,
+  );
   bool get showActiveDownloadsAboveArchivedDownloads =>
       showActiveDownloadsAboveArchivedDownloadsSetting(this);
   set showActiveDownloadsAboveArchivedDownloads(bool setting) =>
       showActiveDownloadsAboveArchivedDownloadsSetting.set(this, setting);
 
-  static const thumbnailOpacitySetting =
-      SavedSetting(SavedSettingsFields.thumbnailOpacity);
+  static const thumbnailOpacitySetting = SavedSetting(
+    SavedSettingsFields.thumbnailOpacity,
+  );
   double get thumbnailOpacity => thumbnailOpacitySetting(this);
 
-  static const replyButtonAtBottomSetting =
-      SavedSetting(SavedSettingsFields.replyButtonAtBottom);
+  static const replyButtonAtBottomSetting = SavedSetting(
+    SavedSettingsFields.replyButtonAtBottom,
+  );
   bool get replyButtonAtBottom => replyButtonAtBottomSetting(this);
 
-  static const videoContextMenuInGallerySetting =
-      SavedSetting(SavedSettingsFields.videoContextMenuInGallery);
+  static const videoContextMenuInGallerySetting = SavedSetting(
+    SavedSettingsFields.videoContextMenuInGallery,
+  );
   bool get videoContextMenuInGallery => videoContextMenuInGallerySetting(this);
 
-  static const doubleTapToSeekVideoSetting =
-      SavedSetting(SavedSettingsFields.doubleTapToSeekVideo);
+  static const doubleTapToSeekVideoSetting = SavedSetting(
+    SavedSettingsFields.doubleTapToSeekVideo,
+  );
   bool get doubleTapToSeekVideo => doubleTapToSeekVideoSetting(this);
 
-  static const showHotPostsInScrollbarSetting =
-      SavedSetting(SavedSettingsFields.showHotPostsInScrollbar);
+  static const showHotPostsInScrollbarSetting = SavedSetting(
+    SavedSettingsFields.showHotPostsInScrollbar,
+  );
   bool get showHotPostsInScrollbar => showHotPostsInScrollbarSetting(this);
 
-  static const fourChanPostingBackendSetting = SavedSetting(SavedSettingsFields.fourChanPostingBackend);
-  OwoVgPostingBackend get fourChanPostingBackend => OwoVgPostingBackend.fromIndex(fourChanPostingBackendSetting(this));
-  set fourChanPostingBackend(OwoVgPostingBackend backend) => fourChanPostingBackendSetting.set(this, backend.index);
+  static const fourChanPostingBackendSetting = SavedSetting(
+    SavedSettingsFields.fourChanPostingBackend,
+  );
+  OwoVgPostingBackend get fourChanPostingBackend =>
+      OwoVgPostingBackend.fromIndex(fourChanPostingBackendSetting(this));
+  set fourChanPostingBackend(OwoVgPostingBackend backend) =>
+      fourChanPostingBackendSetting.set(this, backend.index);
 
   static const owoVgPoolSetting = SavedSetting(SavedSettingsFields.owoVgPool);
   String get owoVgPool => owoVgPoolSetting(this);
   set owoVgPool(String value) => owoVgPoolSetting.set(this, value);
 
-  static const owoVgEmailIpsSetting = SavedSetting(SavedSettingsFields.owoVgEmailIps);
+  static const owoVgEmailIpsSetting = SavedSetting(
+    SavedSettingsFields.owoVgEmailIps,
+  );
   bool get owoVgEmailIps => owoVgEmailIpsSetting(this);
   set owoVgEmailIps(bool value) => owoVgEmailIpsSetting.set(this, value);
 
-  static const owoVgManualCaptchaSetting = SavedSetting(SavedSettingsFields.owoVgManualCaptcha);
+  static const owoVgManualCaptchaSetting = SavedSetting(
+    SavedSettingsFields.owoVgManualCaptcha,
+  );
   bool get owoVgManualCaptcha => owoVgManualCaptchaSetting(this);
-  set owoVgManualCaptcha(bool value) => owoVgManualCaptchaSetting.set(this, value);
+  set owoVgManualCaptcha(bool value) =>
+      owoVgManualCaptchaSetting.set(this, value);
 
-  static const owoVgRecycleIpsSetting = SavedSetting(SavedSettingsFields.owoVgRecycleIps);
+  static const owoVgRecycleIpsSetting = SavedSetting(
+    SavedSettingsFields.owoVgRecycleIps,
+  );
   String get owoVgRecycleIps => owoVgRecycleIpsSetting(this);
   set owoVgRecycleIps(String value) => owoVgRecycleIpsSetting.set(this, value);
 
-  static const owoVgEmailVerificationStockSetting = SavedSetting(SavedSettingsFields.owoVgEmailVerificationStock);
-  String get owoVgEmailVerificationStock => owoVgEmailVerificationStockSetting(this);
-  set owoVgEmailVerificationStock(String value) => owoVgEmailVerificationStockSetting.set(this, value);
+  static const owoVgEmailVerificationStockSetting = SavedSetting(
+    SavedSettingsFields.owoVgEmailVerificationStock,
+  );
+  String get owoVgEmailVerificationStock =>
+      owoVgEmailVerificationStockSetting(this);
+  set owoVgEmailVerificationStock(String value) =>
+      owoVgEmailVerificationStockSetting.set(this, value);
 
-  static const owoVgInstallDateSetting = SavedSetting(SavedSettingsFields.owoVgInstallDate);
+  static const owoVgInstallDateSetting = SavedSetting(
+    SavedSettingsFields.owoVgInstallDate,
+  );
   int? get owoVgInstallDate => owoVgInstallDateSetting(this);
   set owoVgInstallDate(int? value) => owoVgInstallDateSetting.set(this, value);
 
-  static const owoVgRecompressionSetting = SavedSetting(SavedSettingsFields.owoVgRecompression);
+  static const owoVgRecompressionSetting = SavedSetting(
+    SavedSettingsFields.owoVgRecompression,
+  );
   bool get owoVgRecompression => owoVgRecompressionSetting(this);
-  set owoVgRecompression(bool value) => owoVgRecompressionSetting.set(this, value);
+  set owoVgRecompression(bool value) =>
+      owoVgRecompressionSetting.set(this, value);
 
-  static const owoVgAntiphashSetting = SavedSetting(SavedSettingsFields.owoVgAntiphash);
+  static const owoVgAntiphashSetting = SavedSetting(
+    SavedSettingsFields.owoVgAntiphash,
+  );
   bool get owoVgAntiphash => owoVgAntiphashSetting(this);
   set owoVgAntiphash(bool value) => owoVgAntiphashSetting.set(this, value);
 
-  static const copypartyEnabledSetting =
-      SavedSetting(SavedSettingsFields.copypartyEnabled);
+  static const copypartyEnabledSetting = SavedSetting(
+    SavedSettingsFields.copypartyEnabled,
+  );
   bool get copypartyEnabled => copypartyEnabledSetting(this);
 
-  static const copypartyServerUrlSetting =
-      SavedSetting(SavedSettingsFields.copypartyServerUrl);
+  static const copypartyServerUrlSetting = SavedSetting(
+    SavedSettingsFields.copypartyServerUrl,
+  );
   String get copypartyServerUrl => copypartyServerUrlSetting(this);
 
-  static const copypartyDestRootSetting =
-      SavedSetting(SavedSettingsFields.copypartyDestRoot);
+  static const copypartyDestRootSetting = SavedSetting(
+    SavedSettingsFields.copypartyDestRoot,
+  );
   String get copypartyDestRoot => copypartyDestRootSetting(this);
 
-  static const copypartyAutoUploadSetting =
-      SavedSetting(SavedSettingsFields.copypartyAutoUpload);
+  static const copypartyAutoUploadSetting = SavedSetting(
+    SavedSettingsFields.copypartyAutoUpload,
+  );
   bool get copypartyAutoUpload => copypartyAutoUploadSetting(this);
 
-  static const useAlternativeGalleryLayoutSetting =
-      SavedSetting(SavedSettingsFields.useAlternativeGalleryLayout);
+  static const useAlternativeGalleryLayoutSetting = SavedSetting(
+    SavedSettingsFields.useAlternativeGalleryLayout,
+  );
   bool get useAlternativeGalleryLayout =>
       useAlternativeGalleryLayoutSetting(this);
 
-  static const megucaThreadLastNSetting =
-      SavedSetting(SavedSettingsFields.megucaThreadLastN);
+  static const megucaThreadLastNSetting = SavedSetting(
+    SavedSettingsFields.megucaThreadLastN,
+  );
   int get megucaThreadLastN => megucaThreadLastNSetting(this);
   set megucaThreadLastN(int value) => megucaThreadLastNSetting.set(this, value);
 
-  static const downloadInterFileDelayMsSetting =
-      SavedSetting(SavedSettingsFields.downloadInterFileDelayMs);
+  static const downloadInterFileDelayMsSetting = SavedSetting(
+    SavedSettingsFields.downloadInterFileDelayMs,
+  );
   int get downloadInterFileDelayMs => downloadInterFileDelayMsSetting(this);
+  static const showAttachmentsPageButtonSetting = SavedSetting(
+    SavedSettingsFields.showAttachmentsPageButton,
+  );
+  bool get showAttachmentsPageButton => showAttachmentsPageButtonSetting(this);
+
+  static const tabBarPagesAlignedToEndSetting = SavedSetting(
+    SavedSettingsFields.tabBarPagesAlignedToEnd,
+  );
+
+  static const usePaginatedTabBarSetting = SavedSetting(
+    SavedSettingsFields.usePaginatedTabBar,
+  );
+  bool get usePaginatedTabBar => usePaginatedTabBarSetting(this);
+
+  static const useHttp3Setting = SavedSetting(SavedSettingsFields.useHttp3);
+  bool get useHttp3 => useHttp3Setting(this);
 
   final List<VoidCallback> _appResumeCallbacks = [];
   void addAppResumeCallback(VoidCallback task) {
@@ -3645,10 +3983,10 @@ class Settings extends ChangeNotifier {
 
   bool get isCrashlyticsCollectionEnabled =>
       FirebaseCrashlytics.instance.isCrashlyticsCollectionEnabled;
-  set isCrashlyticsCollectionEnabled(bool setting) =>
-      FirebaseCrashlytics.instance
-          .setCrashlyticsCollectionEnabled(setting)
-          .then((_) {
+  set isCrashlyticsCollectionEnabled(bool setting) => FirebaseCrashlytics
+      .instance
+      .setCrashlyticsCollectionEnabled(setting)
+      .then((_) {
         notifyListeners();
       });
 
@@ -3666,13 +4004,21 @@ class Settings extends ChangeNotifier {
     return _settings.hiddenImageMD5s.contains(md5);
   }
 
-  late Filter imageMD5Filter = FilterCache(MD5Filter(
+  late Filter imageMD5Filter = FilterCache(
+    MD5Filter(
       _settings.hiddenImageMD5s.toSet(),
       applyImageFilterToThreads,
-      imageMetaFilterDepth));
+      imageMetaFilterDepth,
+    ),
+  );
   void didUpdateImageFilter() {
-    imageMD5Filter = FilterCache(MD5Filter(_settings.hiddenImageMD5s.toSet(),
-        applyImageFilterToThreads, imageMetaFilterDepth));
+    imageMD5Filter = FilterCache(
+      MD5Filter(
+        _settings.hiddenImageMD5s.toSet(),
+        applyImageFilterToThreads,
+        imageMetaFilterDepth,
+      ),
+    );
     filterListenable.didUpdate();
     notifyListeners();
     _settings.save();
@@ -3695,15 +4041,17 @@ class Settings extends ChangeNotifier {
 
   void setHiddenImageMD5s(Iterable<String> md5s) {
     _settings.hiddenImageMD5s.clear();
-    _settings.hiddenImageMD5s.addAll(md5s.map((md5) {
-      switch (md5.length % 3) {
-        case 1:
-          return '$md5==';
-        case 2:
-          return '$md5=';
-      }
-      return md5;
-    }));
+    _settings.hiddenImageMD5s.addAll(
+      md5s.map((md5) {
+        switch (md5.length % 3) {
+          case 1:
+            return '$md5==';
+          case 2:
+            return '$md5=';
+        }
+        return md5;
+      }),
+    );
   }
 
   Future<void> didEdit() async {
@@ -3716,34 +4064,38 @@ class Settings extends ChangeNotifier {
     switch (settingsQuickAction) {
       case SettingsQuickAction.toggleTheme:
         Settings.themeSetting.set(
-            this,
-            whichTheme == Brightness.light
-                ? TristateSystemSetting.b
-                : TristateSystemSetting.a);
+          this,
+          whichTheme == Brightness.light
+              ? TristateSystemSetting.b
+              : TristateSystemSetting.a,
+        );
         showToast(
-            context: context,
-            icon: CupertinoIcons.paintbrush,
-            message: whichTheme == Brightness.light
-                ? 'Switched to light theme'
-                : 'Switched to dark theme');
+          context: context,
+          icon: CupertinoIcons.paintbrush,
+          message: whichTheme == Brightness.light
+              ? 'Switched to light theme'
+              : 'Switched to dark theme',
+        );
         break;
       case SettingsQuickAction.toggleBlurredThumbnails:
         blurThumbnailsSetting.value = !blurThumbnails;
         showToast(
-            context: context,
-            icon: CupertinoIcons.paintbrush,
-            message: blurThumbnails
-                ? 'Blurred thumbnails enabled'
-                : 'Blurred thumbnails disabled');
+          context: context,
+          icon: CupertinoIcons.paintbrush,
+          message: blurThumbnails
+              ? 'Blurred thumbnails enabled'
+              : 'Blurred thumbnails disabled',
+        );
         break;
       case SettingsQuickAction.toggleCatalogLayout:
         useCatalogGridSetting.value = !useCatalogGrid;
         showToast(
-            context: context,
-            icon: CupertinoIcons.rectangle_stack,
-            message: useCatalogGrid
-                ? 'Switched to catalog grid'
-                : 'Switched to catalog rows');
+          context: context,
+          icon: CupertinoIcons.rectangle_stack,
+          message: useCatalogGrid
+              ? 'Switched to catalog grid'
+              : 'Switched to catalog rows',
+        );
         break;
       case SettingsQuickAction.toggleInterfaceStyle:
         final mouseSettings = context.read<MouseSettings>();
@@ -3751,69 +4103,76 @@ class Settings extends ChangeNotifier {
             ? TristateSystemSetting.a
             : TristateSystemSetting.b;
         showToast(
-            context: context,
-            icon: mouseSettings.supportMouse
-                ? Icons.mouse
-                : CupertinoIcons.hand_draw,
-            message: mouseSettings.supportMouse
-                ? 'Switched to mouse layout'
-                : 'Switched to touch layout');
+          context: context,
+          icon: mouseSettings.supportMouse
+              ? Icons.mouse
+              : CupertinoIcons.hand_draw,
+          message: mouseSettings.supportMouse
+              ? 'Switched to mouse layout'
+              : 'Switched to touch layout',
+        );
         break;
       case SettingsQuickAction.toggleListPositionIndicatorLocation:
         showListPositionIndicatorsOnLeftSetting.value =
             !showListPositionIndicatorsOnLeft;
         showToast(
-            context: context,
-            icon: showListPositionIndicatorsOnLeft
-                ? CupertinoIcons.arrow_left_to_line
-                : CupertinoIcons.arrow_right_to_line,
-            message: showListPositionIndicatorsOnLeft
-                ? 'Moved list position indicators to left'
-                : 'Moved list position indicators to right');
+          context: context,
+          icon: showListPositionIndicatorsOnLeft
+              ? CupertinoIcons.arrow_left_to_line
+              : CupertinoIcons.arrow_right_to_line,
+          message: showListPositionIndicatorsOnLeft
+              ? 'Moved list position indicators to left'
+              : 'Moved list position indicators to right',
+        );
         break;
       case SettingsQuickAction.toggleVerticalTwoPaneSplit:
         verticalTwoPaneMinimumPaneSizeSetting.value =
             -1 * verticalTwoPaneMinimumPaneSize;
         showToast(
-            context: context,
-            icon: verticalTwoPaneMinimumPaneSize.isNegative
-                ? CupertinoIcons.rectangle
-                : CupertinoIcons.rectangle_grid_1x2,
-            message: verticalTwoPaneMinimumPaneSize.isNegative
-                ? 'Disabled vertical two-pane layout'
-                : 'Enabled vertical two-pane layout');
+          context: context,
+          icon: verticalTwoPaneMinimumPaneSize.isNegative
+              ? CupertinoIcons.rectangle
+              : CupertinoIcons.rectangle_grid_1x2,
+          message: verticalTwoPaneMinimumPaneSize.isNegative
+              ? 'Disabled vertical two-pane layout'
+              : 'Enabled vertical two-pane layout',
+        );
         break;
       case SettingsQuickAction.toggleImages:
         contentSettings.images = !contentSettings.images;
         didEdit();
         showToast(
-            context: context,
-            icon: contentSettings.images
-                ? Adaptive.icons.photo
-                : CupertinoIcons.xmark,
-            message:
-                contentSettings.images ? 'Enabled images' : 'Disabled images');
+          context: context,
+          icon: contentSettings.images
+              ? Adaptive.icons.photo
+              : CupertinoIcons.xmark,
+          message: contentSettings.images
+              ? 'Enabled images'
+              : 'Disabled images',
+        );
         break;
       case SettingsQuickAction.togglePixelatedThumbnails:
         thumbnailPixelationSetting.value = -1 * thumbnailPixelation;
         didEdit();
         showToast(
-            context: context,
-            icon: thumbnailPixelation.isNegative
-                ? Adaptive.icons.photo
-                : CupertinoIcons.square,
-            message: thumbnailPixelation.isNegative
-                ? 'Disabled pixelated thumbnails'
-                : 'Enabled pixelated thumbnails');
+          context: context,
+          icon: thumbnailPixelation.isNegative
+              ? Adaptive.icons.photo
+              : CupertinoIcons.square,
+          message: thumbnailPixelation.isNegative
+              ? 'Disabled pixelated thumbnails'
+              : 'Enabled pixelated thumbnails',
+        );
       case SettingsQuickAction.toggleDimmedThumbnails:
         thumbnailOpacitySetting.value = -1 * thumbnailOpacity;
         didEdit();
         showToast(
-            context: context,
-            icon: CupertinoIcons.paintbrush,
-            message: thumbnailOpacity.isNegative
-                ? 'Dimmed thumbnails disabled'
-                : 'Dimmed thumbnails enabled');
+          context: context,
+          icon: CupertinoIcons.paintbrush,
+          message: thumbnailOpacity.isNegative
+              ? 'Dimmed thumbnails disabled'
+              : 'Dimmed thumbnails enabled',
+        );
         break;
       case null:
         break;
@@ -3828,22 +4187,6 @@ class Settings extends ChangeNotifier {
 
   Settings._() {
     mouseSettings = MouseSettings._(this);
-    client.interceptors.add(CloudflareBlockingInterceptor());
-    client.interceptors.add(HTTP429BackoffInterceptor(client: client));
-    client.interceptors.add(FixupInterceptor());
-    client.interceptors.add(SeparatedCookieManager());
-    client.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
-      options.headers['user-agent'] ??= userAgent;
-      handler.next(options);
-    }));
-    client.interceptors.add(BasedFlareInterceptor(client));
-    client.interceptors.add(CloudflareInterceptor(null));
-    client.interceptors.add(RetryIfCloudflareInterceptor(client));
-    client.interceptors.add(StrictJsonInterceptor());
-    if (!kInUnitTest) {
-      client.interceptors.add(LoggingInterceptor.instance);
-    }
-    client.httpClientAdapter = MyHttpClientAdapter();
     muteAudio.value = _settings.muteAudio;
     _tryToSetupFilter();
     JsonCache.instance.embedRegexes.addListener(_onEmbedRegexesUpdate);
@@ -3854,10 +4197,10 @@ class Settings extends ChangeNotifier {
 class MouseSettings extends ChangeNotifier {
   final Settings parent;
   bool get supportMouse => switch (_lastSupportMouseSetting) {
-        TristateSystemSetting.a => false,
-        TristateSystemSetting.system => _mouseConnected,
-        TristateSystemSetting.b => true
-      };
+    TristateSystemSetting.a => false,
+    TristateSystemSetting.system => _mouseConnected,
+    TristateSystemSetting.b => true,
+  };
   late TristateSystemSetting _lastSupportMouseSetting;
   late bool _mouseConnected;
   set mouseConnected(bool newValue) {
@@ -3895,10 +4238,8 @@ class MouseSettings extends ChangeNotifier {
 class SettingsSystemListener extends StatefulWidget {
   final Widget child;
 
-  const SettingsSystemListener({
-    Key? key,
-    required this.child,
-  }) : super(key: key);
+  const SettingsSystemListener({Key? key, required this.child})
+    : super(key: key);
 
   @override
   createState() => _SettingsSystemListenerState();
@@ -3916,8 +4257,9 @@ class _SettingsSystemListenerState extends State<SettingsSystemListener>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkConnectivity();
-    connectivitySubscription =
-        Connectivity().onConnectivityChanged.listen((result) {
+    connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      result,
+    ) {
       Settings.instance.connectivity = result;
     });
     if (isDesktop()) {
@@ -3964,19 +4306,24 @@ class _SettingsSystemListenerState extends State<SettingsSystemListener>
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-        onHover: (event) {
-          if (event.kind != PointerDeviceKind.touch) {
-            _mouseExitTimer?.cancel();
-            Settings.instance.mouseSettings.mouseConnected = true;
-            Settings.instance._runAppResumeCallbacks();
-          }
-        },
-        onExit: (event) {
-          _mouseExitTimer = Timer(_mouseStateChangeTimeout,
-              () => Settings.instance.mouseSettings.mouseConnected = false);
-        },
-        opaque: false,
-        child: ChangeNotifierProvider.value(
-            value: Settings.instance.mouseSettings, child: widget.child));
+      onHover: (event) {
+        if (event.kind != PointerDeviceKind.touch) {
+          _mouseExitTimer?.cancel();
+          Settings.instance.mouseSettings.mouseConnected = true;
+          Settings.instance._runAppResumeCallbacks();
+        }
+      },
+      onExit: (event) {
+        _mouseExitTimer = Timer(
+          _mouseStateChangeTimeout,
+          () => Settings.instance.mouseSettings.mouseConnected = false,
+        );
+      },
+      opaque: false,
+      child: ChangeNotifierProvider.value(
+        value: Settings.instance.mouseSettings,
+        child: widget.child,
+      ),
+    );
   }
 }

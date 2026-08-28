@@ -12,10 +12,13 @@ class SiteLainchanOrg extends SiteLainchan {
 		required super.imageUrl,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders,
 		required super.turnstileSiteKey,
+		required super.maxUploadSizeBytes,
+		required super.filesPerPost,
 		super.faviconPath,
 		super.defaultUsername,
 		super.basePath,
@@ -39,8 +42,9 @@ class SiteLainchanOrg extends SiteLainchan {
 		return document.querySelectorAll('.boardlist a').where((e) => e.attributes['title'] != null && (e.attributes['href'] ?? '').contains('/')).map((e) => ImageboardBoard(
 			name: e.attributes['href']!.replaceFirst(basePath, '').split('/')[1],
 			title: e.attributes['title']!,
-			maxWebmSizeBytes: 25000000,
-			maxImageSizeBytes: 25000000,
+			maxWebmSizeBytes: maxUploadSizeBytes ?? 25000000,
+			maxImageSizeBytes: maxUploadSizeBytes ?? 25000000,
+			filesPerPost: filesPerPost,
 			isWorksafe: false,
 			webmAudioAllowed: true
 		)).toList();

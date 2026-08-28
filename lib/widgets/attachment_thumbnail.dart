@@ -24,49 +24,50 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class TaggedAttachment {
-	final Imageboard imageboard;
-	final Attachment attachment;
-	final Iterable<int> semanticParentIds;
-	final int postId;
-	final String _tag;
-	TaggedAttachment({
-		required this.imageboard,
-		required this.attachment,
-		required this.semanticParentIds,
-		required this.postId
-	}) : _tag = '${imageboard.key}/${semanticParentIds.join('/')}/$postId/${attachment.id}';
+  final Imageboard imageboard;
+  final Attachment attachment;
+  final Iterable<int> semanticParentIds;
+  final int postId;
+  final String _tag;
+  TaggedAttachment({
+    required this.imageboard,
+    required this.attachment,
+    required this.semanticParentIds,
+    required this.postId,
+  }) : _tag =
+           '${imageboard.key}/${semanticParentIds.join('/')}/$postId/${attachment.id}';
 
-	@override
-	bool operator == (Object other) {
-		if (identical(this, other)) {
-			return true;
-		}
-		return (other is TaggedAttachment) && _tag == other._tag;
-	}
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return (other is TaggedAttachment) && _tag == other._tag;
+  }
 
-	@override
-	int get hashCode {
-		return _tag.hashCode;
-	}
+  @override
+  int get hashCode {
+    return _tag.hashCode;
+  }
 
-	@override
-	String toString() => 'AttachmentSemanticLocation($_tag)';
+  @override
+  String toString() => 'AttachmentSemanticLocation($_tag)';
 }
 
 class AttachmentThumbnailCornerIcon {
-	final Color backgroundColor;
-	final Color borderColor;
-	final double? size;
-	final TextSpan? appendText;
-	final Alignment alignment;
+  final Color backgroundColor;
+  final Color borderColor;
+  final double? size;
+  final TextSpan? appendText;
+  final Alignment alignment;
 
-	const AttachmentThumbnailCornerIcon({
-		required this.backgroundColor,
-		required this.borderColor,
-		this.size,
-		this.appendText,
-		this.alignment = Alignment.bottomRight
-	});
+  const AttachmentThumbnailCornerIcon({
+    required this.backgroundColor,
+    required this.borderColor,
+    this.size,
+    this.appendText,
+    this.alignment = Alignment.bottomRight,
+  });
 }
 
 typedef _AfterPaintKey = (Attachment, AttachmentThumbnailCornerIcon);
@@ -74,590 +75,698 @@ typedef _AfterPaint = void Function(Canvas canvas, Rect rect);
 typedef _KeyedAfterPaint = ({_AfterPaintKey key, _AfterPaint afterPaint});
 
 _KeyedAfterPaint? _makeKeyedAfterPaint({
-	required Attachment attachment,
-	required AttachmentThumbnailCornerIcon? cornerIcon,
-	required IconData? alreadyShowingBigIcon,
-	required Color primaryColor
+  required Attachment attachment,
+  required AttachmentThumbnailCornerIcon? cornerIcon,
+  required IconData? alreadyShowingBigIcon,
+  required Color primaryColor,
 }) {
-	if (cornerIcon == null || ((attachment.icon == null || attachment.icon == alreadyShowingBigIcon) && cornerIcon.appendText == null)) {
-		return null;
-	}
-	return (
-		key: (attachment, cornerIcon),
-		afterPaint: (canvas, rect) {
-			final icon = attachment.icon;
-			final appendText = cornerIcon.appendText;
-			if ((icon == null || icon == alreadyShowingBigIcon) && appendText == null) {
-				// Nothing to draw
-				return;
-			}
-			final fontSize = cornerIcon.size ?? 16;
-			TextPainter textPainter = TextPainter(textDirection: TextDirection.ltr);
-			textPainter.text = TextSpan(
-				children: [
-					if (icon != null && icon != alreadyShowingBigIcon) IconSpan(
-						icon: icon,
-						size: fontSize,
-						color: primaryColor
-					),
-					if (icon != null && appendText != null) const TextSpan(text: ' '),
-					if (appendText != null) appendText
-				]
-			);
-			textPainter.layout();
-			final badgeSize = EdgeInsets.all(fontSize / 4).inflateSize(textPainter.size);
-			final badgeRect = cornerIcon.alignment.inscribe(badgeSize, rect);
-			final rrect = RRect.fromRectAndCorners(
-				badgeRect,
-				topLeft: cornerIcon.alignment == Alignment.bottomRight ? Radius.circular(fontSize * 0.375) : Radius.zero,
-				topRight: cornerIcon.alignment == Alignment.bottomLeft ? Radius.circular(fontSize * 0.375) : Radius.zero,
-				bottomLeft: cornerIcon.alignment == Alignment.topRight ? Radius.circular(fontSize * 0.375) : Radius.zero,
-				bottomRight: cornerIcon.alignment == Alignment.topLeft ? Radius.circular(fontSize * 0.375) : Radius.zero
-			);
-			canvas.drawRRect(rrect, Paint()
-				..color = cornerIcon.backgroundColor
-				..style = PaintingStyle.fill);
-			canvas.drawRRect(rrect, Paint()
-				..strokeWidth = 1
-				..color = cornerIcon.borderColor
-				..style = PaintingStyle.stroke);
-			textPainter.paint(canvas, Alignment.center.inscribe(textPainter.size, badgeRect).topLeft + const Offset(1, 1));
-		}
-	);
+  if (cornerIcon == null ||
+      ((attachment.icon == null || attachment.icon == alreadyShowingBigIcon) &&
+          cornerIcon.appendText == null)) {
+    return null;
+  }
+  return (
+    key: (attachment, cornerIcon),
+    afterPaint: (canvas, rect) {
+      final icon = attachment.icon;
+      final appendText = cornerIcon.appendText;
+      if ((icon == null || icon == alreadyShowingBigIcon) &&
+          appendText == null) {
+        // Nothing to draw
+        return;
+      }
+      final fontSize = cornerIcon.size ?? 16;
+      TextPainter textPainter = TextPainter(textDirection: TextDirection.ltr);
+      textPainter.text = TextSpan(
+        children: [
+          if (icon != null && icon != alreadyShowingBigIcon)
+            IconSpan(icon: icon, size: fontSize, color: primaryColor),
+          if (icon != null && appendText != null) const TextSpan(text: ' '),
+          if (appendText != null) appendText,
+        ],
+      );
+      textPainter.layout();
+      final badgeSize = EdgeInsets.all(
+        fontSize / 4,
+      ).inflateSize(textPainter.size);
+      final badgeRect = cornerIcon.alignment.inscribe(badgeSize, rect);
+      final rrect = RRect.fromRectAndCorners(
+        badgeRect,
+        topLeft: cornerIcon.alignment == Alignment.bottomRight
+            ? Radius.circular(fontSize * 0.375)
+            : Radius.zero,
+        topRight: cornerIcon.alignment == Alignment.bottomLeft
+            ? Radius.circular(fontSize * 0.375)
+            : Radius.zero,
+        bottomLeft: cornerIcon.alignment == Alignment.topRight
+            ? Radius.circular(fontSize * 0.375)
+            : Radius.zero,
+        bottomRight: cornerIcon.alignment == Alignment.topLeft
+            ? Radius.circular(fontSize * 0.375)
+            : Radius.zero,
+      );
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..color = cornerIcon.backgroundColor
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..strokeWidth = 1
+          ..color = cornerIcon.borderColor
+          ..style = PaintingStyle.stroke,
+      );
+      textPainter.paint(
+        canvas,
+        Alignment.center.inscribe(textPainter.size, badgeRect).topLeft +
+            const Offset(1, 1),
+      );
+    },
+  );
 }
 
 class AttachmentThumbnail extends StatefulWidget {
-	final Attachment attachment;
-	final double? width;
-	final double? height;
-	final BoxFit fit;
-	final Object? hero;
-	final bool rotate90DegreesClockwise;
-	final Function(Object?, StackTrace?)? onLoadError;
-	final Alignment alignment;
-	final bool gaplessPlayback;
-	final bool revealSpoilers;
-	final ImageboardSite? site;
-	final bool shrinkHeight;
-	final bool? overrideFullQuality;
-	/// Whether it is actually a thumbnail (preview) like in catalog/thread
-	final bool mayObscure;
-	final AttachmentThumbnailCornerIcon? cornerIcon;
-	final bool expand;
-	final bool hide;
+  final Attachment attachment;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final Object? hero;
+  final bool rotate90DegreesClockwise;
+  final Function(Object?, StackTrace?)? onLoadError;
+  final Alignment alignment;
+  final bool gaplessPlayback;
+  final bool revealSpoilers;
+  final ImageboardSite? site;
+  final bool shrinkHeight;
+  final bool? overrideFullQuality;
 
-	const AttachmentThumbnail({
-		required this.attachment,
-		this.width,
-		this.height,
-		this.fit = BoxFit.contain,
-		this.alignment = Alignment.center,
-		this.hero,
-		this.rotate90DegreesClockwise = false,
-		this.onLoadError,
-		this.gaplessPlayback = false,
-		this.revealSpoilers = false,
-		this.shrinkHeight = false,
-		this.site,
-		this.overrideFullQuality,
-		this.cornerIcon,
-		this.expand = false,
-		this.hide = false,
-		required this.mayObscure,
-		Key? key
-	}) : super(key: key);
+  /// Whether it is actually a thumbnail (preview) like in catalog/thread
+  final bool mayObscure;
+  final AttachmentThumbnailCornerIcon? cornerIcon;
+  final bool expand;
+  final bool hide;
+  final bool suppressImageRebuild;
 
-	@override
-	State<AttachmentThumbnail> createState() => _AttachmentThumbnailState();
+  const AttachmentThumbnail({
+    required this.attachment,
+    this.width,
+    this.height,
+    this.fit = BoxFit.contain,
+    this.alignment = Alignment.center,
+    this.hero,
+    this.rotate90DegreesClockwise = false,
+    this.onLoadError,
+    this.gaplessPlayback = false,
+    this.revealSpoilers = false,
+    this.shrinkHeight = false,
+    this.site,
+    this.overrideFullQuality,
+    this.cornerIcon,
+    this.expand = false,
+    this.hide = false,
+    this.suppressImageRebuild = false,
+    required this.mayObscure,
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  State<AttachmentThumbnail> createState() => _AttachmentThumbnailState();
 }
 
 class _AttachmentThumbnailState extends State<AttachmentThumbnail> {
-	Uri? _copypartyFullUri;
-	Uri? _copypartyThumbUri;
-	Map<String, String>? _copypartyHeaders;
+  Uri? _copypartyFullUri;
+  Uri? _copypartyThumbUri;
+  Map<String, String>? _copypartyHeaders;
 
-	@override
-	void initState() {
-		super.initState();
-		_loadCopypartySource();
-	}
+  @override
+  void initState() {
+    super.initState();
+    _loadCopypartySource();
+  }
 
-	@override
-	void didUpdateWidget(AttachmentThumbnail oldWidget) {
-		super.didUpdateWidget(oldWidget);
-		if (oldWidget.attachment != widget.attachment) {
-			_copypartyFullUri = null;
-			_copypartyThumbUri = null;
-			_copypartyHeaders = null;
-			_loadCopypartySource();
-		}
-	}
+  @override
+  void didUpdateWidget(AttachmentThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment != widget.attachment) {
+      _copypartyFullUri = null;
+      _copypartyThumbUri = null;
+      _copypartyHeaders = null;
+      _loadCopypartySource();
+    }
+  }
 
-	Future<void> _loadCopypartySource() async {
-		if (!Persistence.settings.copypartyEnabled) return;
-		final attachment = widget.attachment;
-		final fullUri = await ThreadDownloadService.instance.copypartySourceUri(attachment);
-		final thumbUri = await ThreadDownloadService.instance.copypartySourceUri(
-			attachment,
-			urlForFilename: attachment.thumbnailUrl,
-		);
-		if (fullUri == null && thumbUri == null) return;
-		if (!mounted || widget.attachment != attachment) return;
-		final pw = await ThreadDownloadService.instance.getCopypartyPassword();
-		if (!mounted || widget.attachment != attachment) return;
-		setState(() {
-			_copypartyFullUri = fullUri;
-			_copypartyThumbUri = thumbUri;
-			_copypartyHeaders = pw?.isNotEmpty == true ? {'Pw': pw!} : const <String, String>{};
-		});
-	}
+  Future<void> _loadCopypartySource() async {
+    if (!Persistence.settings.copypartyEnabled) return;
+    final attachment = widget.attachment;
+    final fullUri = await ThreadDownloadService.instance.copypartySourceUri(
+      attachment,
+    );
+    final thumbUri = await ThreadDownloadService.instance.copypartySourceUri(
+      attachment,
+      urlForFilename: attachment.thumbnailUrl,
+    );
+    if (fullUri == null && thumbUri == null) return;
+    if (!mounted || widget.attachment != attachment) return;
+    final pw = await ThreadDownloadService.instance.getCopypartyPassword();
+    if (!mounted || widget.attachment != attachment) return;
+    setState(() {
+      _copypartyFullUri = fullUri;
+      _copypartyThumbUri = thumbUri;
+      _copypartyHeaders = pw?.isNotEmpty == true
+          ? {'Pw': pw!}
+          : const <String, String>{};
+    });
+  }
 
-	Widget _maybeHero(BuildContext context, Widget child) {
-		return (widget.hero != null) ? Hero(
-			tag: widget.hero!,
-			child: child,
-			flightShuttleBuilder: (context, animation, direction, fromContext, toContext) {
-				return (direction == HeroFlightDirection.push ? fromContext.widget as Hero : toContext.widget as Hero).child;
-			},
-			createRectTween: (startRect, endRect) {
-				if (startRect != null && endRect != null) {
-					if (widget.attachment.type == AttachmentType.image || widget.attachment.type.isVideo) {
-						// Need to deflate the original startRect because it has inbuilt layoutInsets
-						// This AttachmentThumbnail will always fill its size
-						final rootPadding = MediaQueryData.fromView(View.of(context)).padding - sumAdditionalSafeAreaInsets();
-						startRect = rootPadding.deflateRect(startRect);
-					}
-					if (widget.fit == BoxFit.cover && widget.attachment.width != null && widget.attachment.height != null) {
-						// This is AttachmentViewer -> AttachmentThumbnail (cover)
-						// Need to shrink the startRect, so it only contains the image
-						final fittedStartSize = applyBoxFit(BoxFit.contain, Size(widget.attachment.width!.toDouble(), widget.attachment.height!.toDouble()), startRect.size).destination;
-						startRect = Alignment.center.inscribe(fittedStartSize, startRect);
-					}
-				}
-				return CurvedRectTween(curve: Curves.ease, begin: startRect, end: endRect);
-			}
-		) : child;
-	}
+  Widget _maybeHero(BuildContext context, Widget child) {
+    return (widget.hero != null)
+        ? Hero(
+            tag: widget.hero!,
+            child: child,
+            flightShuttleBuilder:
+                (context, animation, direction, fromContext, toContext) {
+                  return (direction == HeroFlightDirection.push
+                          ? fromContext.widget as Hero
+                          : toContext.widget as Hero)
+                      .child;
+                },
+            createRectTween: (startRect, endRect) {
+              if (startRect != null && endRect != null) {
+                if (widget.attachment.type == AttachmentType.image ||
+                    widget.attachment.type.isVideo) {
+                  // Need to deflate the original startRect because it has inbuilt layoutInsets
+                  // This AttachmentThumbnail will always fill its size
+                  final rootPadding =
+                      MediaQueryData.fromView(View.of(context)).padding -
+                      sumAdditionalSafeAreaInsets();
+                  startRect = rootPadding.deflateRect(startRect);
+                }
+                if (widget.fit == BoxFit.cover &&
+                    widget.attachment.width != null &&
+                    widget.attachment.height != null) {
+                  // This is AttachmentViewer -> AttachmentThumbnail (cover)
+                  // Need to shrink the startRect, so it only contains the image
+                  final fittedStartSize = applyBoxFit(
+                    BoxFit.contain,
+                    Size(
+                      widget.attachment.width!.toDouble(),
+                      widget.attachment.height!.toDouble(),
+                    ),
+                    startRect.size,
+                  ).destination;
+                  startRect = Alignment.center.inscribe(
+                    fittedStartSize,
+                    startRect,
+                  );
+                }
+              }
+              return CurvedRectTween(
+                curve: Curves.ease,
+                begin: startRect,
+                end: endRect,
+              );
+            },
+          )
+        : child;
+  }
 
-	Widget _build({
-		required BuildContext context,
-		required Settings settings,
-		required double effectiveWidth,
-		required double effectiveHeight,
-		required bool forceFullQuality
-	}) {
-		final spoiler = widget.attachment.spoiler && !widget.revealSpoilers;
-		final s = widget.site ?? context.watch<ImageboardSite?>();
-		if (s == null) {
-			return SizedBox(
-				width: effectiveWidth,
-				height: effectiveHeight,
-				child: const Center(
-					child: Icon(CupertinoIcons.exclamationmark_triangle_fill)
-				)
-			);
-		}
-		bool resize = false;
-		String url = widget.attachment.thumbnailUrl;
-		if ((
-			forceFullQuality ||
-			(widget.overrideFullQuality ?? (settings.fullQualityThumbnails && !widget.attachment.isRateLimited))
-		) && widget.attachment.type == AttachmentType.image) {
-			resize = true;
-			url = widget.attachment.url;
-		}
-		if (spoiler && !settings.alwaysShowSpoilers) {
-			url = s.getSpoilerImageUrl(
-				widget.attachment,
-				thread: context.read<PostSpanZoneData?>()?.primaryThreadState?.thread
-			)?.toString() ?? '';
-		}
-		if (url.isEmpty) {
-			final icon = spoiler ? CupertinoIcons.eye_slash : (widget.attachment.icon ?? CupertinoIcons.exclamationmark_triangle_fill);
-			final theme = context.watch<SavedTheme>();
-			return _maybeHero(context, SizedBox(
-				width: effectiveWidth,
-				height: widget.shrinkHeight || widget.expand ? null : effectiveHeight,
-				child: _AttachmentThumbnailPlaceholder(
-					child: null,
-					icon: icon,
-					effectiveWidth: effectiveWidth,
-					effectiveHeight: effectiveHeight,
-					attachment: widget.attachment,
-					afterPaint: _makeKeyedAfterPaint(
-						attachment: widget.attachment,
-						cornerIcon: AttachmentThumbnailCornerIcon(
-							backgroundColor: theme.backgroundColor,
-							borderColor: theme.primaryColorWithBrightness(0.2),
-							size: null
-						),
-						alreadyShowingBigIcon: icon,
-						primaryColor: ChanceTheme.primaryColorOf(context)
-					),
-					fit: widget.fit
-				)
-			));
-		}
-		// Prefer a locally-downloaded file over a network fetch.
-		// For the full-quality path (url == attachment.url) use findDownloadedFile;
-		// for the thumbnail path use findDownloadedThumbnailFile.
-		final File? localFile = url == widget.attachment.url
-			? ThreadDownloadService.instance.findDownloadedFile(widget.attachment)
-			: ThreadDownloadService.instance.findDownloadedThumbnailFile(widget.attachment);
-		final uri = Uri.parse(url);
-		ImageProvider image;
-		if (localFile != null) {
-			image = FileImage(localFile);
-		} else {
-			final copypartyUri = url == widget.attachment.url ? _copypartyFullUri : _copypartyThumbUri;
-			if (copypartyUri != null) {
-				image = CNetworkImageProvider(
-					copypartyUri.toString(),
-					client: s.client,
-					cache: true,
-					headers: _copypartyHeaders ?? const <String, String>{},
-					afterFirstLoad: url == widget.attachment.url && !forceFullQuality
-						? () { AttachmentCache.onCached(widget.attachment, this); }
-						: null,
-				);
-			} else {
-				image = CNetworkImageProvider(
-					url,
-					client: s.client,
-					cache: true,
-					headers: {
-						...s.getHeaders(uri),
-						if (widget.attachment.useRandomUseragent) 'user-agent': makeRandomUserAgent()
-					},
-					afterFirstLoad: () {
-						if (url == widget.attachment.url) {
-							// This is a full-quality thumbnail
-							if (!forceFullQuality) {
-								// Forced thumbnails are already known to be cached, don't report it
-								AttachmentCache.onCached(widget.attachment, this);
-							}
-						}
-					}
-				);
-			}
-		}
-		if (url.endsWith('.gif') || url.endsWith('.webp') /* might be animated WebP */) {
-			image = OneFrameImageProvider(image);
-		}
-		final pixelation = settings.thumbnailPixelation;
-		final FilterQuality filterQuality;
-		if (pixelation > 0 && widget.mayObscure) {
-			filterQuality = FilterQuality.none;
-			// In BoxFit.cover we see the shortest side
-			final targetLongestSide = widget.fit != BoxFit.cover;
-			// maintain minimum pixels on shortest side
-			final targetHeight = (targetLongestSide && (widget.attachment.aspectRatio < 1)) || 
-													(!targetLongestSide && (widget.attachment.aspectRatio > 1));
-			image = ExtendedResizeImage(
-				image,
-				maxBytes: null,
-				width: targetHeight ? null : pixelation,
-				height: targetHeight ? pixelation : null,
-			);
-		}
-		else if (resize && effectiveWidth.isFinite && effectiveHeight.isFinite) {
-			filterQuality = FilterQuality.low;
-			image = ExtendedResizeImage(
-				image,
-				maxBytes: 800 << 10,
-				width: widget.overrideFullQuality == true ? null : (effectiveWidth * MediaQuery.devicePixelRatioOf(context)).ceil()
-			);
-		}
-		else {
-			filterQuality = FilterQuality.low;
-		}
-		final primaryColor = ChanceTheme.primaryColorOf(context);
-		final cornerIcon = widget.cornerIcon;
-		_KeyedAfterPaint? makeAfterPaint({IconData? alreadyShowingBigIcon}) =>
-			_makeKeyedAfterPaint(attachment: widget.attachment, cornerIcon: cornerIcon, alreadyShowingBigIcon: alreadyShowingBigIcon, primaryColor: primaryColor);
-		Widget child;
-		if (settings.loadThumbnails && !widget.hide) {
-			final afterPaint = makeAfterPaint();
-			child = ExtendedImage(
-				image: image,
-				constraints: widget.expand ? null : BoxConstraints(
-					maxWidth: effectiveWidth,
-					maxHeight: effectiveHeight
-				),
-				width: effectiveWidth,
-				height: widget.shrinkHeight || widget.expand ? null : effectiveHeight,
-				color: const Color.fromRGBO(238, 242, 255, 1),
-				colorBlendMode: BlendMode.dstOver,
-				fit: widget.fit,
-				alignment: widget.alignment,
-				key: widget.gaplessPlayback ? null : ValueKey(url),
-				gaplessPlayback: true,
-				rotate90DegreesClockwise: widget.rotate90DegreesClockwise,
-				afterPaintImage: afterPaint == null ? null : (
-					key: afterPaint.key,
-					fn: (canvas, rect, image, paint) {
-						afterPaint.afterPaint(canvas, rect);
-					}
-				),
-				filterQuality: filterQuality,
-				loadStateChanged: (loadstate) {
-					if (loadstate.extendedImageLoadState == LoadState.loading) {
-						return _AttachmentThumbnailPlaceholder(
-							effectiveWidth: effectiveWidth,
-							effectiveHeight: effectiveHeight,
-							attachment: widget.attachment,
-							fit: widget.fit,
-							afterPaint: makeAfterPaint(),
-							child: const CircularProgressIndicator.adaptive()
-						);
-					}
-					else if (
-						// Image loading failed
-						loadstate.extendedImageLoadState == LoadState.failed ||
-						(
-							// The real image dimensions were 1x1 (thumbnailer-failed placeholder)
-							pixelation != 1 &&
-							(loadstate.extendedImageInfo?.image.height ?? 0) == 1) &&
-							((loadstate.extendedImageInfo?.image.width ?? 0) == 1)
-						) {
-						if (loadstate.extendedImageLoadState == LoadState.failed) {
-							// Don't break the Widget tree
-							Future.microtask(() => widget.onLoadError?.call(loadstate.lastException, loadstate.lastStack));
-						}
-						final icon = loadstate.extendedImageLoadState == LoadState.failed && url.isNotEmpty ? CupertinoIcons.exclamationmark_triangle_fill : (widget.attachment.icon ?? Adaptive.icons.photo);
-						return _AttachmentThumbnailPlaceholder(
-							child: null,
-							icon: icon,
-							effectiveWidth: effectiveWidth,
-							effectiveHeight: effectiveHeight,
-							attachment: widget.attachment,
-							afterPaint: makeAfterPaint(alreadyShowingBigIcon: icon),
-							fit: widget.fit
-						);
-					}
-					else if (loadstate.extendedImageLoadState == LoadState.completed) {
-						widget.attachment.width ??= loadstate.extendedImageInfo?.image.width;
-						widget.attachment.height ??= loadstate.extendedImageInfo?.image.height;
-					}
-					return null;
-				}
-			);
-			if (settings.blurThumbnails && widget.mayObscure) {
-				child = ClipRect(
-					child: ImageFiltered(
-						imageFilter: ImageFilter.blur(
-							sigmaX: 7.0,
-							sigmaY: 7.0,
-							tileMode: TileMode.decal
-						),
-						child: child
-					)
-				);
-			}
-			if (!settings.thumbnailOpacity.isNegative && widget.mayObscure) {
-				child = Opacity(
-					opacity: settings.thumbnailOpacity,
-					child: child
-				);
-			}
-		}
-		else {
-			final icon = widget.attachment.icon ?? Adaptive.icons.photo;
-			child = _AttachmentThumbnailPlaceholder(
-				child: null,
-				icon: icon,
-				effectiveWidth: effectiveWidth,
-				effectiveHeight: effectiveHeight,
-				attachment: widget.attachment,
-				afterPaint: makeAfterPaint(alreadyShowingBigIcon: icon),
-				fit: widget.fit
-			);
-		}
-		return _maybeHero(context, child);
-	}
+  Widget _build({
+    required BuildContext context,
+    required Settings settings,
+    required double effectiveWidth,
+    required double effectiveHeight,
+    required bool forceFullQuality,
+  }) {
+    final spoiler = widget.attachment.spoiler && !widget.revealSpoilers;
+    final s = widget.site ?? context.watch<ImageboardSite?>();
+    if (s == null) {
+      return SizedBox(
+        width: effectiveWidth,
+        height: effectiveHeight,
+        child: const Center(
+          child: Icon(CupertinoIcons.exclamationmark_triangle_fill),
+        ),
+      );
+    }
+    bool resize = false;
+    String url = widget.attachment.thumbnailUrl;
+    if ((forceFullQuality ||
+            (widget.overrideFullQuality ??
+                (settings.fullQualityThumbnails &&
+                    !widget.attachment.isRateLimited))) &&
+        widget.attachment.type == AttachmentType.image) {
+      resize = true;
+      url = widget.attachment.url;
+    }
+    if (spoiler && !settings.alwaysShowSpoilers) {
+      url =
+          s
+              .getSpoilerImageUrl(
+                widget.attachment,
+                thread: context
+                    .read<PostSpanZoneData?>()
+                    ?.primaryThreadState
+                    ?.thread,
+              )
+              ?.toString() ??
+          '';
+    }
+    if (url.isEmpty) {
+      final icon = spoiler
+          ? CupertinoIcons.eye_slash
+          : (widget.attachment.icon ?? Adaptive.icons.photo);
+      final theme = context.watch<SavedTheme>();
+      return _maybeHero(
+        context,
+        SizedBox(
+          width: effectiveWidth,
+          height: widget.shrinkHeight || widget.expand ? null : effectiveHeight,
+          child: _AttachmentThumbnailPlaceholder(
+            child: null,
+            icon: icon,
+            effectiveWidth: effectiveWidth,
+            effectiveHeight: effectiveHeight,
+            attachment: widget.attachment,
+            afterPaint: _makeKeyedAfterPaint(
+              attachment: widget.attachment,
+              cornerIcon: AttachmentThumbnailCornerIcon(
+                backgroundColor: theme.backgroundColor,
+                borderColor: theme.primaryColorWithBrightness(0.2),
+                size: null,
+              ),
+              alreadyShowingBigIcon: icon,
+              primaryColor: ChanceTheme.primaryColorOf(context),
+            ),
+            fit: widget.fit,
+          ),
+        ),
+      );
+    }
+    // Prefer a locally-downloaded file over a network fetch.
+    // For the full-quality path (url == attachment.url) use findDownloadedFile;
+    // for the thumbnail path use findDownloadedThumbnailFile.
+    final File? localFile = url == widget.attachment.url
+        ? ThreadDownloadService.instance.findDownloadedFile(widget.attachment)
+        : ThreadDownloadService.instance.findDownloadedThumbnailFile(
+            widget.attachment,
+          );
+    final uri = Uri.parse(url);
+    ImageProvider image;
+    if (localFile != null) {
+      image = FileImage(localFile);
+    } else {
+      final copypartyUri = url == widget.attachment.url
+          ? _copypartyFullUri
+          : _copypartyThumbUri;
+      if (copypartyUri != null) {
+        image = CNetworkImageProvider(
+          copypartyUri.toString(),
+          client: s.client,
+          cache: true,
+          headers: _copypartyHeaders ?? const <String, String>{},
+          afterFirstLoad: url == widget.attachment.url && !forceFullQuality
+              ? () {
+                  AttachmentCache.onCached(widget.attachment, this);
+                }
+              : null,
+        );
+      } else {
+        image = CNetworkImageProvider(
+          url,
+          client: s.client,
+          cache: true,
+          headers: {
+            ...s.getHeaders(widget.attachment, uri),
+            if (widget.attachment.useRandomUseragent)
+              'user-agent': makeRandomUserAgent(),
+          },
+          afterFirstLoad: () {
+            if (url == widget.attachment.url) {
+              // This is a full-quality thumbnail
+              if (!forceFullQuality) {
+                // Forced thumbnails are already known to be cached, don't report it
+                AttachmentCache.onCached(widget.attachment, this);
+              }
+            }
+          },
+        );
+      }
+    }
+    if (url.endsWith('.gif') ||
+        url.endsWith('.webp') /* might be animated WebP */ ) {
+      image = OneFrameImageProvider(image);
+    }
+    final pixelation = settings.thumbnailPixelation;
+    final FilterQuality filterQuality;
+    if (pixelation > 0 && widget.mayObscure) {
+      filterQuality = FilterQuality.none;
+      // In BoxFit.cover we see the shortest side
+      final targetLongestSide = widget.fit != BoxFit.cover;
+      // maintain minimum pixels on shortest side
+      final targetHeight =
+          (targetLongestSide && (widget.attachment.aspectRatio < 1)) ||
+          (!targetLongestSide && (widget.attachment.aspectRatio > 1));
+      image = ExtendedResizeImage(
+        image,
+        maxBytes: null,
+        width: targetHeight ? null : pixelation,
+        height: targetHeight ? pixelation : null,
+      );
+    } else if (resize && effectiveWidth.isFinite && effectiveHeight.isFinite) {
+      filterQuality = FilterQuality.low;
+      image = ExtendedResizeImage(
+        image,
+        maxBytes: 800 << 10,
+        width: widget.overrideFullQuality == true
+            ? null
+            : (effectiveWidth * MediaQuery.devicePixelRatioOf(context)).ceil(),
+      );
+    } else {
+      filterQuality = FilterQuality.low;
+    }
+    final primaryColor = ChanceTheme.primaryColorOf(context);
+    final cornerIcon = widget.cornerIcon;
+    _KeyedAfterPaint? makeAfterPaint({IconData? alreadyShowingBigIcon}) =>
+        _makeKeyedAfterPaint(
+          attachment: widget.attachment,
+          cornerIcon: cornerIcon,
+          alreadyShowingBigIcon: alreadyShowingBigIcon,
+          primaryColor: primaryColor,
+        );
+    Widget child;
+    if (settings.loadThumbnails && !widget.hide) {
+      final afterPaint = makeAfterPaint();
+      child = ExtendedImage(
+        image: image,
+        constraints: widget.expand
+            ? null
+            : BoxConstraints(
+                maxWidth: effectiveWidth,
+                maxHeight: effectiveHeight,
+              ),
+        width: effectiveWidth,
+        height: widget.shrinkHeight || widget.expand ? null : effectiveHeight,
+        color: const Color.fromRGBO(238, 242, 255, 1),
+        colorBlendMode: BlendMode.dstOver,
+        fit: widget.fit,
+        alignment: widget.alignment,
+        key: widget.gaplessPlayback ? null : ValueKey(url),
+        gaplessPlayback: true,
+        suppressRebuild: widget.suppressImageRebuild,
+        rotate90DegreesClockwise: widget.rotate90DegreesClockwise,
+        afterPaintImage: afterPaint == null
+            ? null
+            : (
+                key: afterPaint.key,
+                fn: (canvas, rect, image, paint) {
+                  afterPaint.afterPaint(canvas, rect);
+                },
+              ),
+        filterQuality: filterQuality,
+        loadStateChanged: (loadstate) {
+          if (loadstate.extendedImageLoadState == LoadState.loading) {
+            return _AttachmentThumbnailPlaceholder(
+              effectiveWidth: effectiveWidth,
+              effectiveHeight: effectiveHeight,
+              attachment: widget.attachment,
+              fit: widget.fit,
+              afterPaint: makeAfterPaint(),
+              child: const CircularProgressIndicator.adaptive(),
+            );
+          } else if (
+          // Image loading failed
+          loadstate.extendedImageLoadState == LoadState.failed ||
+              (
+                  // The real image dimensions were 1x1 (thumbnailer-failed placeholder)
+                  pixelation != 1 &&
+                      (loadstate.extendedImageInfo?.image.height ?? 0) == 1) &&
+                  ((loadstate.extendedImageInfo?.image.width ?? 0) == 1)) {
+            if (loadstate.extendedImageLoadState == LoadState.failed) {
+              // Don't break the Widget tree
+              Future.microtask(
+                () => widget.onLoadError?.call(
+                  loadstate.lastException,
+                  loadstate.lastStack,
+                ),
+              );
+            }
+            final icon =
+                loadstate.extendedImageLoadState == LoadState.failed &&
+                    url.isNotEmpty &&
+                    !s.hasUnreliableThumbnails
+                ? CupertinoIcons.exclamationmark_triangle_fill
+                : (widget.attachment.icon ?? Adaptive.icons.photo);
+            return _AttachmentThumbnailPlaceholder(
+              child: null,
+              icon: icon,
+              effectiveWidth: effectiveWidth,
+              effectiveHeight: effectiveHeight,
+              attachment: widget.attachment,
+              afterPaint: makeAfterPaint(alreadyShowingBigIcon: icon),
+              fit: widget.fit,
+            );
+          } else if (loadstate.extendedImageLoadState == LoadState.completed) {
+            widget.attachment.width ??=
+                loadstate.extendedImageInfo?.image.width;
+            widget.attachment.height ??=
+                loadstate.extendedImageInfo?.image.height;
+          }
+          return null;
+        },
+      );
+      if (settings.blurThumbnails && widget.mayObscure) {
+        child = ClipRect(
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: 7.0,
+              sigmaY: 7.0,
+              tileMode: TileMode.decal,
+            ),
+            child: child,
+          ),
+        );
+      }
+      if (!settings.thumbnailOpacity.isNegative && widget.mayObscure) {
+        child = Opacity(opacity: settings.thumbnailOpacity, child: child);
+      }
+    } else {
+      final icon = widget.attachment.icon ?? Adaptive.icons.photo;
+      child = _AttachmentThumbnailPlaceholder(
+        child: null,
+        icon: icon,
+        effectiveWidth: effectiveWidth,
+        effectiveHeight: effectiveHeight,
+        attachment: widget.attachment,
+        afterPaint: makeAfterPaint(alreadyShowingBigIcon: icon),
+        fit: widget.fit,
+      );
+    }
+    return _maybeHero(context, child);
+  }
 
-	@override
-	Widget build(BuildContext context) {
-		final settings = context.watch<Settings>();
-		double effectiveWidth = widget.width ?? settings.thumbnailSize;
-		double effectiveHeight = widget.height ?? settings.thumbnailSize;
-		if (widget.shrinkHeight && widget.fit == BoxFit.contain && widget.attachment.width != null && widget.attachment.height != null) {
-			if (widget.attachment.aspectRatio > 1) {
-				effectiveHeight = effectiveWidth / widget.attachment.aspectRatio;
-			}
-		}
-		if (widget.rotate90DegreesClockwise) {
-			final tmp = effectiveWidth;
-			effectiveWidth = effectiveHeight;
-			effectiveHeight = tmp;
-		}
-		if (effectiveWidth <= 125 && effectiveHeight <= 125 && !widget.attachment.thumbnailUrl.startsWith(thumbsApiPrefix)) {
-			// Don't even try to monitor for HQ caching
-			return _build(
-				context: context,
-				settings: settings,
-				effectiveWidth: effectiveWidth,
-				effectiveHeight: effectiveHeight,
-				forceFullQuality: false
-			);
-		}
-		return StreamBuilder(
-			stream: AttachmentCache.stream.where((e) => e.$1.url == widget.attachment.url && e.$2 != this),
-			builder: (context, _) => FutureBuilder(
-				future: AttachmentCache.optimisticallyFindFile(widget.attachment),
-				builder: (context, snapshot) {
-					return _build(
-						context: context,
-						settings: settings,
-						effectiveWidth: effectiveWidth,
-						effectiveHeight: effectiveHeight,
-						forceFullQuality: snapshot.hasData
-					);
-				}
-			)
-		);
-	}
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<Settings>();
+    double effectiveWidth = widget.width ?? settings.thumbnailSize;
+    double effectiveHeight = widget.height ?? settings.thumbnailSize;
+    if (widget.shrinkHeight &&
+        widget.fit == BoxFit.contain &&
+        widget.attachment.width != null &&
+        widget.attachment.height != null) {
+      if (widget.attachment.aspectRatio > 1) {
+        effectiveHeight = effectiveWidth / widget.attachment.aspectRatio;
+      }
+    }
+    if (widget.rotate90DegreesClockwise) {
+      final tmp = effectiveWidth;
+      effectiveWidth = effectiveHeight;
+      effectiveHeight = tmp;
+    }
+    if (effectiveWidth <= 125 &&
+        effectiveHeight <= 125 &&
+        !widget.attachment.thumbnailUrl.startsWith(thumbsApiPrefix)) {
+      // Don't even try to monitor for HQ caching
+      return _build(
+        context: context,
+        settings: settings,
+        effectiveWidth: effectiveWidth,
+        effectiveHeight: effectiveHeight,
+        forceFullQuality: false,
+      );
+    }
+    return StreamBuilder(
+      stream: AttachmentCache.stream.where(
+        (e) => e.$1.url == widget.attachment.url && e.$2 != this,
+      ),
+      builder: (context, _) => FutureBuilder(
+        future: AttachmentCache.optimisticallyFindFile(widget.attachment),
+        builder: (context, snapshot) {
+          return _build(
+            context: context,
+            settings: settings,
+            effectiveWidth: effectiveWidth,
+            effectiveHeight: effectiveHeight,
+            forceFullQuality: snapshot.hasData,
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _AttachmentThumbnailPlaceholder extends StatelessWidget {
-	final Widget? child;
-	final IconData? icon;
-	final Attachment attachment;
-	final double effectiveWidth;
-	final double effectiveHeight;
-	final BoxFit fit;
-	final _KeyedAfterPaint? afterPaint;
+  final Widget? child;
+  final IconData? icon;
+  final Attachment attachment;
+  final double effectiveWidth;
+  final double effectiveHeight;
+  final BoxFit fit;
+  final _KeyedAfterPaint? afterPaint;
 
-	const _AttachmentThumbnailPlaceholder({
-		required this.child,
-		this.icon,
-		required this.attachment,
-		required this.effectiveWidth,
-		required this.effectiveHeight,
-		required this.fit,
-		required this.afterPaint
-	});
+  const _AttachmentThumbnailPlaceholder({
+    required this.child,
+    this.icon,
+    required this.attachment,
+    required this.effectiveWidth,
+    required this.effectiveHeight,
+    required this.fit,
+    required this.afterPaint,
+  });
 
-	@override
-	Widget build(BuildContext context) {
-		final theme = context.watch<SavedTheme>();
-		return CustomSingleChildLayout(
-			delegate: _AttachmentThumbnailPlaceholderLayoutDelegate(
-				attachment: attachment,
-				effectiveWidth: effectiveWidth,
-				effectiveHeight: effectiveHeight,
-				fit: fit
-			),
-			child: CustomPaint(
-				foregroundPainter: _AttachmentThumbnailPlaceholderAfterPaintCustomPainter(afterPaint),
-				child: DecoratedBox(
-					decoration: BoxDecoration(
-						color: theme.barColor
-					),
-					child: Center(
-						child: switch (icon) {
-							IconData icon => CustomPaint(
-								painter: _AttachmentThumbnailPlaceholderIconCustomPainter(
-									icon: icon,
-									color: theme.primaryColor
-								),
-								child: const SizedBox.expand()
-							),
-							null => child
-						}
-					)
-				)
-			)
-		);
-	}
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<SavedTheme>();
+    return CustomSingleChildLayout(
+      delegate: _AttachmentThumbnailPlaceholderLayoutDelegate(
+        attachment: attachment,
+        effectiveWidth: effectiveWidth,
+        effectiveHeight: effectiveHeight,
+        fit: fit,
+      ),
+      child: CustomPaint(
+        foregroundPainter:
+            _AttachmentThumbnailPlaceholderAfterPaintCustomPainter(afterPaint),
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: theme.barColor),
+          child: Center(
+            child: switch (icon) {
+              IconData icon => CustomPaint(
+                painter: _AttachmentThumbnailPlaceholderIconCustomPainter(
+                  icon: icon,
+                  color: theme.primaryColor,
+                ),
+                child: const SizedBox.expand(),
+              ),
+              null => child,
+            },
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _AttachmentThumbnailPlaceholderLayoutDelegate extends SingleChildLayoutDelegate {
-	final BoxFit fit;
-	final double effectiveWidth;
-	final double effectiveHeight;
-	final Attachment attachment;
+class _AttachmentThumbnailPlaceholderLayoutDelegate
+    extends SingleChildLayoutDelegate {
+  final BoxFit fit;
+  final double effectiveWidth;
+  final double effectiveHeight;
+  final Attachment attachment;
 
-	const _AttachmentThumbnailPlaceholderLayoutDelegate({
-		required this.fit,
-		required this.effectiveWidth,
-		required this.effectiveHeight,
-		required this.attachment
-	});
+  const _AttachmentThumbnailPlaceholderLayoutDelegate({
+    required this.fit,
+    required this.effectiveWidth,
+    required this.effectiveHeight,
+    required this.attachment,
+  });
 
-	Size _getChildSize(BoxConstraints constraints) {
-		Size biggest = constraints.biggest;
-		if (biggest.isInfinite) {
-			biggest = Size(effectiveWidth, effectiveHeight);
-		}
-		return applyBoxFit(fit, Size(attachment.width?.toDouble() ?? effectiveWidth, attachment.height?.toDouble() ?? effectiveHeight), biggest).destination;
-	}
+  Size _getChildSize(BoxConstraints constraints) {
+    Size biggest = constraints.biggest;
+    if (biggest.isInfinite) {
+      biggest = Size(effectiveWidth, effectiveHeight);
+    }
+    return applyBoxFit(
+      fit,
+      Size(
+        attachment.width?.toDouble() ?? effectiveWidth,
+        attachment.height?.toDouble() ?? effectiveHeight,
+      ),
+      biggest,
+    ).destination;
+  }
 
-	@override
-	Size getSize(BoxConstraints constraints) {
-		return _getChildSize(constraints);
-	}
+  @override
+  Size getSize(BoxConstraints constraints) {
+    return _getChildSize(constraints);
+  }
 
-	@override
-	BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-		return BoxConstraints.tight(_getChildSize(constraints));
-	}
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints.tight(_getChildSize(constraints));
+  }
 
-	@override
-	Offset getPositionForChild(Size size, Size childSize) {
-		return Alignment.center.inscribe(childSize, Offset.zero & size).topLeft;
-	}
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    return Alignment.center.inscribe(childSize, Offset.zero & size).topLeft;
+  }
 
-	@override
-	bool shouldRelayout(_AttachmentThumbnailPlaceholderLayoutDelegate oldDelegate) {
-		return
-			oldDelegate.fit != fit ||
-			oldDelegate.effectiveWidth != effectiveWidth ||
-			oldDelegate.effectiveHeight != effectiveHeight ||
-			oldDelegate.attachment != attachment;
-	}
+  @override
+  bool shouldRelayout(
+    _AttachmentThumbnailPlaceholderLayoutDelegate oldDelegate,
+  ) {
+    return oldDelegate.fit != fit ||
+        oldDelegate.effectiveWidth != effectiveWidth ||
+        oldDelegate.effectiveHeight != effectiveHeight ||
+        oldDelegate.attachment != attachment;
+  }
 }
 
 class _AttachmentThumbnailPlaceholderIconCustomPainter extends CustomPainter {
-	final IconData icon;
-	final Color color;
+  final IconData icon;
+  final Color color;
 
-	const _AttachmentThumbnailPlaceholderIconCustomPainter({
-		required this.icon,
-		required this.color
-	});
+  const _AttachmentThumbnailPlaceholderIconCustomPainter({
+    required this.icon,
+    required this.color,
+  });
 
-	@override
-	void paint(Canvas canvas, Size size) {
-		final fontSize = (0.5 * size.shortestSide).clamp(24.0, 100.0);
-		TextPainter textPainter = TextPainter(textDirection: TextDirection.ltr);
-		textPainter.text = IconSpan(
-			icon: icon,
-			size: fontSize,
-			color: color
-		);
-		textPainter.layout();
-		textPainter.paint(canvas, Alignment.center.inscribe(textPainter.size, Offset.zero & size).topLeft);
-	}
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fontSize = (0.5 * size.shortestSide).clamp(24.0, 100.0);
+    TextPainter textPainter = TextPainter(textDirection: TextDirection.ltr);
+    textPainter.text = IconSpan(icon: icon, size: fontSize, color: color);
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Alignment.center.inscribe(textPainter.size, Offset.zero & size).topLeft,
+    );
+  }
 
-	@override
-	bool shouldRepaint(_AttachmentThumbnailPlaceholderIconCustomPainter oldDelegate) {
-		return oldDelegate.icon != icon;
-	}
+  @override
+  bool shouldRepaint(
+    _AttachmentThumbnailPlaceholderIconCustomPainter oldDelegate,
+  ) {
+    return oldDelegate.icon != icon;
+  }
 }
 
-class _AttachmentThumbnailPlaceholderAfterPaintCustomPainter extends CustomPainter {
-	final _KeyedAfterPaint? afterPaint;
+class _AttachmentThumbnailPlaceholderAfterPaintCustomPainter
+    extends CustomPainter {
+  final _KeyedAfterPaint? afterPaint;
 
-	const _AttachmentThumbnailPlaceholderAfterPaintCustomPainter(this.afterPaint);
+  const _AttachmentThumbnailPlaceholderAfterPaintCustomPainter(this.afterPaint);
 
-	@override
-	bool shouldRepaint(_AttachmentThumbnailPlaceholderAfterPaintCustomPainter oldDelegate) {
-		return oldDelegate.afterPaint?.key != afterPaint?.key;
-	}
-	
-	@override
-	void paint(Canvas canvas, Size size) {
-		afterPaint?.afterPaint.call(canvas, Offset.zero & size);
-	}
+  @override
+  bool shouldRepaint(
+    _AttachmentThumbnailPlaceholderAfterPaintCustomPainter oldDelegate,
+  ) {
+    return oldDelegate.afterPaint?.key != afterPaint?.key;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    afterPaint?.afterPaint.call(canvas, Offset.zero & size);
+  }
 }

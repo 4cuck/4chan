@@ -2,6 +2,7 @@ import 'package:chan/services/persistence.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/sites/imageboard_site.dart';
 import 'package:chan/sites/meguca.dart';
+import 'package:chan/util.dart';
 import 'package:dio/dio.dart';
 
 /// Meguca's anti-abuse middleware (websockets/post_creation.go ::
@@ -124,10 +125,12 @@ Future<PostReceipt> megucaSubmitPostViaHttp({
     'perfHash': _megucaPerfHash(),
     if (hCaptchaToken != null && hCaptchaToken.isNotEmpty)
       'hCaptchaResponse': hCaptchaToken,
-    if (post.spoiler == true) 'spoiler': 'on',
+    // Meguca takes one attachment per post, so only the first file is sent.
+    if (post.files.tryFirst?.spoiler == true) 'spoiler': 'on',
   };
-  if (post.file case String path) {
-    final filename = post.overrideFilename ?? path.split(RegExp(r'[/\\]')).last;
+  if (post.files.tryFirst case final DraftPostFile draftFile) {
+    final path = draftFile.path;
+    final filename = draftFile.overrideFilename ?? draftFile.basename;
     final imageToken = await megucaUploadImageViaHttp(
       site: site,
       path: path,

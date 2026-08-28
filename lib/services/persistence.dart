@@ -51,7 +51,7 @@ const _knownCacheDirs = {
   'webmcache': 'Converted videos',
   'spancache': 'Decoded posts',
   'sharecache': 'Media exported for sharing',
-  'webpickercache': 'Images picked from web'
+  'webpickercache': 'Images picked from web',
 };
 
 const _boxPrefix = '';
@@ -61,10 +61,11 @@ const _backupUpdateDuration = Duration(minutes: 10);
 class UriFields {
   static String getValueOnUri(Uri x) => x.toString();
   static const value = ReadOnlyHiveFieldAdapter<Uri, String>(
-      getter: getValueOnUri,
-      fieldNumber: 0,
-      fieldName: 'value',
-      merger: PrimitiveMerger());
+    getter: getValueOnUri,
+    fieldNumber: 0,
+    fieldName: 'value',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class UriAdapter extends TypeAdapter<Uri> {
@@ -106,10 +107,11 @@ bool defaultCompactionStrategy(int entries, int deletedEntries) {
 class DurationFields {
   static int getMicroseconds(Duration x) => x.inMicroseconds;
   static const microseconds = ReadOnlyHiveFieldAdapter<Duration, int>(
-      getter: getMicroseconds,
-      fieldNumber: 0,
-      fieldName: 'microseconds',
-      merger: PrimitiveMerger());
+    getter: getMicroseconds,
+    fieldNumber: 0,
+    fieldName: 'microseconds',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class DurationAdapter extends TypeAdapter<Duration> {
@@ -261,19 +263,23 @@ class Persistence extends ChangeNotifier {
   static late final DateTime appLaunchTime;
   static (String?, ThreadIdentifier?)? _threadIdToBumpInHistory;
 
-  static Future<Box<T>> _openBoxWithBackup<T>(String name,
-      {CompactionStrategy compactionStrategy = defaultCompactionStrategy,
-      bool syncIO = false}) async {
+  static Future<Box<T>> _openBoxWithBackup<T>(
+    String name, {
+    CompactionStrategy compactionStrategy = defaultCompactionStrategy,
+    bool syncIO = false,
+  }) async {
     final boxName = '$_boxPrefix$name';
     final boxPath = documentsDirectory.child('$boxName.hive');
     final backupBoxName = '$_backupBoxPrefix$name';
     final backupBoxPath = documentsDirectory.child('$backupBoxName.hive');
     Box<T> box;
     try {
-      box = await Hive.openBox<T>(boxName,
-          compactionStrategy: compactionStrategy,
-          crashRecovery: false,
-          syncIO: syncIO);
+      box = await Hive.openBox<T>(
+        boxName,
+        compactionStrategy: compactionStrategy,
+        crashRecovery: false,
+        syncIO: syncIO,
+      );
       if (await File(boxPath).exists()) {
         box.protectWrite(() async {
           await File(boxPath).copy(backupBoxPath);
@@ -282,21 +288,26 @@ class Persistence extends ChangeNotifier {
     } catch (e, st) {
       if (await File(backupBoxPath).exists()) {
         print(
-            'Attempting to handle $e opening some Box<$T> by restoring backup');
+          'Attempting to handle $e opening some Box<$T> by restoring backup',
+        );
         print(st);
         final backupTime = (await File(backupBoxPath).stat()).modified;
         if (await File(boxPath).exists()) {
-          await File(boxPath)
-              .copy(documentsDirectory.child('$boxName.broken.hive'));
+          await File(
+            boxPath,
+          ).copy(documentsDirectory.child('$boxName.broken.hive'));
           await File(backupBoxPath).copy(boxPath);
         }
-        box = await Hive.openBox<T>(boxName,
-            compactionStrategy: compactionStrategy);
+        box = await Hive.openBox<T>(
+          boxName,
+          compactionStrategy: compactionStrategy,
+        );
         Future.delayed(const Duration(seconds: 5), () {
           alertError(
-              ImageboardRegistry.instance.context!,
-              'Database corruption\nDatabase was restored to backup from $backupTime (${formatRelativeTime(backupTime)} ago)',
-              null);
+            ImageboardRegistry.instance.context!,
+            'Database corruption\nDatabase was restored to backup from $backupTime (${formatRelativeTime(backupTime)} ago)',
+            null,
+          );
         });
       } else {
         rethrow;
@@ -305,32 +316,39 @@ class Persistence extends ChangeNotifier {
     return box;
   }
 
-  static Future<LazyBox<T>> _openLazyBoxWithBackup<T>(String name,
-      {CompactionStrategy compactionStrategy = defaultCompactionStrategy,
-      bool gzip = false,
-      bool syncIO = false}) async {
+  static Future<LazyBox<T>> _openLazyBoxWithBackup<T>(
+    String name, {
+    CompactionStrategy compactionStrategy = defaultCompactionStrategy,
+    bool gzip = false,
+    bool syncIO = false,
+  }) async {
     final boxName = '$_boxPrefix$name';
     final boxPath = documentsDirectory.child('$boxName.hive');
     final backupBoxName = '$_backupBoxPrefix$name';
-    final backupBoxPath =
-        documentsDirectory.child('$backupBoxName.hive${gzip ? '.gz' : ''}');
+    final backupBoxPath = documentsDirectory.child(
+      '$backupBoxName.hive${gzip ? '.gz' : ''}',
+    );
     LazyBox<T> box;
     bool backupCorrupted = false;
     try {
-      box = await Hive.openLazyBox<T>(boxName,
-          compactionStrategy: compactionStrategy,
-          crashRecovery: false,
-          syncIO: syncIO);
+      box = await Hive.openLazyBox<T>(
+        boxName,
+        compactionStrategy: compactionStrategy,
+        crashRecovery: false,
+        syncIO: syncIO,
+      );
       _backupBox(box, backupBoxPath, gzip: gzip);
     } catch (e, st) {
       if (await File(backupBoxPath).exists()) {
         print(
-            'Attempting to handle $e opening some Box<$T> by restoring backup');
+          'Attempting to handle $e opening some Box<$T> by restoring backup',
+        );
         print(st);
         final backupTime = (await File(backupBoxPath).stat()).modified;
         if (await File(boxPath).exists()) {
-          await File(boxPath)
-              .copy(documentsDirectory.child('$boxName.broken.hive'));
+          await File(
+            boxPath,
+          ).copy(documentsDirectory.child('$boxName.broken.hive'));
           if (gzip) {
             try {
               await copyUngzipped(backupBoxPath, boxPath);
@@ -338,15 +356,18 @@ class Persistence extends ChangeNotifier {
               // Backup box is corrupted
               backupCorrupted = true;
               await File(backupBoxPath).rename(
-                  documentsDirectory.child('$backupBoxName.broken.hive.gz'));
+                documentsDirectory.child('$backupBoxName.broken.hive.gz'),
+              );
               await File(boxPath).delete();
             }
           } else {
             await File(backupBoxPath).copy(boxPath);
           }
         }
-        box = await Hive.openLazyBox<T>(boxName,
-            compactionStrategy: compactionStrategy);
+        box = await Hive.openLazyBox<T>(
+          boxName,
+          compactionStrategy: compactionStrategy,
+        );
         Future.delayed(const Duration(seconds: 5), () {
           String message = 'Database corruption\n';
           if (backupCorrupted) {
@@ -365,8 +386,11 @@ class Persistence extends ChangeNotifier {
     return box;
   }
 
-  static Future<void> _backupBox<T>(BoxBase<T> box, String backupBoxPath,
-      {bool gzip = false}) async {
+  static Future<void> _backupBox<T>(
+    BoxBase<T> box,
+    String backupBoxPath, {
+    bool gzip = false,
+  }) async {
     final boxPath = box.path;
     if (boxPath != null && await File(boxPath).exists()) {
       await box.protectWrite(() async {
@@ -381,11 +405,15 @@ class Persistence extends ChangeNotifier {
     }
   }
 
-  static void _startBoxBackupTimer<T>(BoxBase<T> box, String name,
-      {bool gzip = false}) {
+  static void _startBoxBackupTimer<T>(
+    BoxBase<T> box,
+    String name, {
+    bool gzip = false,
+  }) {
     final backupBoxName = '$_backupBoxPrefix$name';
-    final backupBoxPath =
-        documentsDirectory.child('$backupBoxName.hive${gzip ? '.gz' : ''}');
+    final backupBoxPath = documentsDirectory.child(
+      '$backupBoxName.hive${gzip ? '.gz' : ''}',
+    );
     Timer.periodic(_backupUpdateDuration, (_) async {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
         await _backupBox(box, backupBoxPath, gzip: gzip);
@@ -398,7 +426,7 @@ class Persistence extends ChangeNotifier {
       final dir = documentsDirectory.path;
       for (final path in [
         '$dir/$sharedThreadsBoxName.hive',
-        '$dir/$_backupBoxPrefix$sharedThreadsBoxName.hive.gz'
+        '$dir/$_backupBoxPrefix$sharedThreadsBoxName.hive.gz',
       ]) {
         final file = File(path);
         if (file.existsSync()) {
@@ -413,7 +441,7 @@ class Persistence extends ChangeNotifier {
     final dir = (await getApplicationDocumentsDirectory()).path;
     for (final path in [
       '$dir/$sharedThreadsBoxName.hive',
-      '$dir/$_backupBoxPrefix$sharedThreadsBoxName.hive.gz'
+      '$dir/$_backupBoxPrefix$sharedThreadsBoxName.hive.gz',
     ]) {
       final file = File(path);
       if (await file.exists()) {
@@ -423,23 +451,29 @@ class Persistence extends ChangeNotifier {
   }
 
   static bool isThreadCached(String imageboardKey, String board, int id) {
-    return sharedThreadsBox
-        .containsKey('$imageboardKey/${board.toLowerCase()}/$id');
+    return sharedThreadsBox.containsKey(
+      '$imageboardKey/${board.toLowerCase()}/$id',
+    );
   }
 
   static const _kUseSpanCache = true;
 
   static Future<Thread?> getCachedThread(
-      String imageboardKey, String board, int id,
-      {bool syncIO = false}) {
+    String imageboardKey,
+    String board,
+    int id, {
+    bool syncIO = false,
+  }) {
     final b = board.toLowerCase();
     final key = '$imageboardKey/$b/$id';
     return _loadThreadDebouncer.debounce(key, () async {
       return await _threadsFileLock.protect(key, (_) async {
         Thread? ret = await sharedThreadsBox.get(key, syncIO: syncIO);
         if (ret != null && _kUseSpanCache) {
-          final file =
-              spanCacheDirectory.dir(imageboardKey).dir(b).file('$id.bin');
+          final file = spanCacheDirectory
+              .dir(imageboardKey)
+              .dir(b)
+              .file('$id.bin');
           if (file.existsSync()) {
             try {
               final bytes = file.readAsBytesSync();
@@ -455,16 +489,22 @@ class Persistence extends ChangeNotifier {
         // calls hit the box directly and avoid repeated file I/O.
         if (ret == null) {
           final htmlFile = File(
-              '${Persistence.downloadsDirectory.path}/$imageboardKey/$b/$id/thread_data.html');
+            '${Persistence.downloadsDirectory.path}/$imageboardKey/$b/$id/thread_data.html',
+          );
           if (htmlFile.existsSync()) {
             try {
               ret = parseKurobaThreadHtml(
-                  imageboardKey, b, id, await htmlFile.readAsString());
+                imageboardKey,
+                b,
+                id,
+                await htmlFile.readAsString(),
+              );
               if (ret != null) {
                 // Cache in Hive so future lookups are instant (no repeated HTML parse).
                 await sharedThreadsBox.put(key, ret);
                 debugPrint(
-                    '[HTML_FALLBACK] getCachedThread loaded from thread_data.html: $imageboardKey/$b/$id');
+                  '[HTML_FALLBACK] getCachedThread loaded from thread_data.html: $imageboardKey/$b/$id',
+                );
               }
             } catch (_) {
               // Corrupt HTML, leave as null
@@ -477,7 +517,11 @@ class Persistence extends ChangeNotifier {
   }
 
   static Future<void> _writeSpanCache(
-      String imageboardKey, String b, int id, Thread thread) async {
+    String imageboardKey,
+    String b,
+    int id,
+    Thread thread,
+  ) async {
     if (!_kUseSpanCache) {
       return;
     }
@@ -494,7 +538,11 @@ class Persistence extends ChangeNotifier {
   }
 
   static Future<void> setCachedThread(
-      String imageboardKey, String board, int id, Thread? thread) async {
+    String imageboardKey,
+    String board,
+    int id,
+    Thread? thread,
+  ) async {
     final b = board.toLowerCase();
     final key = '$imageboardKey/$b/$id';
     return _threadsFileLock.protect(key, (_) async {
@@ -503,8 +551,10 @@ class Persistence extends ChangeNotifier {
         await _writeSpanCache(imageboardKey, b, id, thread);
       } else {
         await sharedThreadsBox.delete(key);
-        final file =
-            spanCacheDirectory.dir(imageboardKey).dir(b).file('$id.bin');
+        final file = spanCacheDirectory
+            .dir(imageboardKey)
+            .dir(b)
+            .file('$id.bin');
         if (await file.exists()) {
           await file.delete();
         }
@@ -514,7 +564,8 @@ class Persistence extends ChangeNotifier {
 
   Listenable listenForThreadChanges(ThreadIdentifier thread) {
     return sharedThreadsBox.listenable(
-        keys: ['$imageboardKey/${thread.board.toLowerCase()}/${thread.id}']);
+      keys: ['$imageboardKey/${thread.board.toLowerCase()}/${thread.id}'],
+    );
   }
 
   static void ensureTemporaryDirectoriesExist() {
@@ -592,22 +643,33 @@ class Persistence extends ChangeNotifier {
     Hive.registerAdapter(const DownloadedThreadAdapter());
     Hive.registerAdapter(const ThreadStorageLocationAdapter());
     Hive.registerAdapter(const ThreadStoragePreferenceAdapter());
+    Hive.registerAdapter(const DraftPostFileAdapter());
   }
 
   static Future<void> initializeForTesting() async {
     wifiCookies = DefaultCookieJar();
     cellularCookies = DefaultCookieJar();
     await initializeHive(forTesting: true);
-    sharedThreadStateBox = await Hive.openBox(sharedThreadStatesBoxName,
-        backend: StorageBackendMemory(null, null));
-    sharedThreadsBox = await Hive.openLazyBox(sharedThreadsBoxName,
-        backend: StorageBackendMemory(null, null));
-    sharedBoardsBox = await Hive.openBox(sharedBoardsBoxName,
-        backend: StorageBackendMemory(null, null));
-    final settingsBox = await Hive.openBox<SavedSettings>(settingsBoxName,
-        backend: StorageBackendMemory(null, null));
-    settings = settingsBox.get(settingsBoxKey,
-        defaultValue: SavedSettings(useInternalBrowser: true))!;
+    sharedThreadStateBox = await Hive.openBox(
+      sharedThreadStatesBoxName,
+      backend: StorageBackendMemory(null, null),
+    );
+    sharedThreadsBox = await Hive.openLazyBox(
+      sharedThreadsBoxName,
+      backend: StorageBackendMemory(null, null),
+    );
+    sharedBoardsBox = await Hive.openBox(
+      sharedBoardsBoxName,
+      backend: StorageBackendMemory(null, null),
+    );
+    final settingsBox = await Hive.openBox<SavedSettings>(
+      settingsBoxName,
+      backend: StorageBackendMemory(null, null),
+    );
+    settings = settingsBox.get(
+      settingsBoxKey,
+      defaultValue: SavedSettings(useInternalBrowser: true),
+    )!;
   }
 
   /// We used to store cookies in temp dir. Move them to documents dir.
@@ -633,10 +695,6 @@ class Persistence extends ChangeNotifier {
     webmCacheDirectory = temporaryDirectory.dir('webmcache');
     httpCacheDirectory = temporaryDirectory.dir('httpcache');
     spanCacheDirectory = temporaryDirectory.dir('spancache');
-    if (!spanCacheDirectory.existsSync()) {
-      // Will have to write various spans to disk
-      splashStage.value = 'Migrating...';
-    }
     shareCacheDirectory = temporaryDirectory.dir('sharecache');
     ensureTemporaryDirectoriesExist();
     documentsDirectory = await getApplicationDocumentsDirectory();
@@ -652,8 +710,9 @@ class Persistence extends ChangeNotifier {
           ? Directory('${extDir.path}/chan_downloads')
           : Directory('${documentsDirectory.path}/chan_downloads');
     } else {
-      downloadsDirectory =
-          Directory('${documentsDirectory.path}/chan_downloads');
+      downloadsDirectory = Directory(
+        '${documentsDirectory.path}/chan_downloads',
+      );
     }
     await downloadsDirectory.create(recursive: true);
   }
@@ -685,19 +744,26 @@ class Persistence extends ChangeNotifier {
     } catch (e, st) {
       Future.error(e, st);
     }
-    final wifiCookies1 = wifiCookies =
-        PersistCookieJar(storage: await _maybeMigrateCookieStorage(''));
+    final wifiCookies1 = wifiCookies = PersistCookieJar(
+      storage: await _maybeMigrateCookieStorage(''),
+    );
     await wifiCookies1.forceInit();
     final cellularCookies1 = cellularCookies = PersistCookieJar(
-        storage: await _maybeMigrateCookieStorage('/cellular'));
+      storage: await _maybeMigrateCookieStorage('/cellular'),
+    );
     await cellularCookies1.forceInit();
     await savedAttachmentsDirectory.create(recursive: true);
-    final settingsBox = await _openBoxWithBackup<SavedSettings>(settingsBoxName,
-        compactionStrategy: (int entries, int deletedEntries) {
-      return deletedEntries > 5;
-    }, syncIO: true);
-    settings = settingsBox.get(settingsBoxKey,
-        defaultValue: SavedSettings(useInternalBrowser: true))!;
+    final settingsBox = await _openBoxWithBackup<SavedSettings>(
+      settingsBoxName,
+      compactionStrategy: (int entries, int deletedEntries) {
+        return deletedEntries > 5;
+      },
+      syncIO: true,
+    );
+    settings = settingsBox.get(
+      settingsBoxKey,
+      defaultValue: SavedSettings(useInternalBrowser: true),
+    )!;
     // Copy old values
     JsonCache.instance.embedRegexes.value = settings.deprecatedEmbedRegexes;
     JsonCache.instance.sites.value = settings.contentSettings.deprecatedSites;
@@ -710,23 +776,29 @@ class Persistence extends ChangeNotifier {
     _startBoxBackupTimer(settingsBox, settingsBoxName);
     final sharedThreadStateFuture = () async {
       sharedThreadStateBox = await _openBoxWithBackup<PersistentThreadState>(
-          sharedThreadStatesBoxName,
-          syncIO: true);
+        sharedThreadStatesBoxName,
+        syncIO: true,
+      );
     }();
     final sharedBoardsFuture = () async {
       sharedBoardsBox = await _openBoxWithBackup<ImageboardBoard>(
-          sharedBoardsBoxName,
-          syncIO: true);
+        sharedBoardsBoxName,
+        syncIO: true,
+      );
     }();
     final sharedThreadsFuture = () async {
       sharedThreadsBox = await _openLazyBoxWithBackup<Thread>(
-          sharedThreadsBoxName,
-          gzip: true,
-          syncIO: true);
+        sharedThreadsBoxName,
+        gzip: true,
+        syncIO: true,
+      );
     }();
     // Open in parallel
-    await Future.wait(
-        [sharedThreadStateFuture, sharedBoardsFuture, sharedThreadsFuture]);
+    await Future.wait([
+      sharedThreadStateFuture,
+      sharedBoardsFuture,
+      sharedThreadsFuture,
+    ]);
     await Hive.openBox<DownloadedThread>('downloadedThreads');
     // Don't need to manage subscription, this is static
     sharedThreadStateBox.watch().listen((e) {
@@ -739,8 +811,10 @@ class Persistence extends ChangeNotifier {
     _startBoxBackupTimer(sharedBoardsBox, sharedBoardsBoxName);
     if (sharedBoardsBox.isEmpty) {
       // First launch on new version
-      Future.delayed(const Duration(milliseconds: 50),
-          () => splashStage.value ??= 'Migrating...');
+      Future.delayed(
+        const Duration(milliseconds: 50),
+        () => splashStage.value ??= 'Migrating...',
+      );
     }
     _startBoxBackupTimer(sharedThreadsBox, sharedThreadsBoxName, gzip: true);
     for (final tab in tabs) {
@@ -751,14 +825,18 @@ class Persistence extends ChangeNotifier {
               (tab.deprecatedDraftSubject?.isNotEmpty ?? false) ||
               (tab.deprecatedDraftFilePath?.isNotEmpty ?? false))) {
         tab.draft = DraftPost(
-            board: board,
-            threadId: null,
-            name: null,
-            options: tab.deprecatedDraftOptions,
-            text: tab.deprecatedDraftThread ?? '',
-            subject: tab.deprecatedDraftSubject,
-            file: tab.deprecatedDraftFilePath,
-            useLoginSystem: null);
+          board: board,
+          threadId: null,
+          name: null,
+          options: tab.deprecatedDraftOptions,
+          text: tab.deprecatedDraftThread ?? '',
+          subject: tab.deprecatedDraftSubject,
+          files: [
+            if (tab.deprecatedDraftFilePath case String path)
+              DraftPostFile(path: path),
+          ],
+          useLoginSystem: null,
+        );
         tab.deprecatedDraftThread = '';
         tab.deprecatedDraftOptions = '';
         tab.deprecatedDraftSubject = '';
@@ -778,8 +856,10 @@ class Persistence extends ChangeNotifier {
       tabs.first.thread = null;
     }
     if (!settings.appliedMigrations.contains('ps')) {
-      Future.delayed(const Duration(milliseconds: 50),
-          () => splashStage.value ??= 'Migrating...');
+      Future.delayed(
+        const Duration(milliseconds: 50),
+        () => splashStage.value ??= 'Migrating...',
+      );
       // ps = "post sorting", need to nullify it to allow taking default from site
       for (final threadState in sharedThreadStateBox.values) {
         if (threadState.postSortingMethod == PostSortingMethod.none) {
@@ -791,8 +871,10 @@ class Persistence extends ChangeNotifier {
       await settings.save();
     }
     if (!settings.appliedMigrations.contains('sf')) {
-      Future.delayed(const Duration(milliseconds: 50),
-          () => splashStage.value ??= 'Migrating...');
+      Future.delayed(
+        const Duration(milliseconds: 50),
+        () => splashStage.value ??= 'Migrating...',
+      );
       // sf = "spam filter", invalidate previous IPs as it had some false positives
       for (final threadState in sharedThreadStateBox.values) {
         bool modified = false;
@@ -810,8 +892,10 @@ class Persistence extends ChangeNotifier {
       await settings.save();
     }
     if (!settings.appliedMigrations.contains('bB')) {
-      Future.delayed(const Duration(milliseconds: 50),
-          () => splashStage.value ??= 'Migrating...');
+      Future.delayed(
+        const Duration(milliseconds: 50),
+        () => splashStage.value ??= 'Migrating...',
+      );
       // bB = board capitalization. They were stored with mixed caps before
       for (final pair in sharedBoardsBox.toMap().entries) {
         // This kind of mangles the greek letter boards on lainchan.
@@ -900,16 +984,19 @@ class Persistence extends ChangeNotifier {
       int size = 0;
       final stat = await directory.stat();
       if (stat.type == FileSystemEntityType.directory) {
-        await for (final subentry
-            in Directory(directory.path).list(recursive: true)) {
+        await for (final subentry in Directory(
+          directory.path,
+        ).list(recursive: true)) {
           size += (await subentry.stat()).size;
         }
       } else {
         size = stat.size;
       }
-      folderSizes.update(_knownCacheDirs[directory.basename] ?? 'Other',
-          (total) => total + size,
-          ifAbsent: () => size);
+      folderSizes.update(
+        _knownCacheDirs[directory.basename] ?? 'Other',
+        (total) => total + size,
+        ifAbsent: () => size,
+      );
     }
     return folderSizes;
   }
@@ -935,111 +1022,134 @@ class Persistence extends ChangeNotifier {
       // The temporary directory is shared between applications, it's not safe to clear it.
       return;
     }
-    DateTime? deadline;
-    if (olderThan != null) {
-      deadline = DateTime.now().subtract(olderThan);
-    }
-    int deletedSize = 0;
-    int deletedCount = 0;
-    await for (final child in temporaryDirectory
-        .list(recursive: true)
-        .handleError((e) => print('Ignoring list error $e'),
-            test: (e) => e is FileSystemException)) {
-      final stat = await child.stat();
-      if (stat.type == FileSystemEntityType.file) {
-        // Probably something from file_pickers
-        if ((deadline == null || stat.accessed.compareTo(deadline) < 0)) {
-          deletedSize += stat.size;
-          deletedCount++;
-          try {
-            await child.delete();
-          } catch (e) {
-            print('Error deleting file: $e');
-          }
-        }
-      } else if (stat.type == FileSystemEntityType.directory) {
-        final dir = Directory(child.path);
-        if (!await dir.exists()) {
-          // Might have been deleted already, and we are in a cached recursive listing
-          continue;
-        }
-        try {
-          if (!await dir.list().isEmpty) {
-            // Don't delete non-empty directories
-            continue;
-          }
-        } on PathNotFoundException {
-          // Race condition - deleted already?
-          continue;
-        }
-        if ((deadline == null || stat.accessed.isBefore(deadline))) {
-          deletedCount++;
-          try {
-            await dir.delete();
-          } catch (e) {
-            print('Error deleting directory: $e');
-          }
-        }
+    try {
+      DateTime? deadline;
+      if (olderThan != null) {
+        deadline = DateTime.now().subtract(olderThan);
       }
-    }
-    final oldSavedThumbnailsDir =
-        documentsDirectory.dir('saved_attachments_thumbs');
-    if ((await oldSavedThumbnailsDir.stat()).type ==
-        FileSystemEntityType.directory) {
-      // No longer needed, thumbnails handled via MediaConversion from full file
-      try {
-        await oldSavedThumbnailsDir.delete(recursive: true);
-      } catch (e, st) {
-        Future.error(e, st); // crashlytics
-      }
-    }
-    if (Platform.isIOS) {
-      // FlutterEXIFRotation left various discarded JPEGs in the documentsDirectory
-      await for (final child in documentsDirectory.list().handleError(
-          (e) => print('Ignoring list error $e'),
-          test: (e) => e is FileSystemException)) {
-        if (!child.path.endsWith('.jpg') && !child.path.endsWith('.jpeg')) {
-          continue;
-        }
+      int deletedSize = 0;
+      int deletedCount = 0;
+      await for (final child
+          in temporaryDirectory
+              .list(recursive: true)
+              .handleError(
+                (e) => print('Ignoring list error $e'),
+                test: (e) => e is FileSystemException,
+              )) {
         final stat = await child.stat();
         if (stat.type == FileSystemEntityType.file) {
+          // Probably something from file_pickers
+          if ((deadline == null || stat.accessed.compareTo(deadline) < 0)) {
+            deletedSize += stat.size;
+            deletedCount++;
+            try {
+              await child.delete();
+            } catch (e) {
+              print('Error deleting file: $e');
+            }
+          }
+        } else if (stat.type == FileSystemEntityType.directory) {
+          final dir = Directory(child.path);
+          if (!await dir.exists()) {
+            // Might have been deleted already, and we are in a cached recursive listing
+            continue;
+          }
           try {
-            await child.delete();
-          } on FileSystemException catch (e) {
-            print('Failed to delete junk JPEG ${child.path}: $e');
+            if (!await dir.list().isEmpty) {
+              // Don't delete non-empty directories
+              continue;
+            }
+          } on PathNotFoundException {
+            // Race condition - deleted already?
+            continue;
+          }
+          if ((deadline == null || stat.accessed.isBefore(deadline))) {
+            deletedCount++;
+            try {
+              await dir.delete();
+            } catch (e) {
+              print('Error deleting directory: $e');
+            }
           }
         }
       }
+      final oldSavedThumbnailsDir = documentsDirectory.dir(
+        'saved_attachments_thumbs',
+      );
+      if ((await oldSavedThumbnailsDir.stat()).type ==
+          FileSystemEntityType.directory) {
+        // No longer needed, thumbnails handled via MediaConversion from full file
+        try {
+          await oldSavedThumbnailsDir.delete(recursive: true);
+        } catch (e, st) {
+          Future.error(e, st); // crashlytics
+        }
+      }
+      if (Platform.isIOS) {
+        // FlutterEXIFRotation left various discarded JPEGs in the documentsDirectory
+        await for (final child in documentsDirectory.list().handleError(
+          (e) => print('Ignoring list error $e'),
+          test: (e) => e is FileSystemException,
+        )) {
+          if (!child.path.endsWith('.jpg') && !child.path.endsWith('.jpeg')) {
+            continue;
+          }
+          final stat = await child.stat();
+          if (stat.type == FileSystemEntityType.file) {
+            try {
+              await child.delete();
+            } on FileSystemException catch (e) {
+              print('Failed to delete junk JPEG ${child.path}: $e');
+            }
+          }
+        }
+      }
+      if (deletedCount > 0) {
+        print(
+          'Deleted $deletedCount files totalling ${(deletedSize / kMB).toStringAsFixed(1)} MB',
+        );
+      }
+      if ((await FilePicker.platform.clearTemporaryFiles()) ?? false) {
+        print('Deleted FilePicker junk');
+      }
+      if (olderThan == null) {
+        await MediaScan.clearCache();
+      }
+    } finally {
+      ensureTemporaryDirectoriesExist();
+      // Needs to recreate its file
+      await LoggingInterceptor.instance.initialize();
     }
-    if (deletedCount > 0) {
-      print(
-          'Deleted $deletedCount files totalling ${(deletedSize / kMB).toStringAsFixed(1)} MB');
-    }
-    if ((await FilePicker.platform.clearTemporaryFiles()) ?? false) {
-      print('Deleted FilePicker junk');
-    }
-    ensureTemporaryDirectoriesExist();
-    // Needs to recreate its file
-    await LoggingInterceptor.instance.initialize();
   }
 
   static Future<void> cleanupThreads(
-      List<Imageboard> imageboards, Duration olderThan,
-      {Set<String> extraPreserveKeys = const {}}) async {
+    List<Imageboard> imageboards,
+    Duration olderThan, {
+    Set<String> extraPreserveKeys = const {},
+  }) async {
     final deadline = DateTime.now().subtract(olderThan);
     final toPreserve = imageboards
-        .expand((imageboard) => imageboard.persistence.savedPosts.values.map((v) =>
-            '${imageboard.key}/${v.post.board.toLowerCase()}/${v.post.threadId}'))
+        .expand(
+          (imageboard) => imageboard.persistence.savedPosts.values.map(
+            (v) =>
+                '${imageboard.key}/${v.post.board.toLowerCase()}/${v.post.threadId}',
+          ),
+        )
         .toSet();
-    toPreserve.addAll(imageboards.expand((imageboard) => imageboard
-        .persistence.browserState.threadWatches.keys
-        .map((v) => '${imageboard.key}/${v.board.toLowerCase()}/${v.id}')));
+    toPreserve.addAll(
+      imageboards.expand(
+        (imageboard) => imageboard.persistence.browserState.threadWatches.keys
+            .map((v) => '${imageboard.key}/${v.board.toLowerCase()}/${v.id}'),
+      ),
+    );
 
     final toDelete = sharedThreadStateBox.mapEntries
         .where((entry) {
           final ts = entry.value;
-          return ts.youIds.isEmpty // no replies
-              &&
+          return ts
+                  .youIds
+                  .isEmpty // no replies
+                  &&
               ts.lastOpenedTime.isBefore(deadline) // not opened recently
               &&
               (ts.savedTime == null) // not saved
@@ -1049,7 +1159,8 @@ class Persistence extends ChangeNotifier {
               (!extraPreserveKeys.contains(entry.key)) // startup-race guard
               &&
               (!toPreserve.contains(
-                  entry.key)); // connect to a saved post or thread watch
+                entry.key,
+              )); // connect to a saved post or thread watch
         })
         .map((e) => e.key)
         .toList();
@@ -1070,8 +1181,10 @@ class Persistence extends ChangeNotifier {
         if (file.statSync().type == FileSystemEntityType.file &&
             file.path.endsWith('.bin')) {
           // After spancache/, before .bin
-          final key = file.path
-              .substring(spanCacheDirPathLen + 1, file.path.length - 4);
+          final key = file.path.substring(
+            spanCacheDirPathLen + 1,
+            file.path.length - 4,
+          );
           if (!toPreserve2.contains(key)) {
             print('Deleting $key cached spans');
             file.deleteSync();
@@ -1104,13 +1217,15 @@ class Persistence extends ChangeNotifier {
     if (_boxExists(_deprecatedThreadStatesBoxName)) {
       Box<PersistentThreadState>? deprecatedThreadStatesBox;
       try {
-        deprecatedThreadStatesBox =
-            await Hive.openBox(_deprecatedThreadStatesBoxName);
+        deprecatedThreadStatesBox = await Hive.openBox(
+          _deprecatedThreadStatesBoxName,
+        );
       } catch (e, st) {
         if (_boxExists(_deprecatedThreadStatesBackupBoxName)) {
           try {
-            deprecatedThreadStatesBox =
-                await Hive.openBox(_deprecatedThreadStatesBackupBoxName);
+            deprecatedThreadStatesBox = await Hive.openBox(
+              _deprecatedThreadStatesBackupBoxName,
+            );
           } catch (e, st) {
             Future.error(e, st);
           }
@@ -1125,10 +1240,11 @@ class Persistence extends ChangeNotifier {
           }
           final ts = deprecatedThreadStatesBox.get(key)!;
           final newTs = PersistentThreadState(
-              imageboardKey: imageboardKey,
-              board: ts.board,
-              id: ts.id,
-              showInHistory: true);
+            imageboardKey: imageboardKey,
+            board: ts.board,
+            id: ts.id,
+            showInHistory: true,
+          );
           newTs.lastSeenPostId = ts.lastSeenPostId;
           newTs.lastOpenedTime = ts.lastOpenedTime;
           newTs.savedTime = ts.savedTime;
@@ -1137,7 +1253,11 @@ class Persistence extends ChangeNotifier {
           newTs.board = ts._deprecatedThread?.board ?? '';
           newTs.id = ts._deprecatedThread?.id ?? 0;
           setCachedThread(
-              imageboardKey, newTs.board, newTs.id, ts._deprecatedThread);
+            imageboardKey,
+            newTs.board,
+            newTs.id,
+            ts._deprecatedThread,
+          );
           newTs.useArchive = ts.useArchive;
           newTs.postsMarkedAsYou = ts.postsMarkedAsYou;
           newTs.hiddenPostIds = ts.hiddenPostIds;
@@ -1164,7 +1284,8 @@ class Persistence extends ChangeNotifier {
     if (_boxExists('searches_$imageboardKey')) {
       print('Migrating searches box');
       final searchesBox = await Hive.openBox<PersistentRecentSearches>(
-          '${_boxPrefix}searches_$imageboardKey');
+        '${_boxPrefix}searches_$imageboardKey',
+      );
       final existingRecentSearches = searchesBox.get('recentSearches');
       if (existingRecentSearches != null) {
         settings.deprecatedRecentSearchesBySite[imageboardKey] =
@@ -1172,7 +1293,9 @@ class Persistence extends ChangeNotifier {
       }
       await searchesBox.deleteFromDisk();
     }
-    if (settings.deprecatedRecentSearchesBySite[imageboardKey]?.entries
+    if (settings
+            .deprecatedRecentSearchesBySite[imageboardKey]
+            ?.entries
             .isNotEmpty ==
         true) {
       print('Migrating recent searches');
@@ -1185,7 +1308,8 @@ class Persistence extends ChangeNotifier {
     if (_boxExists('browserStates_$imageboardKey')) {
       print('Migrating browser states box');
       final browserStateBox = await Hive.openBox<PersistentBrowserState>(
-          '${_boxPrefix}browserStates_$imageboardKey');
+        '${_boxPrefix}browserStates_$imageboardKey',
+      );
       final existingBrowserState = browserStateBox.get('browserState');
       if (existingBrowserState != null) {
         settings.browserStateBySite[imageboardKey] = existingBrowserState;
@@ -1193,30 +1317,33 @@ class Persistence extends ChangeNotifier {
       await browserStateBox.deleteFromDisk();
     }
     settings.browserStateBySite.putIfAbsent(
-        imageboardKey,
-        () => PersistentBrowserState(
-            hiddenIds: {},
-            favouriteBoards: [],
-            autosavedIds: {},
-            autowatchedIds: {},
-            deprecatedHiddenImageMD5s: {},
-            loginFields: {},
-            threadWatches: {},
-            boardWatches: [],
-            notificationsMigrated: true,
-            deprecatedBoardSortingMethods: {},
-            deprecatedBoardReverseSortings: {},
-            catalogVariants: {},
-            postingNames: {},
-            useCatalogGridPerBoard: {},
-            overrideShowIds: {},
-            outbox: [],
-            disabledArchiveNames: {},
-            postSortingMethodPerBoard: {},
-            downloadSubfoldersPerBoard: {},
-            postingFlags: {},
-            hiddenImageIds: {},
-            showImageIds: {}));
+      imageboardKey,
+      () => PersistentBrowserState(
+        hiddenIds: {},
+        favouriteBoards: [],
+        autosavedIds: {},
+        autowatchedIds: {},
+        deprecatedHiddenImageMD5s: {},
+        loginFields: {},
+        threadWatches: {},
+        boardWatches: [],
+        notificationsMigrated: true,
+        deprecatedBoardSortingMethods: {},
+        deprecatedBoardReverseSortings: {},
+        catalogVariants: {},
+        postingNames: {},
+        useCatalogGridPerBoard: {},
+        overrideShowIds: {},
+        outbox: [],
+        disabledArchiveNames: {},
+        postSortingMethodPerBoard: {},
+        downloadSubfoldersPerBoard: {},
+        postingFlags: {},
+        hiddenImageIds: {},
+        showImageIds: {},
+        filesPerPostMigrated: true,
+      ),
+    );
     if (browserState.deprecatedTabs.isNotEmpty &&
         ImageboardRegistry.instance.getImageboardUnsafe(imageboardKey) !=
             null) {
@@ -1235,9 +1362,10 @@ class Persistence extends ChangeNotifier {
     if (_boxExists('boards_$imageboardKey')) {
       print('Migrating from site-specific boards box');
       final boardBox = await Hive.openBox<ImageboardBoard>(
-          '${_boxPrefix}boards_$imageboardKey');
+        '${_boxPrefix}boards_$imageboardKey',
+      );
       settings.deprecatedBoardsBySite[imageboardKey] = {
-        for (final key in boardBox.keys) key.toString(): boardBox.get(key)!
+        for (final key in boardBox.keys) key.toString(): boardBox.get(key)!,
       };
       await boardBox.deleteFromDisk();
     }
@@ -1246,17 +1374,20 @@ class Persistence extends ChangeNotifier {
       for (final board
           in settings.deprecatedBoardsBySite[imageboardKey]!.values) {
         sharedBoardsBox.put(
-            '$imageboardKey/${board.name.toLowerCase()}', board);
+          '$imageboardKey/${board.name.toLowerCase()}',
+          board,
+        );
       }
       settings.deprecatedBoardsBySite.remove(imageboardKey);
     }
     if (_boxExists('savedAttachments_$imageboardKey')) {
       print('Migrating saved attachments box');
       final savedAttachmentsBox = await Hive.openBox<SavedAttachment>(
-          '${_boxPrefix}savedAttachments_$imageboardKey');
+        '${_boxPrefix}savedAttachments_$imageboardKey',
+      );
       settings.savedAttachmentsBySite[imageboardKey] = {
         for (final key in savedAttachmentsBox.keys)
-          key.toString(): savedAttachmentsBox.get(key)!
+          key.toString(): savedAttachmentsBox.get(key)!,
       };
       await savedAttachmentsBox.deleteFromDisk();
     }
@@ -1264,10 +1395,11 @@ class Persistence extends ChangeNotifier {
     if (_boxExists('savedPosts_$imageboardKey')) {
       print('Migrating saved posts box');
       final savedPostsBox = await Hive.openBox<SavedPost>(
-          '${_boxPrefix}savedPosts_$imageboardKey');
+        '${_boxPrefix}savedPosts_$imageboardKey',
+      );
       settings.savedPostsBySite[imageboardKey] = {
         for (final key in savedPostsBox.keys)
-          key.toString(): savedPostsBox.get(key)!
+          key.toString(): savedPostsBox.get(key)!,
       };
       await savedPostsBox.deleteFromDisk();
     }
@@ -1298,16 +1430,17 @@ class Persistence extends ChangeNotifier {
             threadState.savedTime != null &&
             threadState.thread?.isArchived == false) {
           browserState.threadWatches[threadState.identifier] ??= ThreadWatch(
-              board: threadState.board,
-              threadId: threadState.id,
-              youIds: threadState.youIds,
-              localYousOnly: true,
-              pushYousOnly: true,
-              lastSeenId: threadState.thread?.posts_.last.id ?? threadState.id,
-              watchTime: DateTime.now(),
-              notifyOnSecondLastPage: false,
-              notifyOnLastPage: true,
-              notifyOnDead: false);
+            board: threadState.board,
+            threadId: threadState.id,
+            youIds: threadState.youIds.toList()..sort(),
+            localYousOnly: true,
+            pushYousOnly: true,
+            lastSeenId: threadState.thread?.posts_.last.id ?? threadState.id,
+            watchTime: DateTime.now(),
+            notifyOnSecondLastPage: false,
+            notifyOnLastPage: true,
+            notifyOnDead: false,
+          );
         }
       }
       browserState.notificationsMigrated = true;
@@ -1315,7 +1448,8 @@ class Persistence extends ChangeNotifier {
     for (final savedPost in savedPosts.values) {
       if (savedPost.deprecatedThread != null) {
         print(
-            'Migrating saved ${savedPost.post} to ${savedPost.post.threadIdentifier}');
+          'Migrating saved ${savedPost.post} to ${savedPost.post.threadIdentifier}',
+        );
         getThreadState(savedPost.post.threadIdentifier).thread ??=
             savedPost.deprecatedThread;
         savedPost.deprecatedThread = null;
@@ -1333,8 +1467,9 @@ class Persistence extends ChangeNotifier {
           try {
             final fileBefore = savedAttachment.file;
             final scan = await MediaScan.scan(fileBefore.uri);
-            savedAttachment.savedExt =
-                (scan.codec == 'h264') ? '.mp4' : '.webm';
+            savedAttachment.savedExt = (scan.codec == 'h264')
+                ? '.mp4'
+                : '.webm';
             final fileAfter = savedAttachment.file;
             if (fileBefore.path != fileAfter.path) {
               await fileBefore.rename(fileAfter.path);
@@ -1373,12 +1508,14 @@ class Persistence extends ChangeNotifier {
       final options = threadState.deprecatedReplyOptions;
       if ((reply?.isNotEmpty ?? false) || (options?.isNotEmpty ?? false)) {
         threadState.draft = DraftPost(
-            board: threadState.board,
-            threadId: threadState.id,
-            name: null,
-            options: options,
-            text: reply ?? '',
-            useLoginSystem: null);
+          board: threadState.board,
+          threadId: threadState.id,
+          name: null,
+          files: [],
+          options: options,
+          text: reply ?? '',
+          useLoginSystem: null,
+        );
         threadState.deprecatedDraftReply = null;
         threadState.deprecatedReplyOptions = null;
       }
@@ -1390,14 +1527,19 @@ class Persistence extends ChangeNotifier {
     if (thread == null) {
       return null;
     }
-    return sharedThreadStateBox
-        .get(getThreadStateBoxKey(imageboardKey, thread));
+    return sharedThreadStateBox.get(
+      getThreadStateBoxKey(imageboardKey, thread),
+    );
   }
 
-  PersistentThreadState getThreadState(ThreadIdentifier thread,
-      {bool updateOpenedTime = false, bool initiallyHideFromHistory = false}) {
-    final existingState =
-        sharedThreadStateBox.get(getThreadStateBoxKey(imageboardKey, thread));
+  PersistentThreadState getThreadState(
+    ThreadIdentifier thread, {
+    bool updateOpenedTime = false,
+    bool initiallyHideFromHistory = false,
+  }) {
+    final existingState = sharedThreadStateBox.get(
+      getThreadStateBoxKey(imageboardKey, thread),
+    );
     if (existingState != null) {
       if (updateOpenedTime) {
         existingState.lastOpenedTime = DateTime.now();
@@ -1408,14 +1550,17 @@ class Persistence extends ChangeNotifier {
       return existingState;
     }
     final newState = PersistentThreadState(
-        imageboardKey: imageboardKey,
-        board: thread.board,
-        id: thread.id,
-        showInHistory: initiallyHideFromHistory
-            ? null
-            : Persistence.settings.recordThreadsInHistory);
+      imageboardKey: imageboardKey,
+      board: thread.board,
+      id: thread.id,
+      showInHistory: initiallyHideFromHistory
+          ? null
+          : Persistence.settings.recordThreadsInHistory,
+    );
     sharedThreadStateBox.put(
-        getThreadStateBoxKey(imageboardKey, thread), newState);
+      getThreadStateBoxKey(imageboardKey, thread),
+      newState,
+    );
     return newState;
   }
 
@@ -1428,26 +1573,32 @@ class Persistence extends ChangeNotifier {
       return board;
     } else {
       return ImageboardBoard(
-          title: boardName,
-          name: boardName,
-          webmAudioAllowed: false,
-          isWorksafe: true,
-          maxWebmDurationSeconds: 120,
-          maxImageSizeBytes: 4000000,
-          maxWebmSizeBytes: 4000000);
+        title: boardName,
+        name: boardName,
+        webmAudioAllowed: false,
+        isWorksafe: true,
+        maxWebmDurationSeconds: 120,
+        maxImageSizeBytes: 4000000,
+        maxWebmSizeBytes: 4000000,
+        filesPerPost: 1,
+      );
     }
   }
 
-  Iterable<ImageboardBoard> get boards => sharedBoardsBox.keys.where((k) {
+  Iterable<ImageboardBoard> get boards => sharedBoardsBox.keys
+      .where((k) {
         final str = (k as String);
         return str.length > (imageboardKey.length + 1) &&
             str[imageboardKey.length] == '/' &&
             str.startsWith(imageboardKey);
-      }).map((k) => sharedBoardsBox.get(k)!);
+      })
+      .map((k) => sharedBoardsBox.get(k)!);
 
   Future<void> setBoard(String boardName, ImageboardBoard board) async {
     await sharedBoardsBox.put(
-        '$imageboardKey/${boardName.toLowerCase()}', board);
+      '$imageboardKey/${boardName.toLowerCase()}',
+      board,
+    );
   }
 
   Future<void> removeBoard(String boardName) async {
@@ -1459,9 +1610,15 @@ class Persistence extends ChangeNotifier {
   }
 
   Future<void> saveAttachment(
-      Attachment attachment, File fullResolutionFile, String ext) async {
+    Attachment attachment,
+    File fullResolutionFile,
+    String ext,
+  ) async {
     final newSavedAttachment = SavedAttachment(
-        attachment: attachment, savedTime: DateTime.now(), savedExt: ext);
+      attachment: attachment,
+      savedTime: DateTime.now(),
+      savedExt: ext,
+    );
     savedAttachments[attachment.globalId] = newSavedAttachment;
     await fullResolutionFile.copy(newSavedAttachment.file.path);
     settings.save();
@@ -1486,8 +1643,10 @@ class Persistence extends ChangeNotifier {
   }
 
   void savePost(Post post, {DateTime? savedTime}) {
-    savedPosts[post.globalId] =
-        SavedPost(post: post, savedTime: savedTime ?? DateTime.now());
+    savedPosts[post.globalId] = SavedPost(
+      post: post,
+      savedTime: savedTime ?? DateTime.now(),
+    );
     settings.save();
     // Likely will force the widget to rebuild
     getThreadState(post.threadIdentifier).save();
@@ -1503,13 +1662,17 @@ class Persistence extends ChangeNotifier {
   }
 
   static String getThreadStateBoxKey(
-          String imageboardKey, ThreadIdentifier thread) =>
-      '$imageboardKey/${thread.board.toLowerCase()}/${thread.id}';
+    String imageboardKey,
+    ThreadIdentifier thread,
+  ) => '$imageboardKey/${thread.board.toLowerCase()}/${thread.id}';
 
   ValueListenable<PersistentThreadState?> listenForPersistentThreadStateChanges(
-      ThreadIdentifier thread) {
+    ThreadIdentifier thread,
+  ) {
     return BoxAndObjectListenable(
-        sharedThreadStateBox, getThreadStateBoxKey(imageboardKey, thread));
+      sharedThreadStateBox,
+      getThreadStateBoxKey(imageboardKey, thread),
+    );
   }
 
   Future<void> storeBoards(List<ImageboardBoard> newBoards) async {
@@ -1529,7 +1692,8 @@ class Persistence extends ChangeNotifier {
       final key = '$imageboardKey/${newBoard.name.toLowerCase()}';
       final old = sharedBoardsBox.get(key);
       if (old?.additionalDataTime == null ||
-          (old?.popularity != newBoard.popularity)) {
+          (old?.popularity != newBoard.popularity) ||
+          (old?.filesPerPost != newBoard.filesPerPost)) {
         sharedBoardsBox.put(key, newBoard);
       }
     }
@@ -1561,12 +1725,12 @@ class Persistence extends ChangeNotifier {
       // Bump
       settings.recentWebImageSearches = [
         query,
-        ...recentWebImageSearches.where((e) => e != query)
+        ...recentWebImageSearches.where((e) => e != query),
       ];
     } else {
       settings.recentWebImageSearches = [
         query,
-        ...recentWebImageSearches.take(_maxRecentItems)
+        ...recentWebImageSearches.take(_maxRecentItems),
       ];
     }
     await settings.save();
@@ -1578,59 +1742,72 @@ class Persistence extends ChangeNotifier {
   }
 
   static Future<void> clearCookies({required bool? fromWifi}) async {
-    final icon =
-        switch (fromWifi ?? Settings.instance.isConnectedToWifiForCookies) {
+    final icon = switch (fromWifi ??
+        Settings.instance.isConnectedToWifiForCookies) {
       true => CupertinoIcons.wifi,
-      false => CupertinoIcons.antenna_radiowaves_left_right
+      false => CupertinoIcons.antenna_radiowaves_left_right,
     };
     try {
       await webview.CookieManager.instance().deleteAllCookies();
-      await (switch (fromWifi) {
+      final jar = switch (fromWifi) {
         true => Persistence.wifiCookies,
         null => Persistence.currentCookies,
-        false => Persistence.cellularCookies
-      })
-          .deleteAll();
+        false => Persistence.cellularCookies,
+      };
+      await jar.deleteAll();
+      for (final imageboard
+          in ImageboardRegistry.instance.imageboardsIncludingDev) {
+        imageboard.site.loginSystem?.didClearCookies(jar);
+      }
       showToast(
-          context: ImageboardRegistry.instance.context!,
-          icon: icon,
-          message: 'Cleared cookies');
+        context: ImageboardRegistry.instance.context!,
+        icon: icon,
+        message: 'Cleared cookies',
+      );
     } on PathNotFoundException {
       showToast(
-          context: ImageboardRegistry.instance.context!,
-          icon: icon,
-          message: 'Cookies already cleared');
+        context: ImageboardRegistry.instance.context!,
+        icon: icon,
+        message: 'Cookies already cleared',
+      );
     }
   }
 
   static Future<List<webview.Cookie>> saveCookiesFromWebView(Uri uri) async {
-    final cookies = await webview.CookieManager.instance()
-        .getCookies(url: webview.WebUri.uri(uri));
+    final cookies = await webview.CookieManager.instance().getCookies(
+      url: webview.WebUri.uri(uri),
+    );
     await currentCookies.saveFromResponse(
-        uri,
-        cookies.map((cookie) {
-          final newCookie = MyCookie(cookie.name, cookie.value as String);
-          newCookie.domain = cookie.domain;
-          if (cookie.expiresDate != null) {
-            newCookie.expires =
-                DateTime.fromMillisecondsSinceEpoch(cookie.expiresDate!);
-          }
-          newCookie.httpOnly = cookie.isHttpOnly ?? false;
-          newCookie.path = cookie.path;
-          newCookie.secure = cookie.isSecure ?? false;
-          return newCookie;
-        }).toList());
+      uri,
+      cookies.map((cookie) {
+        final newCookie = MyCookie(cookie.name, cookie.value as String);
+        newCookie.domain = normalizeWebViewCookieDomain(
+          cookie.domain,
+          leadingDotIndicatesDomainCookie: Platform.isIOS || Platform.isMacOS,
+        );
+        if (cookie.expiresDate != null) {
+          newCookie.expires = DateTime.fromMillisecondsSinceEpoch(
+            cookie.expiresDate!,
+          );
+        }
+        newCookie.httpOnly = cookie.isHttpOnly ?? false;
+        newCookie.path = cookie.path;
+        newCookie.secure = cookie.isSecure ?? false;
+        return newCookie;
+      }).toList(),
+    );
     return cookies;
   }
 
   SpamFilterStatus getSpamFilterStatus(String? ip) {
-    final receipts =
-        Persistence.sharedThreadStateBox.values.expand<PostReceipt>((state) {
-      if (state.imageboardKey != imageboardKey) {
-        return const Iterable.empty();
-      }
-      return state.receipts.where((r) => r.ip == ip);
-    }).toList();
+    final receipts = Persistence.sharedThreadStateBox.values
+        .expand<PostReceipt>((state) {
+          if (state.imageboardKey != imageboardKey) {
+            return const Iterable.empty();
+          }
+          return state.receipts.where((r) => r.ip == ip);
+        })
+        .toList();
     final nullTime = DateTime(2000);
     receipts.sort((a, b) {
       return (a.time ?? nullTime).compareTo(b.time ?? nullTime);
@@ -1663,8 +1840,10 @@ const _maxRecentItems = 50;
 
 @HiveType(typeId: 8)
 class PersistentRecentSearches {
-  @HiveField(0,
-      merger: OrderedSetLikePrimitiveListMerger<ImageboardArchiveSearchQuery>())
+  @HiveField(
+    0,
+    merger: OrderedSetLikePrimitiveListMerger<ImageboardArchiveSearchQuery>(),
+  )
   List<ImageboardArchiveSearchQuery> entries = [];
 
   void handleSearch(ImageboardArchiveSearchQuery entry) {
@@ -1690,19 +1869,18 @@ class PersistentRecentSearches {
   PersistentRecentSearches();
 }
 
-enum PostHidingState {
-  none,
-  shown,
-  hidden,
-  treeHidden;
-}
+enum PostHidingState { none, shown, hidden, treeHidden }
 
 class TreePathListMerger extends FieldMerger<List<List<int>>> {
   const TreePathListMerger();
 
   @override
-  bool merge(MergerController<List<List<int>>> merger, List<List<int>> yours,
-      List<List<int>> theirs, List<List<int>>? base) {
+  bool merge(
+    MergerController<List<List<int>>> merger,
+    List<List<int>> yours,
+    List<List<int>> theirs,
+    List<List<int>>? base,
+  ) {
     if (yours.length == theirs.length) {
       // Fast path
       bool ok = true;
@@ -1732,8 +1910,9 @@ class TreePathListMerger extends FieldMerger<List<List<int>>> {
     for (final their in theirs) {
       bothString.add(their.join(','));
     }
-    final both = bothString
-        .map((x) => x.split(',').map(int.parse).toList(growable: false));
+    final both = bothString.map(
+      (x) => x.split(',').map(int.parse).toList(growable: false),
+    );
     yours.clear();
     yours.addAll(both);
     theirs.clear();
@@ -1752,28 +1931,43 @@ class PersistentThreadState extends EasyListenable
   DateTime lastOpenedTime;
   @HiveField(6)
   DateTime? savedTime;
-  @HiveField(3,
-      merger: MapLikeListMerger<PostReceipt, int>(
-          childMerger: AdaptedMerger(PostReceiptAdapter.kTypeId),
-          keyer: PostReceiptFields.getId))
+  @HiveField(
+    3,
+    merger: MapLikeListMerger<PostReceipt, int>(
+      childMerger: AdaptedMerger(PostReceiptAdapter.kTypeId),
+      keyer: PostReceiptFields.getId,
+    ),
+  )
   List<PostReceipt> receipts = [];
   @HiveField(4)
   Thread? _deprecatedThread;
   @HiveField(5)
   bool useArchive = false;
-  @HiveField(7,
-      defaultValue: <int>[], merger: SetLikePrimitiveListMerger<int>())
+  @HiveField(
+    7,
+    defaultValue: <int>[],
+    merger: SetLikePrimitiveListMerger<int>(),
+  )
   List<int> postsMarkedAsYou = [];
-  @HiveField(8,
-      defaultValue: <int>[], merger: SetLikePrimitiveListMerger<int>())
+  @HiveField(
+    8,
+    defaultValue: <int>[],
+    merger: SetLikePrimitiveListMerger<int>(),
+  )
   List<int> hiddenPostIds = [];
   @HiveField(9)
   String? deprecatedDraftReply;
-  @HiveField(10,
-      defaultValue: <int>[], merger: SetLikePrimitiveListMerger<int>())
+  @HiveField(
+    10,
+    defaultValue: <int>[],
+    merger: SetLikePrimitiveListMerger<int>(),
+  )
   List<int> treeHiddenPostIds = [];
-  @HiveField(11,
-      defaultValue: <String>[], merger: SetLikePrimitiveListMerger<String>())
+  @HiveField(
+    11,
+    defaultValue: <String>[],
+    merger: SetLikePrimitiveListMerger<String>(),
+  )
   List<String> hiddenPosterIds = [];
   @HiveField(12, defaultValue: <int, Post>{})
   Map<int, Post> translatedPosts = {};
@@ -1785,8 +1979,11 @@ class PersistentThreadState extends EasyListenable
   ThreadVariant? variant;
   @HiveField(16, defaultValue: <List<int>>[], merger: TreePathListMerger())
   List<List<int>> collapsedItems = [];
-  @HiveField(17,
-      defaultValue: <String>[], merger: SetLikePrimitiveListMerger<String>())
+  @HiveField(
+    17,
+    defaultValue: <String>[],
+    merger: SetLikePrimitiveListMerger<String>(),
+  )
   List<String> downloadedAttachmentIds = [];
   @HiveField(18, defaultValue: '')
   String imageboardKey;
@@ -1808,8 +2005,11 @@ class PersistentThreadState extends EasyListenable
   PostSortingMethod? postSortingMethod;
   @HiveField(27)
   final EfficientlyStoredIntSet postIdsToStartRepliesAtBottom;
-  @HiveField(28,
-      defaultValue: <int>[], merger: SetLikePrimitiveListMerger<int>())
+  @HiveField(
+    28,
+    defaultValue: <int>[],
+    merger: SetLikePrimitiveListMerger<int>(),
+  )
   List<int> overrideShowPostIds = [];
   @HiveField(29)
   String? deprecatedReplyOptions;
@@ -1822,11 +2022,17 @@ class PersistentThreadState extends EasyListenable
   // Field 33: nullable per Hive evolution rule — null on old records = not a download.
   @HiveField(33)
   bool? _isDownloaded;
+
   /// Whether this thread was explicitly downloaded by the user.
   /// Prevents cleanupThreads from evicting the Hive cache — downloaded threads
   /// have no network fallback once isArchivedOnServer=true.
   bool get isDownloaded => _isDownloaded ?? false;
   set isDownloaded(bool v) => _isDownloaded = v;
+
+  // Upstream claimed 33 for this; the fork already ships 33 as _isDownloaded,
+  // so this moves to 34 to avoid misreading persisted thread state.
+  @HiveField(34)
+  final EfficientlyStoredIntSet upgradedStubPostIds;
 
   Imageboard? get imageboard =>
       ImageboardRegistry.instance.getImageboard(imageboardKey);
@@ -1834,20 +2040,23 @@ class PersistentThreadState extends EasyListenable
   // Don't persist this
   final bool incognito;
 
-  PersistentThreadState(
-      {required this.imageboardKey,
-      required this.board,
-      required this.id,
-      required this.showInHistory,
-      this.incognito = false,
-      EfficientlyStoredIntSet? unseenPostIds,
-      this.postSortingMethod,
-      EfficientlyStoredIntSet? postIdsToStartRepliesAtBottom,
-      this.draft})
-      : lastOpenedTime = DateTime.now(),
-        unseenPostIds = unseenPostIds ?? EfficientlyStoredIntSet({}),
-        postIdsToStartRepliesAtBottom =
-            postIdsToStartRepliesAtBottom ?? EfficientlyStoredIntSet({}) {
+  PersistentThreadState({
+    required this.imageboardKey,
+    required this.board,
+    required this.id,
+    required this.showInHistory,
+    this.incognito = false,
+    EfficientlyStoredIntSet? unseenPostIds,
+    this.postSortingMethod,
+    EfficientlyStoredIntSet? postIdsToStartRepliesAtBottom,
+    this.draft,
+    EfficientlyStoredIntSet? upgradedStubPostIds,
+  }) : lastOpenedTime = DateTime.now(),
+       unseenPostIds = unseenPostIds ?? EfficientlyStoredIntSet({}),
+       postIdsToStartRepliesAtBottom =
+           postIdsToStartRepliesAtBottom ?? EfficientlyStoredIntSet({}),
+       upgradedStubPostIds =
+           upgradedStubPostIds ?? EfficientlyStoredIntSet({}) {
     Settings.instance.filterListenable.addListener(_onGlobalFilterUpdate);
   }
 
@@ -1867,51 +2076,67 @@ class PersistentThreadState extends EasyListenable
     _filteredPosts = null;
   }
 
-  Future<void> preinitAndWriteSpanCache(Thread thread,
-      {bool catalog = false}) async {
+  Future<void> preinitAndWriteSpanCache(
+    Thread thread, {
+    bool catalog = false,
+  }) async {
     if (await thread.preinit(catalog: catalog)) {
       if (!catalog) {
         await Persistence._writeSpanCache(
-            imageboardKey, boardKey.s, id, thread);
+          imageboardKey,
+          boardKey.s,
+          id,
+          thread,
+        );
       }
     }
   }
 
-  Future<Thread?> ensureThreadLoaded(
-          {bool preinit = true, bool catalog = false, bool syncIO = false}) =>
-      Persistence._ensureThreadLoadedDebouncer.debounce(this, () async {
-        Thread? thread = _thread;
-        if (thread != null) {
-          if (preinit) {
-            await preinitAndWriteSpanCache(thread, catalog: catalog);
-          }
-          return thread;
-        }
-        // This is to do preinit before setting _thread (which will generate metafilter)
-        thread = await Persistence.getCachedThread(imageboardKey, board, id,
-            syncIO: syncIO);
-        if (preinit && thread != null) {
-          try {
-            await preinitAndWriteSpanCache(thread, catalog: catalog);
-          } catch (e, st) {
-            // Preinit failed (e.g. span-cache write error, OOM).
-            // Log and continue — DO NOT wipe the thread from Hive.
-            // Losing user-downloaded data is far worse than missing a span cache.
-            Future.error(e, st); // crashlytics
-          }
-        }
-        _thread = thread;
-        if (thread != null) {
-          didUpdate();
-          Persistence._sharedThreadStateStream.add(this);
-        }
-        return _thread;
-      });
+  Future<Thread?> ensureThreadLoaded({
+    bool preinit = true,
+    bool catalog = false,
+    bool syncIO = false,
+  }) => Persistence._ensureThreadLoadedDebouncer.debounce(this, () async {
+    Thread? thread = _thread;
+    if (thread != null) {
+      if (preinit) {
+        await preinitAndWriteSpanCache(thread, catalog: catalog);
+      }
+      return thread;
+    }
+    // This is to do preinit before setting _thread (which will generate metafilter)
+    thread = await Persistence.getCachedThread(
+      imageboardKey,
+      board,
+      id,
+      syncIO: syncIO,
+    );
+    if (preinit && thread != null) {
+      try {
+        await preinitAndWriteSpanCache(thread, catalog: catalog);
+      } catch (e, st) {
+        // Preinit failed (e.g. span-cache write error, OOM).
+        // Log and continue — DO NOT wipe the thread from Hive.
+        // Losing user-downloaded data is far worse than missing a span cache.
+        Future.error(e, st); // crashlytics
+      }
+    }
+    _thread = thread;
+    if (thread != null) {
+      didUpdate();
+      Persistence._sharedThreadStateStream.add(this);
+    }
+    return _thread;
+  });
 
   Future<Thread?> getThread({bool syncIO = false}) async {
     return _thread ??
-        (await Persistence.getCachedThread(imageboardKey, board, id,
-            syncIO: syncIO));
+        (await Persistence.getCachedThread(
+          imageboardKey,
+          board,
+          id,
+          syncIO: syncIO,
+        ));
   }
 
   bool get isThreadCached =>
@@ -1920,23 +2145,25 @@ class PersistentThreadState extends EasyListenable
   Thread? get thread => _thread;
   set thread(Thread? newThread) {
     final oldThread = _thread;
+    final treeSplitId = this.treeSplitId;
     if (newThread != oldThread) {
       bool needToSave = false;
       if (oldThread != null && newThread != null) {
-        final oldIds = {
-          for (final post in oldThread.posts_) post.id: post.isStub
-        };
+        final oldPosts = {for (final post in oldThread.posts_) post.id: post};
         for (final p in newThread.posts_) {
-          if (!p.isPageStub &&
-              oldIds[p.id] != p.isStub &&
-              !youIds.contains(p.id)) {
+          if (oldPosts[p.id]?.isStub != p.isStub && !youIds.contains(p.id)) {
+            if (treeSplitId != null && p.id <= treeSplitId) {
+              needToSave |= upgradedStubPostIds.data.add(p.id);
+            }
+            needToSave |= unseenPostIds.data.add(p.id);
+          } else if (oldPosts[p.id]?.edited != p.edited) {
             needToSave |= unseenPostIds.data.add(p.id);
           }
         }
       } else if (newThread != null && (lastSeenPostId ?? id) == id) {
         // First load
         for (final p in newThread.posts_) {
-          if (!p.isPageStub && !youIds.contains(p.id)) {
+          if (!youIds.contains(p.id)) {
             needToSave |= unseenPostIds.data.add(p.id);
           }
         }
@@ -1974,29 +2201,32 @@ class PersistentThreadState extends EasyListenable
     _invalidate();
   }
 
-  List<int> freshYouIds() {
+  Set<int> freshYouIds() {
     return receipts
         .where((receipt) => receipt.markAsYou)
         .map((receipt) => receipt.id)
         .followedBy(postsMarkedAsYou)
-        .toList();
+        .toSet();
   }
 
-  List<int>? _youIds;
-  List<int> get youIds {
+  Set<int>? _youIds;
+  Set<int> get youIds {
     _youIds ??= freshYouIds();
     return _youIds!;
   }
 
-  List<int>? _replyIdsToYou;
-  List<int>? replyIdsToYou() => _replyIdsToYou ??= () {
-        return filteredPosts()
-            ?.where((p) {
-              return p.repliedToIds.any((id) => youIds.contains(id));
-            })
-            .map((p) => p.id)
-            .toList();
-      }();
+  Set<int>? _replyIdsToYou;
+  Set<int>? replyIdsToYou() => _replyIdsToYou ??= () {
+    if (youIds.isEmpty) {
+      return const <int>{};
+    }
+    return filteredPosts()
+        ?.where((p) {
+          return p.repliedToIds.any((id) => youIds.contains(id));
+        })
+        .map((p) => p.id)
+        .toSet();
+  }();
 
   int? unseenReplyIdsToYouCount() =>
       replyIdsToYou()?.where(unseenPostIds.data.contains).length;
@@ -2014,8 +2244,10 @@ class PersistentThreadState extends EasyListenable
     if (metaResult != null) {
       return !metaResult.type.hide;
     }
-    final globalResult =
-        Settings.instance.globalFilter.filter(imageboardKey, p);
+    final globalResult = Settings.instance.globalFilter.filter(
+      imageboardKey,
+      p,
+    );
     if (globalResult != null) {
       return !globalResult.type.hide;
     }
@@ -2023,15 +2255,46 @@ class PersistentThreadState extends EasyListenable
   }
 
   List<Post>? _makeFilteredPosts() =>
-      thread?.posts.where(shouldShowPost).toList(growable: false);
-  int? unseenReplyCount() =>
-      filteredPosts()?.where((p) => unseenPostIds.data.contains(p.id)).length;
-  int? unseenImageCount() => filteredPosts()?.map((p) {
-        if (!unseenPostIds.data.contains(p.id)) {
-          return 0;
+      thread?.postsToShow.where(shouldShowPost).toList(growable: false);
+  int? unseenReplyCount() {
+    if (lastSeenPostId == null) {
+      if (thread?.replyCount case final replyCount?) {
+        return replyCount + 1;
+      }
+      return null;
+    }
+    if (unseenPostIds.data.isEmpty) {
+      return 0;
+    }
+    return filteredPosts()?.fold<int>(0, (t, p) {
+      if (!unseenPostIds.data.contains(p.id)) {
+        return t;
+      }
+      if (p.isPageStub && p.hasOmittedReplies) {
+        if (p.id == filteredPosts()?.tryLast?.parentId) {
+          // Last page doesn't count if loaded
+          return t;
         }
-        return p.attachments.length;
-      }).fold<int>(0, (a, b) => a + b);
+        return t + (imageboard?.site.postsPerPage ?? 1);
+      }
+      return t + 1;
+    });
+  }
+
+  int? unseenImageCount() {
+    if (lastSeenPostId == null) {
+      return thread?.imageCount;
+    }
+    if (unseenPostIds.data.isEmpty) {
+      return 0;
+    }
+    return filteredPosts()?.fold<int>(0, (t, p) {
+      if (!unseenPostIds.data.contains(p.id)) {
+        return t;
+      }
+      return t + p.attachments.length;
+    });
+  }
 
   @override
   String toString() =>
@@ -2069,22 +2332,28 @@ class PersistentThreadState extends EasyListenable
   void _maybeUpdateWatch() {
     final threadWatch = this.threadWatch;
     if (threadWatch != null) {
-      imageboard?.notifications
-          .didUpdateWatch(threadWatch, updateBrowserState: false);
+      imageboard?.notifications.didUpdateWatch(
+        threadWatch,
+        updateBrowserState: false,
+      );
     }
   }
 
-  Filter _makeThreadFilter() => FilterCache(ThreadFilter(
-      hideIds: hiddenPostIds.toList(growable: false),
-      showIds: overrideShowPostIds.toList(growable: false),
-      repliedToIds: const [],
-      posterIds: hiddenPosterIds.toList(growable: false)));
+  Filter _makeThreadFilter() => FilterCache(
+    ThreadFilter(
+      hideIds: hiddenPostIds.toSet(),
+      showIds: overrideShowPostIds.toSet(),
+      repliedToIds: const {},
+      posterIds: hiddenPosterIds.toSet(),
+    ),
+  );
   late Filter threadFilter = _makeThreadFilter();
   MetaFilter _makeMetaFilter() => MetaFilter(
-      parent: Settings.instance.globalFilter,
-      imageboardKey: imageboardKey,
-      initialTreeToxicRepliedToIds: treeHiddenPostIds.toList(growable: false),
-      list: thread?.posts.toList(growable: false));
+    parent: Settings.instance.globalFilter,
+    imageboardKey: imageboardKey,
+    initialTreeToxicRepliedToIds: treeHiddenPostIds.toList(growable: false),
+    list: thread?.posts.toList(growable: false),
+  );
   late MetaFilter metaFilter = _makeMetaFilter();
   void setPostHiding(int id, PostHidingState state) {
     bool threadFilterDirty = false;
@@ -2196,7 +2465,9 @@ class PersistentThreadState extends EasyListenable
   PostSortingMethod get effectivePostSortingMethod =>
       postSortingMethod ??
       imageboard
-          ?.persistence.browserState.postSortingMethodPerBoard[boardKey] ??
+          ?.persistence
+          .browserState
+          .postSortingMethodPerBoard[boardKey] ??
       imageboard?.persistence.browserState.postSortingMethod ??
       PostSortingMethod.none;
 
@@ -2224,16 +2495,17 @@ class PostReceipt {
   String? ip;
   @HiveField(8)
   DraftPost? post;
-  PostReceipt(
-      {required this.password,
-      required this.id,
-      required this.name,
-      required this.options,
-      required this.time,
-      required this.post,
-      this.markAsYou = true,
-      this.spamFiltered = false,
-      this.ip});
+  PostReceipt({
+    required this.password,
+    required this.id,
+    required this.name,
+    required this.options,
+    required this.time,
+    required this.post,
+    this.markAsYou = true,
+    this.spamFiltered = false,
+    this.ip,
+  });
   @override
   String toString() =>
       'PostReceipt(id: $id, password: $password, name: $name, options: $options, time: $time, markAsYou: $markAsYou, spamFiltered: $spamFiltered, ip: $ip, post: $post)';
@@ -2249,22 +2521,24 @@ class SavedAttachment implements Filterable {
   final List<int> tags;
   @HiveField(3)
   String? savedExt;
-  SavedAttachment(
-      {required this.attachment,
-      required this.savedTime,
-      List<int>? tags,
-      required this.savedExt})
-      : tags = tags ?? [];
+  SavedAttachment({
+    required this.attachment,
+    required this.savedTime,
+    List<int>? tags,
+    required this.savedExt,
+  }) : tags = tags ?? [];
 
   static final _badPathCharacters = RegExp(r'[/:]');
 
   File get file {
-    final base = Persistence.savedAttachmentsDirectory
-        .child(attachment.globalId.replaceAll(_badPathCharacters, '_'));
+    final base = Persistence.savedAttachmentsDirectory.child(
+      attachment.globalId.replaceAll(_badPathCharacters, '_'),
+    );
     if (savedExt == null) {
       // Not yet fixed
       return File(
-          '$base${attachment.ext == '.webm' ? '.mp4' : attachment.ext}');
+        '$base${attachment.ext == '.webm' ? '.mp4' : attachment.ext}',
+      );
     }
     return File('$base$savedExt');
   }
@@ -2344,6 +2618,10 @@ void _readHookPersistentBrowserTabFields(List<dynamic> fields) {
 class PersistentBrowserTab extends EasyListenable {
   @HiveField(0)
   String? board;
+  BoardKey? get boardKey => switch (board) {
+    String b => ImageboardBoard.getKey(b),
+    null => null,
+  };
   @HiveField(1)
   ThreadIdentifier? thread;
   @HiveField(2)
@@ -2364,15 +2642,18 @@ class PersistentBrowserTab extends EasyListenable {
   // Do not persist
   final tabKey = GlobalKey(debugLabel: 'PersistentBrowserTab.tabKey');
   // Do not persist
-  final boardKey =
-      GlobalKey<BoardPageState>(debugLabel: 'PersistentBrowserTab.boardKey');
+  final boardPageKey = GlobalKey<BoardPageState>(
+    debugLabel: 'PersistentBrowserTab.boardKey',
+  );
   // Do not persist
-  final incognitoProviderKey =
-      GlobalKey(debugLabel: 'PersistentBrowserTab.incognitoProviderKey');
+  final incognitoProviderKey = GlobalKey(
+    debugLabel: 'PersistentBrowserTab.incognitoProviderKey',
+  );
   // Do not persist
   final masterDetailKey =
       GlobalKey<MultiMasterDetailPage1State<ThreadIdentifier>>(
-          debugLabel: 'PersistentBrowserTab.masterDetailKey');
+        debugLabel: 'PersistentBrowserTab.masterDetailKey',
+      );
   // Do not persist
   final unseen = ValueNotifier(0);
   // Do not persist
@@ -2396,20 +2677,20 @@ class PersistentBrowserTab extends EasyListenable {
   @HiveField(11)
   DraftPost? draft;
 
-  PersistentBrowserTab(
-      {this.board,
-      this.thread,
-      this.deprecatedDraftThread = '',
-      this.deprecatedDraftSubject = '',
-      this.imageboardKey,
-      this.deprecatedDraftOptions = '',
-      this.deprecatedDraftFilePath,
-      this.initialSearch,
-      this.catalogVariant,
-      this.incognito = false,
-      String id = '',
-      this.draft})
-      : id = id.isEmpty ? const Uuid().v4() : id;
+  PersistentBrowserTab({
+    this.board,
+    this.thread,
+    this.deprecatedDraftThread = '',
+    this.deprecatedDraftSubject = '',
+    this.imageboardKey,
+    this.deprecatedDraftOptions = '',
+    this.deprecatedDraftFilePath,
+    this.initialSearch,
+    this.catalogVariant,
+    this.incognito = false,
+    String id = '',
+    this.draft,
+  }) : id = id.isEmpty ? const Uuid().v4() : id;
 
   IncognitoPersistence? incognitoPersistence;
   Persistence? get persistence =>
@@ -2428,9 +2709,10 @@ class PersistentBrowserTab extends EasyListenable {
         }
       }
     } else if (thread != null) {
-      await persistence
-          ?.getThreadStateIfExists(thread!)
-          ?.ensureThreadLoaded(preinit: false, syncIO: true);
+      final state = persistence?.getThreadStateIfExists(thread!);
+      if (state != null && state.unseenPostIds.data.isNotEmpty) {
+        await state.ensureThreadLoaded(preinit: false, syncIO: true);
+      }
     }
   }
 
@@ -2449,7 +2731,8 @@ class PersistentBrowserTab extends EasyListenable {
   }
 
   Future<void> mutate(
-      FutureOr<void> Function(PersistentBrowserTab tab) mutator) async {
+    FutureOr<void> Function(PersistentBrowserTab tab) mutator,
+  ) async {
     await mutator(this);
     runWhenIdle(const Duration(seconds: 1), Persistence.saveTabs);
   }
@@ -2458,10 +2741,12 @@ class PersistentBrowserTab extends EasyListenable {
   String toString() => 'PersistentBrowserTab($imageboardKey, $board, $thread)';
 
   static const listMerger = MapLikeListMerger<PersistentBrowserTab, String>(
-      childMerger: AdaptedMerger<PersistentBrowserTab>(
-          PersistentBrowserTabAdapter.kTypeId),
-      keyer: PersistentBrowserTabFields.getId,
-      maintainOrder: true);
+    childMerger: AdaptedMerger<PersistentBrowserTab>(
+      PersistentBrowserTabAdapter.kTypeId,
+    ),
+    keyer: PersistentBrowserTabFields.getId,
+    maintainOrder: true,
+  );
 }
 
 void _readHookPersistentBrowserStateFields(List<dynamic> fields) {
@@ -2477,17 +2762,23 @@ void _readHookPersistentBrowserStateFields(List<dynamic> fields) {
 class PersistentBrowserState {
   @HiveField(0, merger: PersistentBrowserTab.listMerger)
   List<PersistentBrowserTab> deprecatedTabs;
-  @HiveField(2,
-      defaultValue: <String, List<int>>{},
-      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  @HiveField(
+    2,
+    defaultValue: <String, List<int>>{},
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  )
   final Map<BoardKey, List<int>> hiddenIds;
-  @HiveField(3,
-      defaultValue: <String>[],
-      merger: OrderedSetLikePrimitiveListMerger<BoardKey>())
+  @HiveField(
+    3,
+    defaultValue: <String>[],
+    merger: OrderedSetLikePrimitiveListMerger<BoardKey>(),
+  )
   final List<BoardKey> favouriteBoards;
-  @HiveField(5,
-      defaultValue: <String, List<int>>{},
-      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  @HiveField(
+    5,
+    defaultValue: <String, List<int>>{},
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  )
   final Map<BoardKey, List<int>> autosavedIds;
   @HiveField(6, defaultValue: <String>{}, isDeprecated: true)
   final Set<String> deprecatedHiddenImageMD5s;
@@ -2497,16 +2788,22 @@ class PersistentBrowserState {
   String notificationsId;
   @HiveField(10, defaultValue: <ThreadWatch>[], isDeprecated: true)
   List<ThreadWatch> deprecatedThreadWatches;
-  @HiveField(11,
-      defaultValue: <BoardWatch>[],
-      merger: MapLikeListMerger<BoardWatch, String>(
-          childMerger: AdaptedMerger(BoardWatchAdapter.kTypeId),
-          keyer: BoardWatchFields.getBoard))
+  @HiveField(
+    11,
+    defaultValue: <BoardWatch>[],
+    merger: MapLikeListMerger<BoardWatch, String>(
+      childMerger: AdaptedMerger(BoardWatchAdapter.kTypeId),
+      keyer: BoardWatchFields.getBoard,
+    ),
+  )
   List<BoardWatch> boardWatches;
   @HiveField(12, defaultValue: false)
   bool notificationsMigrated;
-  @HiveField(13,
-      defaultValue: <String, ThreadSortingMethod>{}, isDeprecated: true)
+  @HiveField(
+    13,
+    defaultValue: <String, ThreadSortingMethod>{},
+    isDeprecated: true,
+  )
   final Map<String, ThreadSortingMethod> deprecatedBoardSortingMethods;
   @HiveField(14, defaultValue: <String, bool>{}, isDeprecated: true)
   final Map<String, bool> deprecatedBoardReverseSortings;
@@ -2528,15 +2825,19 @@ class PersistentBrowserState {
   Map<ThreadIdentifier, ThreadWatch> threadWatches;
   @HiveField(24, defaultValue: true)
   bool treeModeRepliesToOPAreTopLevel;
-  @HiveField(25,
-      defaultValue: <String, List<int>>{},
-      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  @HiveField(
+    25,
+    defaultValue: <String, List<int>>{},
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  )
   final Map<BoardKey, List<int>> overrideShowIds;
   @HiveField(26, defaultValue: true)
   bool treeModeNewRepliesAreLinear;
-  @HiveField(27,
-      defaultValue: <String, List<int>>{},
-      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  @HiveField(
+    27,
+    defaultValue: <String, List<int>>{},
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  )
   final Map<BoardKey, List<int>> autowatchedIds;
   @HiveField(28, defaultValue: [], merger: OrderedSetLikePrimitiveListMerger())
   final List<DraftPost> outbox;
@@ -2550,57 +2851,69 @@ class PersistentBrowserState {
   final Map<BoardKey, String> downloadSubfoldersPerBoard;
   @HiveField(33, defaultValue: {})
   final Map<BoardKey, ImageboardBoardFlag> postingFlags;
-  @HiveField(34,
-      defaultValue: <String, List<int>>{},
-      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  @HiveField(
+    34,
+    defaultValue: <String, List<int>>{},
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  )
   final Map<BoardKey, List<int>> hiddenImageIds;
-  @HiveField(35,
-      defaultValue: <String, List<int>>{},
-      merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()))
+  @HiveField(
+    35,
+    defaultValue: <String, List<int>>{},
+    merger: MapMerger<BoardKey, List<int>>(SetLikePrimitiveListMerger()),
+  )
   final Map<BoardKey, List<int>> showImageIds;
+  // Upstream claimed 34; fork already uses 34/35 for hidden/showImageIds.
+  @HiveField(36, defaultValue: false)
+  bool filesPerPostMigrated;
 
-  PersistentBrowserState(
-      {this.deprecatedTabs = const [],
-      required this.hiddenIds,
-      required this.favouriteBoards,
-      required this.autosavedIds,
-      required this.autowatchedIds,
-      required this.deprecatedHiddenImageMD5s,
-      required this.loginFields,
-      String? notificationsId,
-      this.deprecatedThreadWatches = const [],
-      required this.threadWatches,
-      required this.boardWatches,
-      required this.notificationsMigrated,
-      required this.deprecatedBoardSortingMethods,
-      required this.deprecatedBoardReverseSortings,
-      required this.catalogVariants,
-      required this.postingNames,
-      this.useTree,
-      this.treeModeInitiallyCollapseSecondLevelReplies = false,
-      this.treeModeCollapsedPostsShowBody = false,
-      this.treeModeRepliesToOPAreTopLevel = true,
-      this.useCatalogGrid,
-      required this.useCatalogGridPerBoard,
-      required this.overrideShowIds,
-      this.treeModeNewRepliesAreLinear = true,
-      required this.outbox,
-      required this.disabledArchiveNames,
-      this.postSortingMethod,
-      required this.postSortingMethodPerBoard,
-      required this.downloadSubfoldersPerBoard,
-      required this.postingFlags,
-      this.hiddenImageIds = const {},
-      this.showImageIds = const {}})
-      : notificationsId = notificationsId ?? (const Uuid()).v4();
+  PersistentBrowserState({
+    this.deprecatedTabs = const [],
+    required this.hiddenIds,
+    required this.favouriteBoards,
+    required this.autosavedIds,
+    required this.autowatchedIds,
+    required this.deprecatedHiddenImageMD5s,
+    required this.loginFields,
+    String? notificationsId,
+    this.deprecatedThreadWatches = const [],
+    required this.threadWatches,
+    required this.boardWatches,
+    required this.notificationsMigrated,
+    required this.deprecatedBoardSortingMethods,
+    required this.deprecatedBoardReverseSortings,
+    required this.catalogVariants,
+    required this.postingNames,
+    this.useTree,
+    this.treeModeInitiallyCollapseSecondLevelReplies = false,
+    this.treeModeCollapsedPostsShowBody = false,
+    this.treeModeRepliesToOPAreTopLevel = true,
+    this.useCatalogGrid,
+    required this.useCatalogGridPerBoard,
+    required this.overrideShowIds,
+    this.treeModeNewRepliesAreLinear = true,
+    required this.outbox,
+    required this.disabledArchiveNames,
+    this.postSortingMethod,
+    required this.postSortingMethodPerBoard,
+    required this.downloadSubfoldersPerBoard,
+    required this.postingFlags,
+    this.hiddenImageIds = const {},
+    this.showImageIds = const {},
+    required this.filesPerPostMigrated,
+  }) : notificationsId = notificationsId ?? (const Uuid()).v4();
 
   final Map<BoardKey, Filter> _catalogFilters = {};
   Filter getCatalogFilter(BoardKey board) {
     return _catalogFilters.putIfAbsent(
-        board,
-        () => FilterCache(IDFilter(
-            hideIds: hiddenIds[board]?.toList(growable: false) ?? [],
-            showIds: overrideShowIds[board]?.toList(growable: false) ?? [])));
+      board,
+      () => FilterCache(
+        IDFilter(
+          hideIds: hiddenIds[board]?.toSet() ?? {},
+          showIds: overrideShowIds[board]?.toSet() ?? {},
+        ),
+      ),
+    );
   }
 
   bool getThreadImageHiding(ThreadIdentifier thread) {
@@ -2686,10 +2999,11 @@ class EfficientlyStoredIntSet {
 class EfficientlyStoredIntSetFields {
   static Set<int> getData(EfficientlyStoredIntSet x) => x.data;
   static const data = ReadOnlyHiveFieldAdapter(
-      fieldName: 'data',
-      fieldNumber: 0,
-      getter: getData,
-      merger: SetMerger<int>(PrimitiveMerger()));
+    fieldName: 'data',
+    fieldNumber: 0,
+    getter: getData,
+    merger: SetMerger<int>(PrimitiveMerger()),
+  );
 }
 
 class EfficientlyStoredIntSetAdapter
@@ -2739,8 +3053,10 @@ class EfficientlyStoredIntSetAdapter
       return;
     }
     final sorted = obj._data.toList()..sort();
-    final diffs =
-        List.generate(sorted.length - 1, (i) => sorted[i + 1] - sorted.first);
+    final diffs = List.generate(
+      sorted.length - 1,
+      (i) => sorted[i + 1] - sorted.first,
+    );
     final int intWidth;
     if ((diffs.tryLast ?? 0) < 0xFFFF) {
       intWidth = 2;
@@ -2779,7 +3095,8 @@ class EfficientlyStoredIntSetAdapter
 }
 
 extension PseudoCookies on CookieJar {
-  static final _pseudoCookieUri = Uri.parse('https://chancepseudo.com');
+  static const kDomain = 'chancepseudo.com';
+  static final _pseudoCookieUri = Uri.https(kDomain);
   static const _expiresOffset = Duration(days: 1000);
 
   Future<String?> readPseudoCookie(String key) async {
@@ -2796,8 +3113,9 @@ extension PseudoCookies on CookieJar {
   }
 
   Future<void> writePseudoCookie(String key, String value) async {
-    await saveFromResponse(_pseudoCookieUri,
-        [Cookie(key, value)..expires = DateTime.now().add(_expiresOffset)]);
+    await saveFromResponse(_pseudoCookieUri, [
+      Cookie(key, value)..expires = DateTime.now().add(_expiresOffset),
+    ]);
   }
 
   Future<void> deletePseudoCookie(String key) async {
@@ -2809,8 +3127,10 @@ extension PseudoCookies on CookieJar {
 }
 
 extension CustomDeletion on CookieJar {
-  Future<void> deletePreservingCloudflare(Uri uri,
-      [bool withDomainSharedCookie = false]) async {
+  Future<void> deletePreservingCloudflare(
+    Uri uri, [
+    bool withDomainSharedCookie = false,
+  ]) async {
     final toSave = (await loadForRequest(uri)).where((cookie) {
       return cookie.name == 'cf_clearance';
     }).toList();
@@ -2818,8 +3138,11 @@ extension CustomDeletion on CookieJar {
     await saveFromResponse(uri, toSave);
   }
 
-  Future<void> deleteWhere(Uri uri, bool Function(Cookie) where,
-      [bool withDomainSharedCookie = false]) async {
+  Future<void> deleteWhere(
+    Uri uri,
+    bool Function(Cookie) where, [
+    bool withDomainSharedCookie = false,
+  ]) async {
     final toSave = (await loadForRequest(uri)).where((cookie) {
       return !where(cookie);
     }).toList();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -5,7 +6,9 @@ import 'dart:math';
 import 'package:chan/models/flag.dart';
 import 'package:chan/models/parent_and_child.dart';
 import 'package:chan/models/search.dart';
+import 'package:chan/pages/cookie_browser.dart';
 import 'package:chan/services/embed.dart';
+import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/linkifier.dart';
 import 'package:chan/services/persistence.dart';
@@ -23,6 +26,7 @@ import 'package:chan/sites/util.dart';
 import 'package:chan/util.dart';
 import 'package:chan/widgets/post_spans.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart';
 import 'package:html_unescape/html_unescape_small.dart';
@@ -225,6 +229,23 @@ class _LooseHeaderSyntax extends markdown.BlockSyntax {
 
 const _loginFieldRedGifsTokenKey = '_rgt';
 
+class SiteRedditBlockedException extends ExtendedException {
+	final Uri url;
+	final Imageboard? imageboard;
+	SiteRedditBlockedException(this.imageboard, this.url);
+
+	@override
+	Map<String, FutureOr<void> Function(BuildContext)> get remedies => {
+		if (imageboard != null) 'Log in': (context) => openCookieLoginBrowser(context, imageboard!)
+	};
+
+	@override
+	bool get isReportable => false;
+
+	@override
+	String toString() => 'Blocked by Reddit: $url';
+}
+
 class _SiteRedditInterceptor extends InterceptorBase {
 	final SiteReddit parent;
 	_SiteRedditInterceptor(this.parent);
@@ -233,6 +254,22 @@ class _SiteRedditInterceptor extends InterceptorBase {
 	Future<void> onRequestImpl(RequestOptions options, RequestInterceptorHandler handler) async {
 		options.headers[HttpHeaders.cacheControlHeader] = 'max-age=0';
 		handler.next(options);
+	}
+
+	@override
+	Future<void> onResponseImpl(Response response, ResponseInterceptorHandler handler) async {
+		if (response.statusCode == 403 && parent.isKnownHost(response.realUri.host)) {
+			throw SiteRedditBlockedException(parent.imageboard, response.realUri);
+		}
+		handler.next(response);
+	}
+	@override
+	Future<void> onErrorImpl(DioError err, ErrorInterceptorHandler handler) async {
+		final response = err.response;
+		if (response != null && response.statusCode == 403 && parent.isKnownHost(response.realUri.host)) {
+			throw SiteRedditBlockedException(parent.imageboard, response.realUri);
+		}
+		handler.next(err);
 	}
 }
 
@@ -266,6 +303,7 @@ class SiteReddit extends ImageboardSite {
 	SiteReddit({
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders
@@ -273,7 +311,12 @@ class SiteReddit extends ImageboardSite {
 		client.interceptors.add(_SiteRedditInterceptor(this));
 	}
 	@override
-	String get baseUrl => 'reddit.com';
+	String get baseUrl => 'www.reddit.com';
+	static const _rootUrl = 'reddit.com';
+	static const _apiUrl = 'api.reddit.com';
+	static const _redditUploadsUrl = 'i.reddituploads.com';
+	static const _videosUrl = 'v.redd.it';
+	static const _gifsUrl = 'i.redd.it';
 
 	static const _kDeleted = '[deleted]';
 	static const _kRemoved = '[removed]';
@@ -290,6 +333,7 @@ class SiteReddit extends ImageboardSite {
 	}
 
 	static final _inlineImagePattern = RegExp(r'https:\/\/(?:preview|i)\.redd\.it\/[^\r\n\t\f\v\) ]+');
+	static final _inlineVideoPattern = RegExp(r'https:\/\/reddit\.com\/link\/[^/]+\/video\/([^/]+)\/player');
 	static final _usernamePattern = RegExp(r'^https:\/\/(?:www)?\.reddit\.com\/(?:u|user)\/([^\/]+)');
 
 	static final _inlineSyntaxes = [
@@ -360,6 +404,26 @@ class SiteReddit extends ImageboardSite {
 										filename: href.substring(href.lastIndexOf('/') + 1).split('?').first,
 										url: href,
 										thumbnailUrl: generateThumbnailerForUrl(Uri.parse(href)).toString(),
+										md5: '',
+										width: null,
+										height: null,
+										threadId: threadId,
+										sizeInBytes: null
+									)
+								]);
+							}
+							else if (_inlineVideoPattern.firstMatch(href) case final match? when !attachments.any((a) => a.url == href)) {
+								final id = match.group(1)!;
+								final url = 'https://$_videosUrl/$id/HLSPlaylist.m3u8';
+								yield PostAttachmentsSpan([
+									Attachment(
+										type: AttachmentType.mp4,
+										board: board,
+										id: url,
+										ext: '.mp4',
+										filename: '$id.mp4',
+										url: url,
+										thumbnailUrl: '',
 										md5: '',
 										width: null,
 										height: null,
@@ -502,23 +566,26 @@ class SiteReddit extends ImageboardSite {
 						}
 					}
 					else if (node.localName == 'img' && (node.attributes['src']?.startsWith('giphy%7C') ?? false)) {
-						final giphyId = Uri.decodeComponent(node.attributes['src']!).split('|')[1];
-						yield PostAttachmentsSpan([
-							Attachment(
-								board: board,
-								type: AttachmentType.image,
-								ext: '.gif',
-								id: giphyId,
-								filename: 'giphy.gif',
-								url: 'https://media.giphy.com/media/$giphyId/giphy.gif',
-								thumbnailUrl: 'https://media.giphy.com/media/$giphyId/200w_s.gif',
-								md5: '',
-								width: null,
-								height: null,
-								threadId: threadId,
-								sizeInBytes: null
-							)
-						]);
+						final id =  Uri.decodeComponent(node.attributes['src']!);
+						if (!attachments.any((a) => a.id == id)) {
+							final giphyId = id.split('|')[1];
+							yield PostAttachmentsSpan([
+								Attachment(
+									board: board,
+									type: AttachmentType.image,
+									ext: '.gif',
+									id: giphyId,
+									filename: 'giphy.gif',
+									url: 'https://media.giphy.com/media/$giphyId/giphy.gif',
+									thumbnailUrl: 'https://media.giphy.com/media/$giphyId/200w_s.gif',
+									md5: '',
+									width: null,
+									height: null,
+									threadId: threadId,
+									sizeInBytes: null
+								)
+							]);
+						}
 					}
 					else if (node.localName == 'img' && node.attributes.containsKey('src')) {
 						String src = node.attributes['src']!;
@@ -541,7 +608,7 @@ class SiteReddit extends ImageboardSite {
 							]);
 						}
 						else if (!src.contains('.')) {
-							final url = Uri.https('i.redd.it', '/$src.gif');
+							final url = Uri.https(_gifsUrl, '/$src.gif');
 							yield PostAttachmentsSpan([
 								Attachment(
 									board: board,
@@ -596,7 +663,7 @@ class SiteReddit extends ImageboardSite {
 			return true;
 		}
 		if (
-			url.host.endsWith(baseUrl)
+			url.host.endsWith(_rootUrl)
 			&& url.pathSegments.length >= 3
 			&& url.pathSegments[0] == 'r'
 			&& url.pathSegments[2] == 's'
@@ -608,7 +675,7 @@ class SiteReddit extends ImageboardSite {
 
 	bool _isCommentsLink(Uri url) {
 		return
-			url.host.endsWith(baseUrl)
+			url.host.endsWith(_rootUrl)
 			&& url.pathSegments.length >= 4
 			&& url.pathSegments[0] == 'comments'
 			&& url.pathSegments[2] == 'comment';
@@ -622,7 +689,7 @@ class SiteReddit extends ImageboardSite {
 		if (_isShareLink(url) || _isCommentsLink(url)) {
 			return true;
 		}
-		if (url.host.endsWith(baseUrl)) {
+		if (url.host.endsWith(_rootUrl)) {
 			final match = _linkPattern.firstMatch(url.path);
 			if (match != null) {
 				return true;
@@ -632,22 +699,22 @@ class SiteReddit extends ImageboardSite {
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		if (_isShareLink(url) || _isCommentsLink(url)) {
 			final response = await client.getUri<String>(url, options: Options(
 				responseType: ResponseType.plain
-			));
+			), cancelToken: cancelToken);
 			Uri? redirected = response.redirects.tryLast?.location;
 			if (redirected != null && !_isShareLink(redirected) && !_isCommentsLink(redirected)) {
-				return await decodeUrl(Uri.https(baseUrl).resolve(redirected.toString()));
+				return await decodeUrl(Uri.https(baseUrl).resolve(redirected.toString()), cancelToken: cancelToken);
 			}
 			// Look for "reddit:///r/subreddit/..." in the JavaScript redirect page
 			final redditProtocolMatch = _redditProtocolPattern.firstMatch(response.data ?? '');
 			if (redditProtocolMatch != null) {
-				return await decodeUrl(Uri.https(baseUrl, redditProtocolMatch.group(1)!));
+				return await decodeUrl(Uri.https(baseUrl, redditProtocolMatch.group(1)!), cancelToken: cancelToken);
 			}
 		}
-		if (url.host.endsWith(baseUrl)) {
+		if (url.host.endsWith(_rootUrl)) {
 			final match = _linkPattern.firstMatch(url.path);
 			if (match != null) {
 				int? threadId;
@@ -674,7 +741,8 @@ class SiteReddit extends ImageboardSite {
 			String x => Uri.parse(x),
 			_ => null
 		},
-		popularity: data['subscribers'] as int?
+		popularity: data['subscribers'] as int?,
+		filesPerPost: 0
 	);
 
 	Future<String> _getRedgifsToken() async {
@@ -769,7 +837,7 @@ class SiteReddit extends ImageboardSite {
 					)];
 				}
 			}
-			else if (uri.host == 'i.reddituploads.com') {
+			else if (uri.host == _redditUploadsUrl) {
 				return [(
 					url: uri.toString(),
 					thumbnailUrl: null,
@@ -853,7 +921,7 @@ class SiteReddit extends ImageboardSite {
 		if (url.host == 'gfycat.com' && (url.pathSegments.trySingle?.length ?? 0) > 2) {
 			return true;
 		}
-		if (url.host == 'i.reddituploads.com') {
+		if (url.host == _redditUploadsUrl) {
 			return true;
 		}
 		if (url.host.endsWith('redgifs.com') && url.pathSegments.length == 2 && url.pathSegments[0] == 'watch' && persistence != null) {
@@ -1064,7 +1132,8 @@ class SiteReddit extends ImageboardSite {
 			if (queryPosition != -1 && max(30, queryPosition) < title.length * 0.65) {
 				title = title.substring(0, queryPosition);
 			}
-			text = '<a href="${const HtmlEscape(HtmlEscapeMode.attribute).convert(url)}" noembed>${const HtmlEscape(HtmlEscapeMode.element).convert(title)}</a>';
+			final noembed = !decodeUrlPossible(Uri.parse(url));
+			text = '<a href="${const HtmlEscape(HtmlEscapeMode.attribute).convert(url)}"${noembed ? ' noembed' : ''}>${const HtmlEscape(HtmlEscapeMode.element).convert(title)}</a>';
 			if ((data['selftext'] as String? ?? '').isNotEmpty) {
 				text += '\n\n${data['selftext']}';
 			}
@@ -1100,6 +1169,10 @@ class SiteReddit extends ImageboardSite {
 			name: authorIsDeleted ? '' : author,
 			flag: _makeFlag(data['author_flair_richtext'] as List?, data),
 			time: DateTimeConversion.fromSecondsSinceEpoch((data['created'] as num).toInt()),
+			edited: switch (data['edited']) {
+				num number => DateTimeConversion.fromSecondsSinceEpoch(number.toInt()),
+				_ => null
+			},
 			threadId: id,
 			id: id,
 			text: textIsDeleted ? '' : text,
@@ -1147,10 +1220,10 @@ class SiteReddit extends ImageboardSite {
 	String get defaultUsername => '';
 
 	@override
-	Map<String, String> getHeaders(Uri url) {
-		if (url.host == 'v.redd.it') {
+	Map<String, String> getHeaders(Attachment attachment, [Uri? url]) {
+		if ((url ?? Uri.parse(attachment.url)).host == _videosUrl) {
 			return {
-				...super.getHeaders(url),
+				...super.getHeaders(attachment, url),
 				'Origin': 'https://www.reddit.com',
 				'Sec-Fetch-Site': 'cross-site',
 				'Sec-Fetch-Mode': 'cors',
@@ -1160,7 +1233,7 @@ class SiteReddit extends ImageboardSite {
 				'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 			};
 		}
-		return super.getHeaders(url);
+		return super.getHeaders(attachment, url);
 	}
 
 	@override
@@ -1179,7 +1252,7 @@ class SiteReddit extends ImageboardSite {
 
 	@override
 	Future<List<ImageboardBoard>> getBoardsForQuery(String query) async {
-		final response = await client.getUri<Map>(Uri.https('api.$baseUrl', '/subreddits/search', {
+		final response = await client.getUri<Map>(Uri.https(_apiUrl, '/subreddits/search', {
 			'q': query,
 			'typeahead_active': 'true'
 		}), options: Options(responseType: ResponseType.json));
@@ -1202,7 +1275,8 @@ class SiteReddit extends ImageboardSite {
 					title: 'Top posts across $board subreddits',
 					isWorksafe: true,
 					webmAudioAllowed: true,
-					additionalDataTime: DateTime.now()
+					additionalDataTime: DateTime.now(),
+					filesPerPost: 0
 				);
 			}
 			else {
@@ -1219,10 +1293,10 @@ class SiteReddit extends ImageboardSite {
 		}
 	}
 
-	static (String, Map<String, String>) _getCatalogSuffix(CatalogVariant? variant) => const {
-			CatalogVariant.redditHot: ('/hot.json', <String, String>{}),
-			CatalogVariant.redditNew: ('/new.json', <String, String>{}),
-			CatalogVariant.redditRising: ('/rising.json', <String, String>{}),
+	static (String, Map<String, String>?) _getCatalogSuffix(CatalogVariant? variant) => const {
+			CatalogVariant.redditHot: ('/hot.json', null),
+			CatalogVariant.redditNew: ('/new.json', null),
+			CatalogVariant.redditRising: ('/rising.json', null),
 			CatalogVariant.redditControversialPastHour: ('/controversial.json', {'t': 'hour'}),
 			CatalogVariant.redditControversialPast24Hours: ('/controversial.json', {'t': 'day'}),
 			CatalogVariant.redditControversialPastWeek: ('/controversial.json', {'t': 'week'}),
@@ -1235,7 +1309,7 @@ class SiteReddit extends ImageboardSite {
 			CatalogVariant.redditTopPastMonth: ('/top.json', {'t': 'month'}),
 			CatalogVariant.redditTopPastYear: ('/top.json', {'t': 'year'}),
 			CatalogVariant.redditTopAllTime: ('/top.json', {'t': 'all'}),
-		}[variant] ?? ('.json', <String, String>{});
+		}[variant] ?? ('.json', null);
 
 	@override
 	Future<Catalog> getCatalogImpl(String board, {CatalogVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
@@ -1253,7 +1327,12 @@ class SiteReddit extends ImageboardSite {
 			},
 			responseType: ResponseType.json
 		), cancelToken: cancelToken);
-		final threads = await Future.wait(((response.data!['data'] as Map)['children'] as List).cast<Map>().map((d) async {
+		final children = ((response.data!['data'] as Map)['children'] as List).cast<Map>();
+		if (children.every((c) => c['kind'] == 't5')) {
+			// This is the subreddit search results
+			throw BoardNotFoundException(board);
+		}
+		final threads = await Future.wait(children.map((d) async {
 			final t = await _makeThread(d['data'] as Map, cancelToken: cancelToken);
 			t.currentPage = 1;
 			return t;
@@ -1385,7 +1464,7 @@ class SiteReddit extends ImageboardSite {
 		final suffix = _getCatalogSuffix(variant);
 		final response = await client.getUri<Map>(Uri.https(baseUrl, '/r/$board${suffix.$1}', {
 			'after': 't3_${toRedditId(after.id)}',
-			...suffix.$2
+			...?suffix.$2
 		}), options: Options(
 			extra: {
 				kPriority: priority
@@ -1484,6 +1563,10 @@ class SiteReddit extends ImageboardSite {
 			isDeleted: authorIsDeleted || textIsDeleted,
 			flag: _makeFlag(child['author_flair_richtext'] as List?, child),
 			time: DateTimeConversion.fromSecondsSinceEpoch((child['created'] as num).toInt()),
+			edited: switch (child['edited']) {
+				num number => DateTimeConversion.fromSecondsSinceEpoch(number.toInt()),
+				_ => null
+			},
 			threadId: thread.id,
 			id: id,
 			spanFormat: PostSpanFormat.reddit,
@@ -1498,7 +1581,7 @@ class SiteReddit extends ImageboardSite {
 	Future<Thread> getThreadImpl(ThreadIdentifier thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
 		final response = await client.getThreadUri(Uri.https(baseUrl, '/r/${thread.board}/comments/${toRedditId(thread.id)}.json', {
 			if (variant?.redditApiName != null) 'sort': variant!.redditApiName!
-		}), priority: priority, responseType: ResponseType.json, cancelToken: cancelToken);
+		}.ifNotEmpty), priority: priority, responseType: ResponseType.json, cancelToken: cancelToken);
 		final (opData, repliesData) = switch(response.data) {
 			[
 				{'data': {'children': [{'data': Map data}, ...]}},
@@ -1550,7 +1633,7 @@ class SiteReddit extends ImageboardSite {
 
 	@override
 	String getWebUrlImpl(String board, [int? threadId, int? postId]) {
-		String s = 'https://reddit.com/r/$board/';
+		String s = 'https://$baseUrl/r/$board/';
 		if (threadId != null) {
 			s += 'comments/${toRedditId(threadId)}/';
 			if (postId != null) {
@@ -1558,6 +1641,11 @@ class SiteReddit extends ImageboardSite {
 			}
 		}
 		return s;
+	}
+
+	@override
+	bool isKnownHost(String host) {
+		return super.isKnownHost(host) || host.endsWith(_rootUrl) || host == _videosUrl || host == _gifsUrl || host == _redditUploadsUrl;
 	}
 
 	@override
@@ -1720,6 +1808,9 @@ class SiteReddit extends ImageboardSite {
 	];
 
 	@override
+	String formatBoardNameShort(String name) => name;
+
+	@override
 	String formatBoardName(String name) => '/r/$name';
 
 	@override
@@ -1768,6 +1859,13 @@ class SiteReddit extends ImageboardSite {
 
 	@override
 	bool get hasExpiringThreads => false;
+	@override
+	bool get hasUnreliableThumbnails => true;
+
+	@override
+	Uri? get authPage => Uri.https(baseUrl, '/login');
+	@override
+	Set<String> get authPageFormFields => const {'username', 'password'};
 
 	@override
 	bool operator == (Object other) =>

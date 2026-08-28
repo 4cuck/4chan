@@ -347,6 +347,11 @@ class VideoServer {
 		}
 		return getFile(digest);
 	}
+	Future<Uri> optimisticallyGetCachingUrl(Uri uri) async {
+		// Make sure port is assigned
+		await ensureRunning();
+		return getUri(_encodeDigest(uri));
+	}
 
 	Future<void> _handleRequest(HttpRequest request) async {
 		request.response.persistentConnection = request.persistentConnection;
@@ -801,14 +806,6 @@ class VideoServer {
 		_httpServer?.close();
 		_httpServer = null;
 	}
-}
-
-Uri getCachingURL(Response x) {
-	throw UnimplementedError();
-}
-
-Future<String> getCachedPath(String uri) async {
-	throw UnimplementedError();
 }
 
 class StreamingMP4Conversion {

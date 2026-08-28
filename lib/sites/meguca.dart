@@ -30,6 +30,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     required super.archives,
     required super.imageHeaders,
     required super.videoHeaders,
+    required super.preferHttp3WithoutAltSvc,
     this.worksafeBoards = const {'c'},
   }) : _imageUrlOverride = imageUrl;
 
@@ -470,6 +471,8 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
             title: raw['title'] as String? ?? raw['id'] as String,
             isWorksafe: worksafeBoards.contains(raw['id']),
             webmAudioAllowed: true,
+            // Meguca accepts a single attachment per post.
+            filesPerPost: 1,
           ),
     ];
   }
@@ -545,7 +548,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   }
 
   @override
-  Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+  Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
     if (!decodeUrlPossible(url)) {
       return null;
     }
@@ -574,7 +577,10 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   @override
   String getWebUrlImpl(String board, [int? threadId, int? postId]) {
     if (postId != null && threadId != null) {
-      return 'https://$baseUrl/$board/$threadId?p=$postId';
+      // Meguca links to posts with a `#pN` fragment (see client/posts/render/etc.ts),
+      // which is also what decodeUrl parses. Emitting `?p=N` here silently dropped
+      // the post id on the round-trip, so shared links didn't jump to the post.
+      return 'https://$baseUrl/$board/$threadId#p$postId';
     }
     if (threadId != null) {
       return 'https://$baseUrl/$board/$threadId';

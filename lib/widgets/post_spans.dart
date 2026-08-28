@@ -689,11 +689,8 @@ class PostAttachmentsSpan extends PostTerminalSpan {
 		for (final a in attachments) {
 			if (forQuoteComparison) {
 				// Make it look like a SiteXenforo quote (the only use case)
-				buffer.write('[View Attachment ');
+				buffer.write('View Attachment ');
 				buffer.write(a.id);
-				buffer.write('](');
-				buffer.write(a.url);
-				buffer.write(')');
 			}
 			else {
 				buffer.write(a.url);
@@ -1056,6 +1053,7 @@ class PostBlueQuoteSpan extends PostQuoteSpan {
 
 class PostQuoteLinkSpan extends PostTerminalSpan {
 	final String board;
+	BoardKey get boardKey => ImageboardBoard.getKey(board);
 	final int? threadId;
 	final int postId;
 	final Key? key;
@@ -1154,7 +1152,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 		), recognizer);
 	}
   (TextSpan, TapGestureRecognizer) _buildDeadLink(BuildContext context, PostSpanZoneData zone, Settings settings, SavedTheme theme, PostSpanRenderOptions options) {
-		final boardPrefix = board == zone.board ? '' : '${zone.imageboard.site.formatBoardNameWithoutTrailingSlash(board)}/';
+		final boardPrefix = boardKey == zone.boardKey ? '' : '${zone.imageboard.site.formatBoardNameWithoutTrailingSlash(board)}/';
 		String text = '>>$boardPrefix$postId';
 		if (zone.postFromArchiveError(board, postId)?.$1 case Object error) {
 			text += ' (Error: ${error.toStringDio()})';
@@ -1256,7 +1254,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 	(InlineSpan, TapGestureRecognizer) _build(BuildContext context, Post post, PostSpanZoneData zone, Settings settings, SavedTheme theme, PostSpanRenderOptions options) {
 		int? actualThreadId = threadId;
 		Post? thisPostLoaded = zone.crossThreadPostFromArchive(board, postId);
-		if (board == zone.board) {
+		if (boardKey == zone.boardKey) {
 			thisPostLoaded ??= zone.findPost(postId);
 		}
 		if (thisPostLoaded != null) {
@@ -1384,7 +1382,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 				pair.$1
 			]
 		);
-		if (options.addExpandingPosts && (threadId != null && zone.findThread(threadId!) != null && board == zone.board)) {
+		if (options.addExpandingPosts && (threadId != null && zone.findThread(threadId!) != null && boardKey == zone.boardKey)) {
 			return TextSpan(
 				children: [
 					span,
@@ -1427,7 +1425,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 				estimator.addRect(Size(estimator.characterSize.width * characters, estimator.characterSize.height));
 			}
 		}
-		if (estimator.zone case final zone? when board == zone.board && zone.shouldExpandPost(this)) {
+		if (estimator.zone case final zone? when boardKey == zone.boardKey && zone.shouldExpandPost(this)) {
 			estimator.addHardLineBreak();
 			zone.findPost(postId)?.span._estimateHeight(estimator);
 			estimator.addHardLineBreak();
@@ -1945,7 +1943,7 @@ class PostLinkSpan extends PostTerminalSpan {
 				if (imageboardTarget != null && (imageboardTarget.$1 ?? zone.imageboard.key) == zone.imageboard.key) {
 					final thread = imageboardTarget.$2.threadIdentifier;
 					if (thread != null) {
-						if (zone.imageboard.site.explicitIds) {
+						if (zone.imageboard.site.explicitIds || (thread == zone.primaryThread && (imageboardTarget.$2.postId ?? thread.id) != post.id)) {
 							return PostQuoteLinkSpan(
 								board: imageboardTarget.$2.board,
 								threadId: thread.id,
@@ -2112,6 +2110,14 @@ class PostLinkSpan extends PostTerminalSpan {
 								filterQuality: filterQuality,
 								loadStateChanged: (loadstate) {
 									if (loadstate.extendedImageLoadState == LoadState.failed) {
+										if (ImageboardRegistry.instance.getImageboard(imageboardTarget?.$1)?.site case final site?) {
+											return Center(
+												child: ImageboardIcon(
+													site: site,
+													size: 32,
+												)
+											);
+										}
 										return const Icon(CupertinoIcons.question);
 									}
 									return null;
@@ -2173,7 +2179,11 @@ class PostLinkSpan extends PostTerminalSpan {
 					}
 					onTap() {
 						final imageboardTarget = snapshot.data?.imageboardTarget;
-						if (imageboardTarget != null) {
+						final isSelfLink =
+								(imageboardTarget?.$1 == zone.imageboard.key) &&
+								(imageboardTarget?.$2.threadIdentifier == post.threadIdentifier) &&
+								((imageboardTarget?.$2.postId ?? imageboardTarget?.$2.threadId) == post.id);
+						if (imageboardTarget != null && !isSelfLink) {
 							openImageboardTarget(context, (ImageboardRegistry.instance.getImageboard(imageboardTarget.$1) ?? zone.imageboard, imageboardTarget.$2, imageboardTarget.$3));
 						}
 						else if (snapshot.data?.attachments case final attachments?) {
@@ -2193,7 +2203,7 @@ class PostLinkSpan extends PostTerminalSpan {
 							);
 						}
 						else {
-							openBrowser(context, cleanedUri!);
+							openBrowser(context, cleanedUri!, useChanceIfPossible: !isSelfLink);
 						}
 					}
 					return WidgetSpan(
@@ -2249,7 +2259,10 @@ class PostLinkSpan extends PostTerminalSpan {
 			),
 			_ => null
 		};
-		if (snapshot case final data? when data.thumbnailUrl != null || data.thumbnailWidget != null || data.imageboardTarget != null) {
+		if (snapshot?.imageboardTarget?.$2.threadIdentifier case final thread? when estimator.zone?.imageboard.key == snapshot?.imageboardTarget?.$1 && ((estimator.zone?.imageboard.site.explicitIds ?? false) || (estimator.post.threadIdentifier == thread && estimator.post.id != (snapshot?.imageboardTarget?.$2.postId ?? thread.id)))) {
+			estimator.addCharacters(2 + (snapshot?.imageboardTarget?.$2.postId ?? thread.id).numberOfDigits + (thread.boardKey == estimator.post.boardKey ? 0 : thread.board.length));
+		}
+		else if (snapshot case final data? when data.thumbnailUrl != null || data.thumbnailWidget != null || data.imageboardTarget != null) {
 			final Size imageSize;
 			if (data.thumbnailUrl != null) {
 				imageSize = const Size(75, 75);
@@ -3230,6 +3243,7 @@ enum PostSpanZoneStyle {
 abstract class PostSpanZoneData extends ChangeNotifier {
 	final Map<(int?, PostSpanZoneStyle?, int?, ValueChanged<Post>?, PostQuoteLinkSpan?), _PostSpanChildZoneData> _children = {};
 	String get board;
+	BoardKey get boardKey => ImageboardBoard.getKey(board);
 	int get primaryThreadId;
 	ThreadIdentifier get primaryThread => ThreadIdentifier(board, primaryThreadId);
 	PersistentThreadState? get primaryThreadState => imageboard.persistence.getThreadStateIfExists(primaryThread);
@@ -3624,9 +3638,9 @@ class PostSpanRootZoneData extends PostSpanZoneData {
 	final void Function(int, bool)? glowOtherPost;
 	@override
 	Future<void> Function(List<ParentAndChildIdentifier>)? onNeedUpdateWithStubItems;
-	final Map<(String, int), bool> _isLoadingPostFromArchive = {};
-	final Map<(String, int), Post> _crossThreadPostsFromArchive = {};
-	final Map<(String, int), (Object, StackTrace)> _postFromArchiveErrors = {};
+	final Map<(BoardKey, int), bool> _isLoadingPostFromArchive = {};
+	final Map<(BoardKey, int), Post> _crossThreadPostsFromArchive = {};
+	final Map<(BoardKey, int), (Object, StackTrace)> _postFromArchiveErrors = {};
 	final Iterable<int> semanticRootIds;
 	final Map<int, AsyncSnapshot<String>> _translatedTitleSnapshots = {};
 	final Map<int, AsyncSnapshot<Post>> _translatedPostSnapshots = {};
@@ -3701,50 +3715,51 @@ class PostSpanRootZoneData extends PostSpanZoneData {
 
 	@override
 	bool isLoadingPostFromArchive(String board, int id) {
-		return _isLoadingPostFromArchive[(board, id)] ?? false;
+		return _isLoadingPostFromArchive[(ImageboardBoard.getKey(board), id)] ?? false;
 	}
 
 	@override
 	Future<void> loadPostFromArchive(String board, int id) async {
 		lightHapticFeedback();
+		final boardKey = ImageboardBoard.getKey(board);
 		try {
-			_postFromArchiveErrors.remove((board, id));
-			_isLoadingPostFromArchive[(board, id)] = true;
+			_postFromArchiveErrors.remove((boardKey, id));
+			_isLoadingPostFromArchive[(boardKey, id)] = true;
 			notifyAllListeners();
 			final newPost = await imageboard.site.getPostFromArchive(board, id, priority: RequestPriority.interactive);
 			final cb = onPostLoadedFromArchive;
-			if (board == this.board && newPost.threadId == primaryThreadId && cb != null) {
+			if (boardKey == this.boardKey && newPost.threadId == primaryThreadId && cb != null) {
 				await cb(newPost);
 			}
 			else {
-				_crossThreadPostsFromArchive[(board, id)] = newPost;
-				if (board == this.board) {
+				_crossThreadPostsFromArchive[(boardKey, id)] = newPost;
+				if (boardKey == this.boardKey) {
 					newPost.replyIds = findThread(newPost.threadId)?.posts.where((p) => p.repliedToIds.contains(id)).map((p) => p.id).toList() ?? [];
 				}
 			}
 			notifyAllListeners();
 		}
 		catch (e, st) {
-			_postFromArchiveErrors[(board, id)] = (e, st);
+			_postFromArchiveErrors[(boardKey, id)] = (e, st);
 		}
 		lightHapticFeedback();
-		_isLoadingPostFromArchive[(board, id)] = false;
+		_isLoadingPostFromArchive[(boardKey, id)] = false;
 		notifyAllListeners();
 	}
 
 	@override
 	Post? crossThreadPostFromArchive(String board, int id) {
-		return _crossThreadPostsFromArchive[(board, id)];
+		return _crossThreadPostsFromArchive[(ImageboardBoard.getKey(board), id)];
 	}
 
 	void insertCrossThreadPost(Post post) {
-		_crossThreadPostsFromArchive[(post.board, post.id)] = post;
+		_crossThreadPostsFromArchive[(post.boardKey, post.id)] = post;
 		notifyListeners();
 	}
 
 	@override
 	(Object, StackTrace)? postFromArchiveError(String board, int id) {
-		return _postFromArchiveErrors[(board, id)];
+		return _postFromArchiveErrors[(ImageboardBoard.getKey(board), id)];
 	}
 
 	@override
@@ -3920,7 +3935,7 @@ Iterable<TextSpan> _makeAttachmentInfo({
 				yield TextSpan(
 					text: '$ellipsizedFilename ',
 					recognizer: context != null ? (TapGestureRecognizer(debugOwner: metadata)..onTap = () {
-						alert(context, 'Full filename', attachment.filename);
+						alert(context, 'Full filename', attachment.filename, selectable: true);
 					}) : null
 				);
 			}
@@ -4014,7 +4029,6 @@ TextSpan buildPostInfoRow({
 	bool showBoardName = false,
 	required Settings settings,
 	required SavedTheme theme,
-	required ImageboardSite site,
 	required BuildContext context,
 	required PostSpanZoneData zone,
 	bool interactive = true,
@@ -4023,6 +4037,7 @@ TextSpan buildPostInfoRow({
 	ValueChanged<TaggedAttachment>? propagatedOnThumbnailTap,
 	RegExp? highlightPattern
 }) {
+	final site = zone.imageboard.site;
 	final thread = zone.findThread(post.threadId);
 	final (postIdNonRepeatingSegment, postIdRepeatingSegment) = splitPostId(post.id, site);
 	final op = site.isPaged ? thread?.posts_.tryFirstWhere((p) => !p.isPageStub) : thread?.posts_.tryFirst;
@@ -4034,6 +4049,7 @@ TextSpan buildPostInfoRow({
 		null => false
 	};
 	final combineFlagNames = settings.postDisplayFieldOrder.indexOf(PostDisplayField.countryName) == settings.postDisplayFieldOrder.indexOf(PostDisplayField.flag) + 1;
+	final relativeTimeFirst = settings.postDisplayFieldOrder.indexOf(PostDisplayField.absoluteTime) > settings.postDisplayFieldOrder.indexOf(PostDisplayField.relativeTime);
 	const lineBreak = TextSpan(text: '\n');
 	final isDeletedStub = post.isDeleted && post.text.isEmpty && post.attachments.isEmpty;
 	final children = [
@@ -4222,14 +4238,51 @@ TextSpan buildPostInfoRow({
 				text: '${post.flag!.name} ',
 				style: TextStyle(color: theme.primaryColor.withValues(alpha: 0.75))
 			)
-			else if (field == PostDisplayField.absoluteTime && settings.showAbsoluteTimeOnPosts) TextSpan(
-				text: '${formatTime(post.time.toLocal(), forceFullDate: forceAbsoluteTime, withSecondsPrecision: site.hasSecondsPrecision)} '
-			)
-			else if (field == PostDisplayField.relativeTime && settings.showRelativeTimeOnPosts)
+			else if (field == PostDisplayField.absoluteTime && settings.showAbsoluteTimeOnPosts) ...[
+				TextSpan(
+					text: '${formatTime(post.time.toLocal(), forceFullDate: forceAbsoluteTime, withSecondsPrecision: site.hasSecondsPrecision)} '
+				),
+				if (post.edited case final edited? when relativeTimeFirst || !settings.showRelativeTimeOnPosts) TextSpan(
+					text: '${String.fromCharCode(CupertinoIcons.pencil.codePoint)} ',
+					style: TextStyle(
+						height: kTextHeightNone,
+						fontFamily: CupertinoIcons.pencil.fontFamily,
+						package: CupertinoIcons.pencil.fontPackage,
+						color: theme.primaryColorWithBrightness(0.5)
+					),
+					recognizer: interactive ? (TapGestureRecognizer(debugOwner: post)..onTap = () {
+						// If forceAbsoluteTime it is likely not interactive
+						showToast(
+							context: context,
+							message: 'Edited at ${formatTime(edited.toLocal(), withSecondsPrecision: site.hasSecondsPrecision)}${settings.showRelativeTimeOnPosts ? ' (${formatRelativeTime(edited.toLocal())} ago${formatRelativeTime(edited.toLocal()) == formatRelativeTime(post.time.toLocal()) ? ' (${formatTimeDiff(edited.toLocal().difference(post.time.toLocal()))} later)' : ''})' : ''}',
+							icon: CupertinoIcons.pencil
+						);
+					}) : null
+				)
+			]
+			else if (field == PostDisplayField.relativeTime && settings.showRelativeTimeOnPosts) ...[
 			 	if (!settings.showAbsoluteTimeOnPosts && forceAbsoluteTime) TextSpan(
 					text: '${formatTime(post.time.toLocal(), forceFullDate: true, withSecondsPrecision: site.hasSecondsPrecision)} '
 				)
-				else RelativeTimeSpan(post.time.toLocal(), suffix: ' ago ')
+				else RelativeTimeSpan(post.time.toLocal(), suffix: ' ago '),
+				if (post.edited case final edited?) TextSpan(
+					text: '${String.fromCharCode(CupertinoIcons.pencil.codePoint)} ',
+					style: TextStyle(
+						height: kTextHeightNone,
+						fontFamily: CupertinoIcons.pencil.fontFamily,
+						package: CupertinoIcons.pencil.fontPackage,
+						color: theme.primaryColorWithBrightness(0.5)
+					),
+					recognizer: interactive ? (TapGestureRecognizer(debugOwner: post)..onTap = () {
+						// If forceAbsoluteTime it is likely not interactive
+						showToast(
+							context: context,
+							message: 'Edited ${formatRelativeTime(edited.toLocal())} ago${formatRelativeTime(edited.toLocal()) == formatRelativeTime(post.time.toLocal()) ? ' (${formatTimeDiff(edited.toLocal().difference(post.time.toLocal()))} later)' : ''}${settings.showAbsoluteTimeOnPosts ? ' (${formatTime(edited.toLocal(), withSecondsPrecision: site.hasSecondsPrecision)})' : ''}',
+							icon: CupertinoIcons.pencil
+						);
+					}) : null
+				)
+			]
 			else if (field == PostDisplayField.postId && (site.explicitIds || zone.style != PostSpanZoneStyle.tree)) ...[
 				if (showSiteIcon) WidgetSpan(
 					alignment: PlaceholderAlignment.middle,
@@ -4309,8 +4362,10 @@ TextSpan buildDraftInfoRow({
 	final combineFlagNames = settings.postDisplayFieldOrder.indexOf(PostDisplayField.countryName) == settings.postDisplayFieldOrder.indexOf(PostDisplayField.flag) + 1;
 	const lineBreak = TextSpan(text: '\n');
 	final name = post.name ?? imageboard.site.defaultUsername;
-	final file = post.file;
-	final scan = file == null ? null : MediaScan.peekCachedFileScan(file);
+	final scans = {
+		for (final file in post.files)
+			file: MediaScan.peekCachedFileScan(file.path)
+	};
 	final children = [
 		if (post.threadId == null && (post.subject?.isNotEmpty ?? false)) TextSpan(
 			text: '${post.subject}\n',
@@ -4346,15 +4401,15 @@ TextSpan buildDraftInfoRow({
 				),
 				const TextSpan(text: ' ')
 			]
-			else if (field == PostDisplayField.attachmentInfo && file != null) TextSpan(
+			else if (field == PostDisplayField.attachmentInfo && post.files.isNotEmpty) TextSpan(
 				children: _makeAttachmentInfo(
 					context: null,
 					metadata: [
-						(
-							filename: post.overrideFilename ?? FileBasename.get(file),
-							sizeInBytes: scan?.sizeInBytes,
-							width: scan?.width,
-							height: scan?.height
+						for (final file in post.files) (
+							filename: (settings.randomizeFilenames && !file.overrideRandomizeFilenames) ? '[random].${file.fileExt}' : (file.overrideFilename ?? FileBasename.get(file.path)),
+							sizeInBytes: scans[file]?.sizeInBytes,
+							width: scans[file]?.width,
+							height: scans[file]?.height
 						)
 					],
 					settings: settings

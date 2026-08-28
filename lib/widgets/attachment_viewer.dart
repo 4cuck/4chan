@@ -70,7 +70,8 @@ final Map<String, (DateTime, Rect, Rect)> _heroRectCache = {};
 
 Duration _estimateUrlTime(Uri url, AttachmentType type) {
   final times = _domainLoadTimes[(url.host, type)] ?? <Duration>[];
-  final time = (times.fold(Duration.zero, (Duration a, b) => a + b) * 1.5) ~/
+  final time =
+      (times.fold(Duration.zero, (Duration a, b) => a + b) * 1.5) ~/
       max(times.length, 1);
   return time.clamp(_minUrlTime, _maxUrlTime);
 }
@@ -161,7 +162,10 @@ extension on AttachmentViewerController {
 extension on GallerySavePathOrganizing {
   List<String> subfoldersFor(AttachmentViewerController controller) {
     final attachment = controller.attachment;
-    final override = controller.imageboard.persistence.browserState
+    final override = controller
+        .imageboard
+        .persistence
+        .browserState
         .downloadSubfoldersPerBoard[attachment.boardKey];
     if (override != null) {
       return override.split('/');
@@ -175,7 +179,7 @@ extension on GallerySavePathOrganizing {
       // Just put it in a host specific folder. Like catbox.moe?
       return [
         if (Uri.tryParse(attachment.url)?.host.nonEmptyOrNull case String host)
-          host
+          host,
       ];
     }
     switch (this) {
@@ -198,25 +202,30 @@ extension on GallerySavePathOrganizing {
         return [
           controller.imageboard.site.name,
           attachment.board,
-          attachment.threadId.toString()
+          attachment.threadId.toString(),
         ];
       case GallerySavePathOrganizing.siteBoardAndThreadNameSubfolders:
         return [
           controller.imageboard.site.name,
           attachment.board,
-          controller.threadSubfolderName
+          controller.threadSubfolderName,
         ];
       case GallerySavePathOrganizing.siteAndThreadNameSubfolders:
         return [
           controller.imageboard.site.name,
-          controller.boardAndThreadSubfolderName
+          controller.boardAndThreadSubfolderName,
         ];
     }
   }
 
   String? albumNameFor(
-      AttachmentViewerController controller, String? rootAlbumName) {
-    final override = controller.imageboard.persistence.browserState
+    AttachmentViewerController controller,
+    String? rootAlbumName,
+  ) {
+    final override = controller
+        .imageboard
+        .persistence
+        .browserState
         .downloadSubfoldersPerBoard[controller.attachment.boardKey];
     if (override != null) {
       return override;
@@ -255,8 +264,9 @@ extension on GallerySavePathOrganizing {
         if (rootAlbumName != null) {
           return '$rootAlbumName - ${controller.imageboard.site.formatBoardName(controller.attachment.board)}';
         }
-        return controller.imageboard.site
-            .formatBoardName(controller.attachment.board);
+        return controller.imageboard.site.formatBoardName(
+          controller.attachment.board,
+        );
     }
   }
 }
@@ -293,7 +303,7 @@ class Wakelock {
 
 class AttachmentViewerController extends ChangeNotifier {
   static final Map<String, ({Duration? duration, bool hasAudio})>
-      mediaMetadataCache = {};
+  mediaMetadataCache = {};
 
   // Parameters
   final BuildContext context;
@@ -318,11 +328,15 @@ class AttachmentViewerController extends ChangeNotifier {
   bool _checkArchives = false;
   final _showLoadingProgress = ValueNotifier<bool>(false);
   _LongPressMode? _longPressMode;
-  final _longPressFactor =
-      BufferedValueNotifier<double>(const Duration(milliseconds: 50), 0);
+  final _longPressFactor = BufferedValueNotifier<double>(
+    const Duration(milliseconds: 50),
+    0,
+  );
   int _millisecondsBeforeLongPress = 0;
   bool _currentlyWithinLongPress = false;
   bool _playingBeforeLongPress = false;
+  final _longPressEdgeFactor = ValueNotifier<double>(0);
+  bool _currentlyWithinLongPressEdge = false;
   bool _seeking = false;
   String? _overlayText;
   bool _isDisposed = false;
@@ -337,11 +351,8 @@ class AttachmentViewerController extends ChangeNotifier {
   bool _soundSourceFailed = false;
   String? _copypartyPassword;
   final _playerErrorStream = StreamController<String>.broadcast();
-  ({
-    ValueNotifier<int> currentBytes,
-    int? totalBytes,
-    Uri uri
-  })? _soundSourceDownload;
+  ({ValueNotifier<int> currentBytes, int? totalBytes, Uri uri})?
+  _soundSourceDownload;
   bool _forceBrowserForExternalUrl = false;
   final Thread? _thread;
   bool _renderedFirstFrame = false;
@@ -378,15 +389,18 @@ class AttachmentViewerController extends ChangeNotifier {
 
   /// A key to use to with ExtendedImage (to help maintain gestures when the image widget is replaced)
   final gestureKey = GlobalKey<ExtendedImageGestureState>(
-      debugLabel: 'AttachmentViewerController.gestureKey');
+    debugLabel: 'AttachmentViewerController.gestureKey',
+  );
 
   /// A key to use with CupertinoContextMenu share button
   final contextMenuShareButtonKey = GlobalKey(
-      debugLabel: 'AttachmentViewerController.contextMenuShareButtonKey');
+    debugLabel: 'AttachmentViewerController.contextMenuShareButtonKey',
+  );
 
   /// A key to use with CupertinoContextMenu share button
   final contextMenuShareLinkButtonKey = GlobalKey(
-      debugLabel: 'AttachmentViewerController.contextMenuShareLinkButtonKey');
+    debugLabel: 'AttachmentViewerController.contextMenuShareLinkButtonKey',
+  );
 
   /// Whether archive checking is possible for this attachment
   bool get canCheckArchives => site.archives.isNotEmpty;
@@ -401,8 +415,9 @@ class AttachmentViewerController extends ChangeNotifier {
   bool get isDownloaded => _isDownloaded;
 
   /// Key to use for loading spinner
-  final loadingSpinnerKey =
-      GlobalKey(debugLabel: 'AttachmentViewerController.loadingSpinnerKey');
+  final loadingSpinnerKey = GlobalKey(
+    debugLabel: 'AttachmentViewerController.loadingSpinnerKey',
+  );
 
   /// Blocks of text to draw on top of image
   List<RecognizedTextBlock> get textBlocks => _textBlocks;
@@ -454,16 +469,18 @@ class AttachmentViewerController extends ChangeNotifier {
     bool isPrimary = false,
     bool isDownloaded = false,
     Thread? thread,
-  })  : _isPrimary = isPrimary,
-        _isDownloaded = isDownloaded,
-        _thread = thread {
-    _longPressFactor
-        .addListener(() => onCoalescedLongPressUpdate(_longPressFactor.value));
+  }) : _isPrimary = isPrimary,
+       _isDownloaded = isDownloaded,
+       _thread = thread {
+    _longPressFactor.addListener(
+      () => onCoalescedLongPressUpdate(_longPressFactor.value),
+    );
     // optimistic
     _goodImageSource = initialGoodSource;
     _isFullResolution = initialGoodSource != null;
     // check *other* archives, this is supposed to be archived, but it refers to original site image server
-    _checkArchives = this.thread?.archiveName != null &&
+    _checkArchives =
+        this.thread?.archiveName != null &&
         Uri.tryParse(attachment.url)?.host == imageboard.site.imageUrl;
     if (attachment.type == AttachmentType.image &&
         attachment.soundSource == null) {
@@ -495,13 +512,16 @@ class AttachmentViewerController extends ChangeNotifier {
       }
     }
     final player = Player();
-    final controller = VideoController(player,
-        configuration: Platform.isIOS
-            ? VideoControllerConfiguration(
-                // Try to avoid bad size-getting thread lock in VideoOutput.swift
-                width: attachment.width,
-                height: attachment.height)
-            : const VideoControllerConfiguration());
+    final controller = VideoController(
+      player,
+      configuration: Platform.isIOS
+          ? VideoControllerConfiguration(
+              // Try to avoid bad size-getting thread lock in VideoOutput.swift
+              width: attachment.width,
+              height: attachment.height,
+            )
+          : const VideoControllerConfiguration(),
+    );
     controller.player.stream.error.listen(_onPlayerError);
     controller.player.stream.log.listen(_onPlayerLog);
     controller.player.stream.videoParams.listen(_onPlayerVideoParams);
@@ -589,11 +609,12 @@ class AttachmentViewerController extends ChangeNotifier {
 
   Map<String, String> getHeaders(Uri url) {
     final serverUrl = Persistence.settings.copypartyServerUrl;
-    final copypartyHost =
-        serverUrl.isNotEmpty ? Uri.tryParse(serverUrl)?.host : null;
+    final copypartyHost = serverUrl.isNotEmpty
+        ? Uri.tryParse(serverUrl)?.host
+        : null;
     final cp = _copypartyPassword;
     return {
-      ...site.getHeaders(url),
+      ...site.getHeaders(attachment, url),
       if (_useRandomUserAgent ?? attachment.useRandomUseragent)
         'user-agent': makeRandomUserAgent(),
       // Inject Pw: header only when CopyParty is enabled, host matches, and password is non-empty
@@ -606,21 +627,24 @@ class AttachmentViewerController extends ChangeNotifier {
     };
   }
 
-  Future<Uri> _getGoodSource(
-      {required RequestPriority priority, bool force = false}) async {
+  Future<Uri> _getGoodSource({
+    required RequestPriority priority,
+    bool force = false,
+  }) async {
     if (overrideSource != null) {
       return overrideSource!;
     }
-    final alreadyCached =
-        await AttachmentCache.optimisticallyFindFile(attachment);
+    final alreadyCached = await AttachmentCache.optimisticallyFindFile(
+      attachment,
+    );
     if (!force && alreadyCached != null) {
       return alreadyCached.uri;
     }
-    final copypartyUri =
-        await ThreadDownloadService.instance.copypartySourceUri(attachment);
+    final copypartyUri = await ThreadDownloadService.instance
+        .copypartySourceUri(attachment);
     if (!force && copypartyUri != null) {
-      _copypartyPassword =
-          await ThreadDownloadService.instance.getCopypartyPassword();
+      _copypartyPassword = await ThreadDownloadService.instance
+          .getCopypartyPassword();
       return copypartyUri;
     }
     final attachmentUrl = Uri.parse(attachment.url);
@@ -632,52 +656,70 @@ class AttachmentViewerController extends ChangeNotifier {
     if (_checkArchives && attachment.threadId != null) {
       final redirectUrls = <String, Uri>{};
       final archivedThread = await site.getThreadFromArchive(
-          ThreadIdentifier(attachment.board, attachment.threadId!),
-          customValidator: (thread) async {
-        final newAttachment = thread.posts
-                .expand((p) => p.attachments)
-                .tryFirstWhere((a) => a.id == attachment.id) ??
-            thread.posts.expand((p) => p.attachments).tryFirstWhere((a) =>
-                a.filename == attachment.filename &&
-                a.id.contains(attachment.id));
-        if (newAttachment == null) {
-          throw AttachmentNotFoundException(attachment);
-        }
-        _useRandomUserAgent = newAttachment.useRandomUseragent;
-        final check = await site.client.head(newAttachment.url.toString(),
+        ThreadIdentifier(attachment.board, attachment.threadId!),
+        customValidator: (thread) async {
+          final newAttachment =
+              thread.posts
+                  .expand((p) => p.attachments)
+                  .tryFirstWhere((a) => a.id == attachment.id) ??
+              thread.posts
+                  .expand((p) => p.attachments)
+                  .tryFirstWhere(
+                    (a) =>
+                        a.filename == attachment.filename &&
+                        a.id.contains(attachment.id),
+                  );
+          if (newAttachment == null) {
+            throw AttachmentNotFoundException(attachment);
+          }
+          _useRandomUserAgent = newAttachment.useRandomUseragent;
+          final check = await site.client.head(
+            newAttachment.url.toString(),
             options: Options(
-                validateStatus: (_) => true,
-                followRedirects: false,
-                headers: getHeaders(Uri.parse(newAttachment.url)),
-                extra: {kPriority: priority}));
-        if ((check.statusCode ?? 400) >= 400) {
-          throw AttachmentNotArchivedException(attachment);
-        }
-        if (check.redirects.isNotEmpty) {
-          redirectUrls[newAttachment.url] = check.redirects.last.location;
-        } else if (check.headers.value(HttpHeaders.locationHeader)
-            case String location) {
-          redirectUrls[newAttachment.url] = Uri.parse(location);
-        }
-      }, priority: priority);
-      final goodAttachment = archivedThread.posts
+              validateStatus: (_) => true,
+              followRedirects: false,
+              headers: getHeaders(Uri.parse(newAttachment.url)),
+              extra: {kPriority: priority},
+            ),
+          );
+          if ((check.statusCode ?? 400) >= 400) {
+            throw AttachmentNotArchivedException(attachment);
+          }
+          if (check.redirects.isNotEmpty) {
+            redirectUrls[newAttachment.url] = check.redirects.last.location;
+          } else if (check.headers.value(HttpHeaders.locationHeader)
+              case String location) {
+            redirectUrls[newAttachment.url] = Uri.parse(location);
+          }
+        },
+        priority: priority,
+      );
+      final goodAttachment =
+          archivedThread.posts
               .expand((p) => p.attachments)
               .tryFirstWhere((a) => a.id == attachment.id) ??
-          archivedThread.posts.expand((p) => p.attachments).tryFirstWhere((a) =>
-              a.filename == attachment.filename &&
-              a.id.contains(attachment.id))!;
+          archivedThread.posts
+              .expand((p) => p.attachments)
+              .tryFirstWhere(
+                (a) =>
+                    a.filename == attachment.filename &&
+                    a.id.contains(attachment.id),
+              )!;
       _useRandomUserAgent = goodAttachment.useRandomUseragent;
       return redirectUrls[goodAttachment.url] ?? Uri.parse(goodAttachment.url);
     } else {
       _useRandomUserAgent = null;
     }
-    Response result = await site.client.requestUri(attachmentUrl,
-        options: Options(
-            method: attachmentUrl.path.endsWith('.m3u8') ? 'GET' : 'HEAD',
-            validateStatus: (_) => true,
-            headers: getHeaders(attachmentUrl),
-            followRedirects: false,
-            extra: {kPriority: priority}));
+    Response result = await site.client.requestUri(
+      attachmentUrl,
+      options: Options(
+        method: attachmentUrl.path.endsWith('.m3u8') ? 'GET' : 'HEAD',
+        validateStatus: (_) => true,
+        headers: getHeaders(attachmentUrl),
+        followRedirects: false,
+        extra: {kPriority: priority},
+      ),
+    );
     if (result.statusCode == 200) {
       return attachmentUrl;
     }
@@ -693,19 +735,23 @@ class AttachmentViewerController extends ChangeNotifier {
     }
     // handle issue with timestamps in url
     bool corrected = false;
-    final correctedUrl = attachment.url
-        .toString()
-        .replaceAllMapped(RegExp(r'^(.*b4k\..*\/\d+)\d{3}(.*)$'), (match) {
-      corrected = true;
-      return '${match.group(1)}${match.group(2)}';
-    });
+    final correctedUrl = attachment.url.toString().replaceAllMapped(
+      RegExp(r'^(.*b4k\..*\/\d+)\d{3}(.*)$'),
+      (match) {
+        corrected = true;
+        return '${match.group(1)}${match.group(2)}';
+      },
+    );
     if (corrected) {
-      result = await site.client.head(correctedUrl,
-          options: Options(
-              validateStatus: (_) => true,
-              followRedirects: false,
-              headers: getHeaders(Uri.parse(correctedUrl)),
-              extra: {kPriority: priority}));
+      result = await site.client.head(
+        correctedUrl,
+        options: Options(
+          validateStatus: (_) => true,
+          followRedirects: false,
+          headers: getHeaders(Uri.parse(correctedUrl)),
+          extra: {kPriority: priority},
+        ),
+      );
       if (result.statusCode == 200) {
         return Uri.parse(correctedUrl);
       }
@@ -729,8 +775,10 @@ class AttachmentViewerController extends ChangeNotifier {
 
   void _updateHasAudioCache() {
     final existing = mediaMetadataCache[attachment.url];
-    mediaMetadataCache[attachment.url] =
-        (duration: existing?.duration, hasAudio: _hasAudio);
+    mediaMetadataCache[attachment.url] = (
+      duration: existing?.duration,
+      hasAudio: _hasAudio,
+    );
   }
 
   void _scheduleHidingOfLoadingProgress() async {
@@ -755,376 +803,413 @@ class AttachmentViewerController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadFullAttachment(bool background, {bool force = false}) =>
-      _lock.protect(() async {
-        if (_isDisposed) {
-          return;
+  Future<void> _loadFullAttachment(
+    bool background, {
+    bool force = false,
+  }) => _lock.protect(() async {
+    if (_isDisposed) {
+      return;
+    }
+    final priority = background
+        ? RequestPriority.functional
+        : RequestPriority.interactive;
+    if (error != null &&
+        !(force || isExceptionReAttemptable(priority, error?.$1))) {
+      // Don't keep retrying
+      return;
+    }
+    if (attachment.type.isNonMedia) {
+      return;
+    }
+    final isReloadOfFailed = error != null;
+    if (attachment.type == AttachmentType.image &&
+        goodImageSource != null &&
+        !force) {
+      final file = await getCachedImageFile(goodImageSource.toString());
+      if (file != null && _cachedFile?.path != file.path) {
+        _onCacheCompleted(file);
+      }
+      return;
+    }
+    if (attachment.type.usesVideoPlayer &&
+        ((videoPlayerController != null && !force) ||
+            _ongoingConversion != null)) {
+      return;
+    }
+    if (force && cacheCompleted) {
+      await _cachedFile?.delete();
+      _cachedFile = null;
+      notifyListeners();
+    }
+    final settings = Settings.instance;
+    _error = null;
+    _goodImageSource = null;
+    _videoPlayerController?.player.dispose();
+    _videoPlayerController = null;
+    _hideVideoPlayerController = true;
+    _cachedFile = null;
+    _isFullResolution = true;
+    _showLoadingProgress.value = false;
+    _loadingProgressHideScheduled = false;
+    notifyListeners();
+    Future.delayed(
+      isReloadOfFailed
+          ? Duration.zero
+          : _estimateUrlTime(
+              Uri.parse(attachment.thumbnailUrl),
+              attachment.type,
+            ),
+      () {
+        if (_loadingProgressHideScheduled || _isDisposed) return;
+        _showLoadingProgress.value = true;
+      },
+    );
+    try {
+      (Uri, Map<String, String>, String)? soundSource =
+          switch (attachment.soundSource) {
+            Uri url => (url, getHeaders(url), site.getExtraCookie(url)),
+            _ => null,
+          };
+      if (soundSource != null) {
+        try {
+          final currentBytes = ValueNotifier<int>(0);
+          _soundSourceDownload = (
+            currentBytes: currentBytes,
+            totalBytes: null,
+            uri: soundSource.$1,
+          );
+          final soundFile = await VideoServer.instance.cachingDownload(
+            client: imageboard.site.client,
+            headers: soundSource.$2,
+            uri: soundSource.$1,
+            interruptible: true,
+            force: force,
+            onProgressChanged: (current, total) {
+              currentBytes.value = current;
+              if (_soundSourceDownload == null && !_isDisposed) {
+                _soundSourceDownload = (
+                  currentBytes: currentBytes,
+                  totalBytes: total,
+                  uri: soundSource!.$1,
+                );
+                notifyListeners();
+              }
+            },
+          );
+          if (_isDisposed) return;
+          await MediaScan.scan(soundFile.uri); // Validate file
+          soundSource = (soundFile.uri, {}, '');
+        } catch (e) {
+          if (context.mounted) {
+            showToast(
+              context: context,
+              message: 'Soundpost not working: ${e.toStringDio()}',
+              icon: CupertinoIcons.volume_off,
+            );
+          }
+          _soundSourceFailed = true;
+          soundSource = null;
+        } finally {
+          _soundSourceDownload?.currentBytes.dispose();
+          _soundSourceDownload = null;
+          if (!_isDisposed) {
+            notifyListeners();
+          }
         }
-        final priority = background
-            ? RequestPriority.functional
-            : RequestPriority.interactive;
-        if (error != null &&
-            !(force || isExceptionReAttemptable(priority, error?.$1))) {
-          // Don't keep retrying
-          return;
+      }
+      final startTime = DateTime.now();
+      if (soundSource == null && attachment.type == AttachmentType.image) {
+        final url = _goodImageSource = await _getGoodSource(
+          priority: priority,
+          force: force,
+        );
+        if (force) {
+          await clearDiskCachedImage(url.toString());
         }
-        if (attachment.type.isNonMedia) {
-          return;
+        _recordUrlTime(
+          url,
+          attachment.type,
+          DateTime.now().difference(startTime),
+        );
+        if (url.scheme == 'file') {
+          _onCacheCompleted(File(url.toFilePath()));
         }
-        final isReloadOfFailed = error != null;
-        if (attachment.type == AttachmentType.image &&
-            goodImageSource != null &&
-            !force) {
-          final file = await getCachedImageFile(goodImageSource.toString());
+        if (_isDisposed) return;
+        notifyListeners();
+        if (background && attachment.type == AttachmentType.image) {
+          final completer = Completer<void>();
+          precacheImage(
+            CNetworkImageProvider(
+              url.toString(),
+              client: site.client,
+              priority: priority,
+              cache: true,
+              headers: getHeaders(url),
+            ),
+            ImageboardRegistry.instance.context!,
+            onError: completer.completeError,
+          ).then((_) {
+            // This is called after both failure and success
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
+          });
+          await completer.future;
+          final file = await getCachedImageFile(url.toString());
           if (file != null && _cachedFile?.path != file.path) {
             _onCacheCompleted(file);
           }
-          return;
         }
-        if (attachment.type.usesVideoPlayer &&
-            ((videoPlayerController != null && !force) ||
-                _ongoingConversion != null)) {
-          return;
+      } else if (soundSource != null || attachment.type.usesVideoPlayer) {
+        final url = _goodImageSource = await _getGoodSource(
+          priority: priority,
+          force: force,
+        );
+        if (force) {
+          await VideoServer.instance.interruptOngoingDownloadFromUri(url);
+          await VideoServer.instance.cleanupCachedDownloadTreeFromUri(url);
         }
-        if (force && cacheCompleted) {
-          await _cachedFile?.delete();
-          _cachedFile = null;
-          notifyListeners();
+        bool transcode = false;
+        if (attachment.type == AttachmentType.webm &&
+            url.path.endsWith('.webm')) {
+          transcode |=
+              Settings.featureWebmTranscodingForPlayback &&
+              settings.webmTranscoding == WebmTranscodingSetting.always;
         }
-        final settings = Settings.instance;
-        _error = null;
-        _goodImageSource = null;
-        _videoPlayerController?.player.dispose();
-        _videoPlayerController = null;
-        _hideVideoPlayerController = true;
-        _cachedFile = null;
-        _isFullResolution = true;
-        _showLoadingProgress.value = false;
-        _loadingProgressHideScheduled = false;
-        notifyListeners();
-        Future.delayed(
-            isReloadOfFailed
-                ? Duration.zero
-                : _estimateUrlTime(
-                    Uri.parse(attachment.thumbnailUrl), attachment.type), () {
-          if (_loadingProgressHideScheduled || _isDisposed) return;
-          _showLoadingProgress.value = true;
-        });
-        try {
-          (Uri, Map<String, String>, String)? soundSource = switch (
-              attachment.soundSource) {
-            Uri url => (url, getHeaders(url), site.getExtraCookie(url)),
-            _ => null
-          };
-          if (soundSource != null) {
-            try {
-              final currentBytes = ValueNotifier<int>(0);
-              _soundSourceDownload = (
-                currentBytes: currentBytes,
-                totalBytes: null,
-                uri: soundSource.$1
+        transcode |= url.path.endsWith('.m3u8');
+        transcode |= soundSource != null;
+        if (!transcode &&
+            Settings.featureWebmTranscodingForPlayback &&
+            settings.webmTranscoding == WebmTranscodingSetting.vp9 &&
+            attachment.type == AttachmentType.webm) {
+          final scan = await MediaScan.scan(
+            url,
+            headers: getHeaders(url),
+            extraCookie: site.getExtraCookie(url),
+          );
+          if (_isDisposed) {
+            return;
+          }
+          transcode |= scan.codec == 'vp9';
+        }
+        if (!transcode) {
+          if (url.scheme == 'file') {
+            final scan = await MediaScan.scan(url);
+            _hasAudio = scan.hasAudio;
+            _updateHasAudioCache();
+            final file = File(url.toStringFFMPEG());
+            if (isPrimary || !background) {
+              await (await _ensureController()).player.open(
+                Media(file.path),
+                play: false,
               );
-              final soundFile = await VideoServer.instance.cachingDownload(
-                  client: imageboard.site.client,
-                  headers: soundSource.$2,
-                  uri: soundSource.$1,
-                  interruptible: true,
-                  force: force,
-                  onProgressChanged: (current, total) {
-                    currentBytes.value = current;
-                    if (_soundSourceDownload == null && !_isDisposed) {
-                      _soundSourceDownload = (
-                        currentBytes: currentBytes,
-                        totalBytes: total,
-                        uri: soundSource!.$1
-                      );
-                      notifyListeners();
-                    }
-                  });
-              if (_isDisposed) return;
-              await MediaScan.scan(soundFile.uri); // Validate file
-              soundSource = (soundFile.uri, {}, '');
-            } catch (e) {
-              if (context.mounted) {
-                showToast(
-                    context: context,
-                    message: 'Soundpost not working: ${e.toStringDio()}',
-                    icon: CupertinoIcons.volume_off);
-              }
-              _soundSourceFailed = true;
-              soundSource = null;
-            } finally {
-              _soundSourceDownload?.currentBytes.dispose();
-              _soundSourceDownload = null;
-              if (!_isDisposed) {
-                notifyListeners();
-              }
+            }
+            _onCacheCompleted(file, notify: false);
+          } else {
+            final progressNotifier = ValueNotifier<double?>(null);
+            final hash = await VideoServer.instance.startCachingDownload(
+              client: imageboard.site.client,
+              priority: priority,
+              uri: url,
+              headers: getHeaders(url),
+              onCached: _onCacheCompleted,
+              onProgressChanged: (currentBytes, totalBytes) {
+                progressNotifier.value = currentBytes / totalBytes;
+              },
+              force: force,
+              interruptible: attachment.thumbnailUrl.isEmpty,
+            );
+            _conversionDisposers.add(() {
+              VideoServer.instance.interruptOngoingDownloadFromUri(url);
+            });
+            if (_isDisposed) return;
+            _videoLoadingProgress = progressNotifier;
+            notifyListeners();
+            final proxiedUrl = VideoServer.instance.getUri(hash);
+            final scan = await MediaScan.scan(proxiedUrl);
+            if (_isDisposed) {
+              return;
+            }
+            _hasAudio = scan.hasAudio;
+            _updateHasAudioCache();
+            if ((isPrimary || !background) && !kInUnitTest) {
+              await (await _ensureController()).player.open(
+                Media(proxiedUrl.toString()),
+                play: false,
+              );
+            } else {
+              // This is a preload or something, wait for the download to finish
+              await VideoServer.instance.getFutureFile(hash);
             }
           }
-          final startTime = DateTime.now();
-          if (soundSource == null && attachment.type == AttachmentType.image) {
-            final url = _goodImageSource =
-                await _getGoodSource(priority: priority, force: force);
-            if (force) {
-              await clearDiskCachedImage(url.toString());
+        } else {
+          _ongoingConversion?.cancelIfActive();
+          _ongoingConversion = StreamingMP4Conversion(
+            imageboard.site.client,
+            url,
+            headers: getHeaders(url),
+            extraCookie: site.getExtraCookie(url),
+            soundSource: soundSource,
+          );
+          final result = await _ongoingConversion!.start(force: force);
+          if (_isDisposed) return;
+          _conversionDisposers.add(_ongoingConversion!.dispose);
+          _ongoingConversion = null;
+          _hasAudio = result.hasAudio;
+          _updateHasAudioCache();
+          if (result is StreamingMP4ConvertedFile) {
+            if (isPrimary || !background) {
+              await (await _ensureController()).player.open(
+                Media(result.mp4File.path),
+                play: false,
+              );
             }
-            _recordUrlTime(
-                url, attachment.type, DateTime.now().difference(startTime));
-            if (url.scheme == 'file') {
-              _onCacheCompleted(File(url.toFilePath()));
+            _onCacheCompleted(result.mp4File, notify: false);
+          } else if (result is StreamingMP4ConversionStream) {
+            if (isPrimary || !background) {
+              await (await _ensureController()).player.open(
+                Media(result.hlsStream.toString()),
+                play: false,
+              );
             }
-            if (_isDisposed) return;
-            notifyListeners();
-            if (background && attachment.type == AttachmentType.image) {
-              final completer = Completer<void>();
-              precacheImage(
-                      CNetworkImageProvider(url.toString(),
-                          client: site.client,
-                          priority: priority,
-                          cache: true,
-                          headers: getHeaders(url)),
-                      ImageboardRegistry.instance.context!,
-                      onError: completer.completeError)
-                  .then((_) {
-                // This is called after both failure and success
-                if (!completer.isCompleted) {
-                  completer.complete();
-                }
-              });
-              await completer.future;
-              final file = await getCachedImageFile(url.toString());
-              if (file != null && _cachedFile?.path != file.path) {
-                _onCacheCompleted(file);
-              }
-            }
-          } else if (soundSource != null || attachment.type.usesVideoPlayer) {
-            final url = _goodImageSource =
-                await _getGoodSource(priority: priority, force: force);
-            if (force) {
-              await VideoServer.instance.interruptOngoingDownloadFromUri(url);
-              await VideoServer.instance.cleanupCachedDownloadTreeFromUri(url);
-            }
-            bool transcode = false;
-            if (attachment.type == AttachmentType.webm &&
-                url.path.endsWith('.webm')) {
-              transcode |= Settings.featureWebmTranscodingForPlayback &&
-                  settings.webmTranscoding == WebmTranscodingSetting.always;
-            }
-            transcode |= url.path.endsWith('.m3u8');
-            transcode |= soundSource != null;
-            if (!transcode &&
-                Settings.featureWebmTranscodingForPlayback &&
-                settings.webmTranscoding == WebmTranscodingSetting.vp9 &&
-                attachment.type == AttachmentType.webm) {
-              final scan = await MediaScan.scan(url,
-                  headers: getHeaders(url),
-                  extraCookie: site.getExtraCookie(url));
+            _videoLoadingProgress = result.progress;
+            result.mp4File.then((mp4File) async {
               if (_isDisposed) {
                 return;
               }
-              transcode |= scan.codec == 'vp9';
+              _videoLoadingProgress = ValueNotifier(null);
+              _onCacheCompleted(mp4File);
+              notifyListeners();
+            });
+            if (!isPrimary && background) {
+              // Wait for full conversion during preload
+              await result.mp4File;
             }
-            if (!transcode) {
-              if (url.scheme == 'file') {
-                final scan = await MediaScan.scan(url);
-                _hasAudio = scan.hasAudio;
-                _updateHasAudioCache();
-                final file = File(url.toStringFFMPEG());
-                if (isPrimary || !background) {
-                  await (await _ensureController())
-                      .player
-                      .open(Media(file.path), play: false);
-                }
-                _onCacheCompleted(file, notify: false);
-              } else {
-                final progressNotifier = ValueNotifier<double?>(null);
-                final hash = await VideoServer.instance.startCachingDownload(
-                    client: imageboard.site.client,
-                    priority: priority,
-                    uri: url,
-                    headers: getHeaders(url),
-                    onCached: _onCacheCompleted,
-                    onProgressChanged: (currentBytes, totalBytes) {
-                      progressNotifier.value = currentBytes / totalBytes;
-                    },
-                    force: force,
-                    interruptible: attachment.thumbnailUrl.isEmpty);
-                _conversionDisposers.add(() {
-                  VideoServer.instance.interruptOngoingDownloadFromUri(url);
-                });
-                if (_isDisposed) return;
-                _videoLoadingProgress = progressNotifier;
-                notifyListeners();
-                final proxiedUrl = VideoServer.instance.getUri(hash);
-                final scan = await MediaScan.scan(proxiedUrl);
-                if (_isDisposed) {
-                  return;
-                }
-                _hasAudio = scan.hasAudio;
-                _updateHasAudioCache();
-                if (isPrimary || !background) {
-                  await (await _ensureController())
-                      .player
-                      .open(Media(proxiedUrl.toString()), play: false);
-                } else {
-                  // This is a preload or something, wait for the download to finish
-                  await VideoServer.instance.getFutureFile(hash);
-                }
-              }
-            } else {
-              _ongoingConversion?.cancelIfActive();
-              _ongoingConversion = StreamingMP4Conversion(
-                  imageboard.site.client, url,
-                  headers: getHeaders(url),
-                  extraCookie: site.getExtraCookie(url),
-                  soundSource: soundSource);
-              final result = await _ongoingConversion!.start(force: force);
-              if (_isDisposed) return;
-              _conversionDisposers.add(_ongoingConversion!.dispose);
-              _ongoingConversion = null;
-              _hasAudio = result.hasAudio;
-              _updateHasAudioCache();
-              if (result is StreamingMP4ConvertedFile) {
-                if (isPrimary || !background) {
-                  await (await _ensureController())
-                      .player
-                      .open(Media(result.mp4File.path), play: false);
-                }
-                _onCacheCompleted(result.mp4File, notify: false);
-              } else if (result is StreamingMP4ConversionStream) {
-                if (isPrimary || !background) {
-                  await (await _ensureController())
-                      .player
-                      .open(Media(result.hlsStream.toString()), play: false);
-                }
-                _videoLoadingProgress = result.progress;
-                result.mp4File.then((mp4File) async {
-                  if (_isDisposed) {
-                    return;
-                  }
-                  _videoLoadingProgress = ValueNotifier(null);
-                  _onCacheCompleted(mp4File);
-                  notifyListeners();
-                });
-                if (!isPrimary && background) {
-                  // Wait for full conversion during preload
-                  await result.mp4File;
-                }
-              } else if (result is StreamingMP4ConvertingFile) {
-                _videoLoadingProgress = result.progress;
-                notifyListeners();
-                final mp4File = await result.mp4File;
-                if (_isDisposed) {
-                  return;
-                }
-                if (isPrimary || !background) {
-                  await (await _ensureController())
-                      .player
-                      .open(Media(mp4File.path), play: false);
-                }
-                if (_isDisposed) {
-                  return;
-                }
-                _videoLoadingProgress = ValueNotifier(null);
-                _onCacheCompleted(mp4File);
-                notifyListeners();
-              }
+          } else if (result is StreamingMP4ConvertingFile) {
+            _videoLoadingProgress = result.progress;
+            notifyListeners();
+            final mp4File = await result.mp4File;
+            if (_isDisposed) {
+              return;
             }
-            if (_isDisposed) return;
-            final controller = _videoPlayerController;
-            if (controller != null) {
-              final waitForPlaying = Completer<bool>();
-              final firstFrameFuture = controller.waitUntilFirstFrameRendered
-                ..then((_) async {
-                  if (await waitForPlaying.future) {
-                    // Wait until it actually starts
-                    await controller.player.stream.position.firstOrNull;
-                  }
-                  _recordUrlTime(url, attachment.type,
-                      DateTime.now().difference(startTime));
-                  _scheduleHidingOfLoadingProgress();
-                  _renderedFirstFrame = true;
-                  final cachedDuration = controller.player.state.duration;
-                  if (cachedDuration != Duration.zero) {
-                    final existing = mediaMetadataCache[attachment.url];
-                    mediaMetadataCache[attachment.url] = (
-                      duration: cachedDuration,
-                      hasAudio: existing?.hasAudio ?? _hasAudio
-                    );
-                  }
-                  notifyListeners();
-                });
-              _hideVideoPlayerController = false;
-              if (_isDisposed || controller != _videoPlayerController) {
-                waitForPlaying.complete(false);
-                return;
-              }
-              if (settings.muteAudio.value) {
-                await controller.player.setVolume(0);
-                if (_isDisposed || controller != _videoPlayerController) {
-                  waitForPlaying.complete(false);
-                  return;
-                }
-              }
-              await controller.player.setPlaylistMode(PlaylistMode.single);
-              if (_isDisposed || controller != _videoPlayerController) {
-                waitForPlaying.complete(false);
-                return;
-              }
-              waitForPlaying.complete(isPrimary);
-              if (isPrimary) {
-                if (Platform.isAndroid) {
-                  // Seems to be necessary to prevent brief freeze near beginning of video
-                  await Future.delayed(const Duration(milliseconds: 100));
-                }
-                await controller.player.seek(Duration.zero);
-                if (attachment.type.isVideo) {
-                  final error = await Future.any<String?>([
-                    firstFrameFuture.then((_) => null),
-                    _playerErrorStream.stream.firstOrNull.then((error) async {
-                      if (error != null) {
-                        // Sometimes MPV sends bogus errors when trying different decoders
-                        await Future.delayed(const Duration(seconds: 10));
-                      }
-                      return error;
-                    })
-                  ]);
-                  if (error != null) {
-                    throw MediaPlayerException(
-                        error, controller.player.state.playlist.current);
-                  }
-                } else {
-                  _playerErrorStream.stream.firstOrNull.then((error) async {
-                    if (error == null) {
-                      return;
-                    }
-                    // Sometimes MPV sends bogus errors when trying different decoders
-                    await Future.delayed(const Duration(seconds: 10));
-                    if (controller.player.state.position == Duration.zero &&
-                        context.mounted) {
-                      showToast(
-                          context: context,
-                          message: error,
-                          icon: CupertinoIcons.exclamationmark_triangle);
-                    }
-                  });
-                }
-                if (_isDisposed || controller != _videoPlayerController) return;
-                await controller.player.play();
-              }
-              if (_isDisposed || controller != _videoPlayerController) return;
+            if (isPrimary || !background) {
+              await (await _ensureController()).player.open(
+                Media(mp4File.path),
+                play: false,
+              );
             }
+            if (_isDisposed) {
+              return;
+            }
+            _videoLoadingProgress = ValueNotifier(null);
+            _onCacheCompleted(mp4File);
             notifyListeners();
           }
-        } catch (e, st) {
-          _error = (e, st);
-          if (_isDisposed) return;
-          _scheduleHidingOfLoadingProgress();
-          notifyListeners();
-        } finally {
-          _ongoingConversion = null;
         }
-      });
+        if (_isDisposed) return;
+        final controller = _videoPlayerController;
+        if (controller != null) {
+          final waitForPlaying = Completer<bool>();
+          final firstFrameFuture = controller.waitUntilFirstFrameRendered
+            ..then((_) async {
+              if (await waitForPlaying.future) {
+                // Wait until it actually starts
+                await controller.player.stream.position.firstOrNull;
+              }
+              _recordUrlTime(
+                url,
+                attachment.type,
+                DateTime.now().difference(startTime),
+              );
+              _scheduleHidingOfLoadingProgress();
+              _renderedFirstFrame = true;
+              final cachedDuration = controller.player.state.duration;
+              if (cachedDuration != Duration.zero) {
+                final existing = mediaMetadataCache[attachment.url];
+                mediaMetadataCache[attachment.url] = (
+                  duration: cachedDuration,
+                  hasAudio: existing?.hasAudio ?? _hasAudio,
+                );
+              }
+              notifyListeners();
+            });
+          _hideVideoPlayerController = false;
+          if (_isDisposed || controller != _videoPlayerController) {
+            waitForPlaying.complete(false);
+            return;
+          }
+          if (settings.muteAudio.value) {
+            await controller.player.setVolume(0);
+            if (_isDisposed || controller != _videoPlayerController) {
+              waitForPlaying.complete(false);
+              return;
+            }
+          }
+          await controller.player.setPlaylistMode(PlaylistMode.single);
+          if (_isDisposed || controller != _videoPlayerController) {
+            waitForPlaying.complete(false);
+            return;
+          }
+          waitForPlaying.complete(isPrimary);
+          if (isPrimary) {
+            if (Platform.isAndroid) {
+              // Seems to be necessary to prevent brief freeze near beginning of video
+              await Future.delayed(const Duration(milliseconds: 100));
+            }
+            await controller.player.seek(Duration.zero);
+            if (attachment.type.isVideo) {
+              final error = await Future.any<String?>([
+                firstFrameFuture.then((_) => null),
+                _playerErrorStream.stream.firstOrNull.then((error) async {
+                  if (error != null) {
+                    // Sometimes MPV sends bogus errors when trying different decoders
+                    await Future.delayed(const Duration(seconds: 10));
+                  }
+                  return error;
+                }),
+              ]);
+              if (error != null) {
+                throw MediaPlayerException(
+                  error,
+                  controller.player.state.playlist.current,
+                );
+              }
+            } else {
+              _playerErrorStream.stream.firstOrNull.then((error) async {
+                if (error == null) {
+                  return;
+                }
+                // Sometimes MPV sends bogus errors when trying different decoders
+                await Future.delayed(const Duration(seconds: 10));
+                if (controller.player.state.position == Duration.zero &&
+                    context.mounted) {
+                  showToast(
+                    context: context,
+                    message: error,
+                    icon: CupertinoIcons.exclamationmark_triangle,
+                  );
+                }
+              });
+            }
+            if (_isDisposed || controller != _videoPlayerController) return;
+            await controller.player.play();
+          }
+          if (_isDisposed || controller != _videoPlayerController) return;
+        }
+        notifyListeners();
+      }
+    } catch (e, st) {
+      _error = (e, st);
+      if (_isDisposed) return;
+      _scheduleHidingOfLoadingProgress();
+      notifyListeners();
+      if (background) {
+        rethrow;
+      }
+    } finally {
+      _ongoingConversion = null;
+    }
+  });
 
   Future<void> loadFullAttachment() => _loadFullAttachment(false);
 
@@ -1166,8 +1251,9 @@ class AttachmentViewerController extends ChangeNotifier {
     Future.delayed(const Duration(milliseconds: 50), () {
       if (_currentlyWithinLongPress) {
         _overlayText = _formatPosition(
-            videoPlayerController!.player.state.position,
-            videoPlayerController!.player.state.duration);
+          videoPlayerController!.player.state.position,
+          videoPlayerController!.player.state.duration,
+        );
         notifyListeners();
       }
     });
@@ -1190,11 +1276,16 @@ class AttachmentViewerController extends ChangeNotifier {
       final duration =
           videoPlayerController!.player.state.duration.inMilliseconds;
       final newPosition = Duration(
-          milliseconds: ((_millisecondsBeforeLongPress + (duration * factor))
-                  .clamp(0, duration))
-              .round());
+        milliseconds:
+            ((_millisecondsBeforeLongPress + (duration * factor)).clamp(
+              0,
+              duration,
+            )).round(),
+      );
       _overlayText = _formatPosition(
-          newPosition, videoPlayerController!.player.state.duration);
+        newPosition,
+        videoPlayerController!.player.state.duration,
+      );
       notifyListeners();
       if (!_seeking) {
         _seeking = true;
@@ -1210,6 +1301,32 @@ class AttachmentViewerController extends ChangeNotifier {
     }
     _currentlyWithinLongPress = false;
     _overlayText = null;
+    notifyListeners();
+  }
+
+  void _onLongPressEdgeStart(LongPressStartDetails details) async {
+    lightHapticFeedback();
+    await _videoPlayerController?.player.setRate(2);
+    _longPressEdgeFactor.value = 0;
+    _currentlyWithinLongPressEdge = true;
+    notifyListeners();
+  }
+
+  void _onLongPressEdgeMoveUpdate(double offsetDown) {
+    final oldValue = _longPressEdgeFactor.value;
+    _longPressEdgeFactor.value = (offsetDown / 100).clamp(0, 1);
+    if (_longPressEdgeFactor.value == 1 && oldValue < 1) {
+      lightHapticFeedback();
+    }
+  }
+
+  void _onLongPressEdgeEnd(LongPressEndDetails details) async {
+    lightHapticFeedback();
+    if (_longPressEdgeFactor.value < 1) {
+      await _videoPlayerController?.player.setRate(1);
+    }
+    _longPressEdgeFactor.value = 0;
+    _currentlyWithinLongPressEdge = false;
     notifyListeners();
   }
 
@@ -1272,25 +1389,32 @@ class AttachmentViewerController extends ChangeNotifier {
         _downloadExt(convertForCompatibility);
   }
 
-  Future<File> _moveToShareCache(
-      {required bool convertForCompatibility}) async {
+  Future<File> _moveToShareCache({
+    required bool convertForCompatibility,
+  }) async {
     final newFilename = _downloadFilename(convertForCompatibility);
     File file = getFile();
     if (convertForCompatibility && cacheExt == '.webm') {
-      file = await modalLoad(context, 'Converting...', (c) async {
-        final conversion = MediaConversion.toMp4(file.uri);
-        c.cancelToken.whenCancel.then((_) => conversion.cancel());
-        listener() {
-          c.progress.value = ('', conversion.progress.value);
-        }
+      file = await modalLoad(
+        context,
+        'Converting...',
+        (c) async {
+          final conversion = MediaConversion.toMp4(file.uri);
+          c.cancelToken.whenCancel.then((_) => conversion.cancel());
+          listener() {
+            c.progress.value = ('', conversion.progress.value);
+          }
 
-        conversion.progress.addListener(listener);
-        try {
-          return (await conversion.start()).file;
-        } finally {
-          conversion.progress.removeListener(listener);
-        }
-      }, cancellable: true, hideable: true);
+          conversion.progress.addListener(listener);
+          try {
+            return (await conversion.start()).file;
+          } finally {
+            conversion.progress.removeListener(listener);
+          }
+        },
+        cancellable: true,
+        hideable: true,
+      );
     }
     return await file.copy(Persistence.shareCacheDirectory.child(newFilename));
   }
@@ -1299,25 +1423,32 @@ class AttachmentViewerController extends ChangeNotifier {
     final bool convertForCompatibility;
     if (cacheExt == '.webm') {
       final choice = await showAdaptiveDialog<bool>(
-          barrierDismissible: true,
-          context: context,
-          builder: (context) => AdaptiveAlertDialog(
-                  title: const Text('Which format?'),
-                  content: const Padding(
-                      padding: EdgeInsets.only(top: 16),
-                      child: Text(
-                          'Share the video in its original WEBM form, or convert it to MP4 for compatibility with other apps and services?')),
-                  actions: [
-                    AdaptiveDialogAction(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('WEBM')),
-                    AdaptiveDialogAction(
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text('MP4')),
-                    AdaptiveDialogAction(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'))
-                  ]));
+        barrierDismissible: true,
+        context: context,
+        builder: (context) => AdaptiveAlertDialog(
+          title: const Text('Which format?'),
+          content: const Padding(
+            padding: EdgeInsets.only(top: 16),
+            child: Text(
+              'Share the video in its original WEBM form, or convert it to MP4 for compatibility with other apps and services?',
+            ),
+          ),
+          actions: [
+            AdaptiveDialogAction(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('WEBM'),
+            ),
+            AdaptiveDialogAction(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('MP4'),
+            ),
+            AdaptiveDialogAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
       if (!context.mounted || choice == null) {
         return;
       }
@@ -1326,37 +1457,44 @@ class AttachmentViewerController extends ChangeNotifier {
       convertForCompatibility = false;
     }
     final path = (await _moveToShareCache(
-            convertForCompatibility: convertForCompatibility))
-        .path;
+      convertForCompatibility: convertForCompatibility,
+    )).path;
     if (!context.mounted) return;
     await shareOne(
-        context: context,
-        text: path,
-        type: "file",
-        sharePositionOrigin: sharePosition);
+      context: context,
+      text: path,
+      type: "file",
+      sharePositionOrigin: sharePosition,
+    );
   }
 
   Future<void> translate() async {
     final rawBlocks = await recognizeText(_cachedFile!);
     final translated = await batchTranslate(
-        rawBlocks.map((r) => r.text).toList(),
-        toLanguage: Settings.instance.translationTargetLanguage,
-        interactive: true);
+      rawBlocks.map((r) => r.text).toList(),
+      toLanguage: Settings.instance.translationTargetLanguage,
+      interactive: true,
+    );
     _textBlocks = rawBlocks
         .asMap()
         .entries
-        .map((e) => (
-              text: e.key >= translated.length
-                  ? 'Nothing for ${e.key} (${translated.length}'
-                  : translated[e.key],
-              rect: e.value.rect
-            ))
+        .map(
+          (e) => (
+            text: e.key >= translated.length
+                ? 'Nothing for ${e.key} (${translated.length}'
+                : translated[e.key],
+            rect: e.value.rect,
+          ),
+        )
         .toList();
     notifyListeners();
   }
 
-  Future<String?> download(
-      {bool force = false, bool saveAs = false, String? dir}) async {
+  Future<String?> download({
+    bool force = false,
+    bool saveAs = false,
+    String? dir,
+  }) async {
     if (_isDownloaded && !force && dir == null) return null;
     final settings = Settings.instance;
     final convertForCompatibility = Platform.isIOS && !_isReallyImage;
@@ -1368,52 +1506,65 @@ class AttachmentViewerController extends ChangeNotifier {
       if (saveAs) {
         final sourcePath = Platform.isIOS
             ? (await _moveToShareCache(
-                    convertForCompatibility: convertForCompatibility))
-                .path
+                convertForCompatibility: convertForCompatibility,
+              )).path
             : getFile().path;
         if (!context.mounted) {
           return null;
         }
         final path = await saveFileAs(
-            context: context,
-            type: _isReallyImage ? SaveAsFileType.image : SaveAsFileType.video,
-            sourcePath: sourcePath,
-            destinationName: filename);
+          context: context,
+          type: _isReallyImage ? SaveAsFileType.image : SaveAsFileType.video,
+          sourcePath: sourcePath,
+          destinationName: filename,
+        );
         successful = path != null;
       } else {
-        final destination = dir ??
+        final destination =
+            dir ??
             (Settings.gallerySavePathSetting.value ??=
                 await pickGallerySavePath(context));
         if (destination != null) {
           if (destination.startsWith(kGallerySavePathGalleryPrefix)) {
             final albumNameFromPath = Uri.decodeFull(
-                    destination.substring(kGallerySavePathGalleryPrefix.length))
-                .nonEmptyOrNull;
+              destination.substring(kGallerySavePathGalleryPrefix.length),
+            ).nonEmptyOrNull;
             AssetPathEntity? album;
             final albumName = dir != null
                 ? albumNameFromPath
-                : settings.gallerySavePathOrganizing
-                    .albumNameFor(this, albumNameFromPath);
+                : settings.gallerySavePathOrganizing.albumNameFor(
+                    this,
+                    albumNameFromPath,
+                  );
             if (albumName != null) {
-              final existingAlbums =
-                  await PhotoManager.getAssetPathList(type: RequestType.common);
-              album = existingAlbums
-                  .tryFirstWhere((album) => album.name == albumName);
+              final existingAlbums = await PhotoManager.getAssetPathList(
+                type: RequestType.common,
+              );
+              album = existingAlbums.tryFirstWhere(
+                (album) => album.name == albumName,
+              );
               album ??= await PhotoManager.editor.darwin.createAlbum(albumName);
             }
             final shareCachedFile = await _moveToShareCache(
-                convertForCompatibility: convertForCompatibility);
+              convertForCompatibility: convertForCompatibility,
+            );
             final asAsset = _isReallyImage
-                ? await PhotoManager.editor
-                    .saveImageWithPath(shareCachedFile.path, title: filename)
-                : await PhotoManager.editor
-                    .saveVideo(shareCachedFile, title: filename);
+                ? await PhotoManager.editor.saveImageWithPath(
+                    shareCachedFile.path,
+                    title: filename,
+                  )
+                : await PhotoManager.editor.saveVideo(
+                    shareCachedFile,
+                    title: filename,
+                  );
             if (asAsset == null) {
               throw Exception('Failed to save to gallery');
             }
             if (album != null) {
-              await PhotoManager.editor
-                  .copyAssetToPath(asset: asAsset, pathEntity: album);
+              await PhotoManager.editor.copyAssetToPath(
+                asset: asAsset,
+                pathEntity: album,
+              );
             }
             successful = true;
           } else {
@@ -1421,12 +1572,13 @@ class AttachmentViewerController extends ChangeNotifier {
             try {
               // saveFile may modify name if there is a collision
               filename = await saveFile(
-                  sourcePath: source.path,
-                  destinationDir: destination,
-                  destinationSubfolders: dir != null
-                      ? []
-                      : settings.gallerySavePathOrganizing.subfoldersFor(this),
-                  destinationName: filename);
+                sourcePath: source.path,
+                destinationDir: destination,
+                destinationSubfolders: dir != null
+                    ? []
+                    : settings.gallerySavePathOrganizing.subfoldersFor(this),
+                destinationName: filename,
+              );
               _isDownloaded = true;
               successful = true;
             } on DirectoryNotFoundException {
@@ -1461,16 +1613,22 @@ class AttachmentViewerController extends ChangeNotifier {
       return;
     }
     final totalDuration = controller.player.state.duration;
-    final seekDuration = (totalDuration * factor)
-        .clamp(const Duration(seconds: -5), const Duration(seconds: 5));
-    final newPosition = (controller.player.state.position + seekDuration)
-        .clamp(Duration.zero, totalDuration);
+    final seekDuration = (totalDuration * factor).clamp(
+      const Duration(seconds: -5),
+      const Duration(seconds: 5),
+    );
+    final newPosition = (controller.player.state.position + seekDuration).clamp(
+      Duration.zero,
+      totalDuration,
+    );
     await controller.player.seek(newPosition);
     if (_isDisposed) {
       return;
     }
-    final overlayText =
-        _overlayText = _formatPosition(newPosition, totalDuration);
+    final overlayText = _overlayText = _formatPosition(
+      newPosition,
+      totalDuration,
+    );
     notifyListeners();
     await Future.delayed(const Duration(seconds: 1));
     if (!_isDisposed && _overlayText == overlayText) {
@@ -1497,10 +1655,11 @@ class AttachmentViewerController extends ChangeNotifier {
     }
     Wakelock.release(this);
     _showLoadingProgress.dispose();
-    _videoPlayerController?.player
-        .pause()
-        .then((_) => videoPlayerController?.player.dispose());
+    _videoPlayerController?.player.pause().then(
+      (_) => videoPlayerController?.player.dispose(),
+    );
     _longPressFactor.dispose();
+    _longPressEdgeFactor.dispose();
     _videoControllers.remove(this);
     _ongoingConversion?.cancelIfActive();
     _playerErrorStream.close();
@@ -1535,70 +1694,88 @@ class AttachmentViewer extends StatelessWidget {
   final bool autoRotate;
   final bool showDownloadButtonWhenThumbnail;
 
-  const AttachmentViewer(
-      {required this.controller,
-      required this.semanticParentIds,
-      required this.postId,
-      this.onScaleChanged,
-      this.onTap,
-      this.fill = true,
-      this.allowContextMenu = true,
-      this.layoutInsets = EdgeInsets.zero,
-      this.useHeroDestinationWidget = false,
-      this.allowGestures = true,
-      required this.heroOtherEndIsBoxFitCover,
-      this.videoThumbnailMicroPadding = true,
-      this.onlyRenderVideoWhenPrimary = false,
-      this.additionalContextMenuActions = const [],
-      this.maxWidth,
-      this.fit = BoxFit.contain,
-      this.autoRotate = false,
-      this.showDownloadButtonWhenThumbnail = true,
-      Key? key})
-      : super(key: key);
+  const AttachmentViewer({
+    required this.controller,
+    required this.semanticParentIds,
+    required this.postId,
+    this.onScaleChanged,
+    this.onTap,
+    this.fill = true,
+    this.allowContextMenu = true,
+    this.layoutInsets = EdgeInsets.zero,
+    this.useHeroDestinationWidget = false,
+    this.allowGestures = true,
+    required this.heroOtherEndIsBoxFitCover,
+    this.videoThumbnailMicroPadding = true,
+    this.onlyRenderVideoWhenPrimary = false,
+    this.additionalContextMenuActions = const [],
+    this.maxWidth,
+    this.fit = BoxFit.contain,
+    this.autoRotate = false,
+    this.showDownloadButtonWhenThumbnail = true,
+    Key? key,
+  }) : super(key: key);
 
   Attachment get attachment => controller.attachment;
 
   Object get _tag => TaggedAttachment(
-      imageboard: controller.imageboard,
-      attachment: attachment,
-      semanticParentIds: semanticParentIds,
-      postId: postId);
+    imageboard: controller.imageboard,
+    attachment: attachment,
+    semanticParentIds: semanticParentIds,
+    postId: postId,
+  );
 
-  Widget _centeredLoader({required bool active, required double? value, required bool useRealKey, bool force = false}) =>
-      Builder(
-          builder: (context) => Center(
-              child: RotatedBox(
-                  quarterTurns: _rotate90DegreesClockwise ? 1 : 0,
-                  child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      child: active
-                          ? TweenAnimationBuilder<double>(
-                              tween: Tween(
-                                  begin: 0,
-                                  end: (!force && (controller.cacheCompleted || controller._renderedFirstFrame))
-                                      ? 0
-                                      : 1),
-                              duration: const Duration(milliseconds: 250),
-                              curve: Curves.ease,
-                              builder: (context, v, child) =>
-                                  Transform.scale(scale: v, child: child),
-                              child: CircularLoadingIndicator(
-                                  key: useRealKey
-                                      ? controller.loadingSpinnerKey
-                                      : null,
-                                  value: value))
-                          : ((controller.cacheCompleted ||
-                                  controller._renderedFirstFrame ||
-                                  !showDownloadButtonWhenThumbnail)
-                              ? const SizedBox.shrink()
-                              : Icon(CupertinoIcons.arrow_down_circle, size: 60, color: ChanceTheme.primaryColorOf(context)))))));
+  Widget _centeredLoader({
+    required bool active,
+    required double? value,
+    required bool useRealKey,
+    bool force = false,
+  }) => Builder(
+    builder: (context) => Center(
+      child: RotatedBox(
+        quarterTurns: _rotate90DegreesClockwise ? 1 : 0,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: active
+              ? TweenAnimationBuilder<double>(
+                  tween: Tween(
+                    begin: 0,
+                    end:
+                        (!force &&
+                            (controller.cacheCompleted ||
+                                controller._renderedFirstFrame))
+                        ? 0
+                        : 1,
+                  ),
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.ease,
+                  builder: (context, v, child) =>
+                      Transform.scale(scale: v, child: child),
+                  child: CircularLoadingIndicator(
+                    key: useRealKey ? controller.loadingSpinnerKey : null,
+                    value: value,
+                  ),
+                )
+              : ((controller.cacheCompleted ||
+                        controller._renderedFirstFrame ||
+                        !showDownloadButtonWhenThumbnail)
+                    ? const SizedBox.shrink()
+                    : Icon(
+                        CupertinoIcons.arrow_down_circle,
+                        size: 60,
+                        color: ChanceTheme.primaryColorOf(context),
+                      )),
+        ),
+      ),
+    ),
+  );
 
   Tween<Rect?> _createRectTween(Rect? startRect, Rect? endRect) {
     if (startRect != null &&
         endRect != null &&
         DateTime.now().difference(
-                _heroRectCache[attachment.globalId]?.$1 ?? DateTime(2000)) >
+              _heroRectCache[attachment.globalId]?.$1 ?? DateTime(2000),
+            ) >
             const Duration(milliseconds: 300)) {
       if (useHeroDestinationWidget) {
         // This is AttachmentViewer -> AttachmentViewer
@@ -1623,20 +1800,23 @@ class AttachmentViewer extends StatelessWidget {
           attachment.height != null) {
         // The flight child will try to cover its rect. Need to restrict it based on the image aspect ratio.
         final fittedEndSize = applyBoxFit(
-                BoxFit.contain,
-                Size(attachment.width!.toDouble(),
-                    attachment.height!.toDouble()),
-                endRect.size)
-            .destination;
+          BoxFit.contain,
+          Size(attachment.width!.toDouble(), attachment.height!.toDouble()),
+          endRect.size,
+        ).destination;
         endRect = Alignment.center.inscribe(fittedEndSize, endRect);
       }
-      _heroRectCache[attachment.globalId] =
-          (DateTime.now(), startRect, endRect);
+      _heroRectCache[attachment.globalId] = (
+        DateTime.now(),
+        startRect,
+        endRect,
+      );
     }
     return CurvedRectTween(
-        curve: Curves.ease,
-        begin: _heroRectCache[attachment.globalId]?.$2 ?? startRect,
-        end: _heroRectCache[attachment.globalId]?.$3 ?? endRect);
+      curve: Curves.ease,
+      begin: _heroRectCache[attachment.globalId]?.$2 ?? startRect,
+      end: _heroRectCache[attachment.globalId]?.$3 ?? endRect,
+    );
   }
 
   bool get _rotate90DegreesClockwise {
@@ -1651,26 +1831,26 @@ class AttachmentViewer extends StatelessWidget {
 
   Widget _heroBuilder(Widget result) {
     return Hero(
-        tag: _tag,
-        flightShuttleBuilder: (ctx, animation, direction, from, to) =>
-            useHeroDestinationWidget ? to.widget : from.widget,
-        createRectTween: _createRectTween,
-        child: result);
+      tag: _tag,
+      flightShuttleBuilder: (ctx, animation, direction, from, to) =>
+          useHeroDestinationWidget ? to.widget : from.widget,
+      createRectTween: _createRectTween,
+      child: result,
+    );
   }
 
   GestureConfig _createGestureConfig() => GestureConfig(
-      inPageView: true,
-      gestureDetailsIsChanged: (details) {
-        if (details?.totalScale != null) {
-          onScaleChanged?.call(details!.totalScale!);
-        }
-      },
-      hitTestBehavior: HitTestBehavior.translucent,
-      maxScale: 5 * max(attachment.aspectRatio, 1 / attachment.aspectRatio));
+    inPageView: true,
+    gestureDetailsIsChanged: (details) {
+      if (details?.totalScale != null) {
+        onScaleChanged?.call(details!.totalScale!);
+      }
+    },
+    hitTestBehavior: HitTestBehavior.translucent,
+    maxScale: 5 * max(attachment.aspectRatio, 1 / attachment.aspectRatio),
+  );
 
-  Widget _buildDoubleTapDragDetector({
-    required Widget child,
-  }) {
+  Widget _buildDoubleTapDragDetector({required Widget child}) {
     void onDoubleTap(ExtendedImageGestureState state) {
       if (controller.error != null) {
         // Don't allow it
@@ -1678,7 +1858,8 @@ class AttachmentViewer extends StatelessWidget {
       }
       if (attachment.type.usesVideoPlayer &&
           Settings.instance.doubleTapToSeekVideo) {
-        final center = state.context.globalPaintBounds?.center ??
+        final center =
+            state.context.globalPaintBounds?.center ??
             MediaQuery.sizeOf(state.context).center(Offset.zero);
         final tap = state.pointerDownPosition;
         if (tap != null) {
@@ -1701,92 +1882,108 @@ class AttachmentViewer extends StatelessWidget {
       final old = state.gestureDetails!;
       if ((old.totalScale ?? 1) > 1) {
         state.gestureDetails = GestureDetails(
-            offset: Offset.zero, totalScale: 1, actionType: ActionType.zoom);
+          offset: Offset.zero,
+          totalScale: 1,
+          actionType: ActionType.zoom,
+        );
       } else {
         double autozoomScale = 2.0;
         if (attachment.width != null && attachment.height != null) {
-          double screenAspectRatio = MediaQuery.sizeOf(state.context).width /
+          double screenAspectRatio =
+              MediaQuery.sizeOf(state.context).width /
               MediaQuery.sizeOf(state.context).height;
           double attachmentAspectRatio = attachment.width! / attachment.height!;
           double fillZoomScale = screenAspectRatio / attachmentAspectRatio;
-          autozoomScale =
-              max(autozoomScale, max(fillZoomScale, 1 / fillZoomScale));
+          autozoomScale = max(
+            autozoomScale,
+            max(fillZoomScale, 1 / fillZoomScale),
+          );
         }
         autozoomScale = min(autozoomScale, 5);
-        final center = Offset(MediaQuery.sizeOf(state.context).width / 2,
-            MediaQuery.sizeOf(state.context).height / 2);
+        final center = Offset(
+          MediaQuery.sizeOf(state.context).width / 2,
+          MediaQuery.sizeOf(state.context).height / 2,
+        );
         state.gestureDetails = GestureDetails(
-            offset: (state.pointerDownPosition! * autozoomScale - center)
-                .scale(-1, -1),
-            totalScale: autozoomScale,
-            actionType: ActionType.zoom);
+          offset: (state.pointerDownPosition! * autozoomScale - center).scale(
+            -1,
+            -1,
+          ),
+          totalScale: autozoomScale,
+          actionType: ActionType.zoom,
+        );
       }
     }
 
     return DoubleTapDragDetector(
-        shouldStart: () =>
-            attachment.type.isZoomable &&
-            controller.isFullResolution &&
-            allowGestures,
-        onSingleTap: onTap,
-        onDoubleTapDrag: (details) {
-          if (controller.gestureKey.currentState == null) {
-            return;
-          }
-          final state = controller.gestureKey.currentState!;
-          final scaleBefore = state.gestureDetails!.totalScale!;
-          final offsetBefore = state.gestureDetails!.offset!;
-          final logicalAnchor = controller._doubleTapDragAnchor ??=
-              ((details.localPosition - offsetBefore) / scaleBefore);
-          if (controller._longPressMode == null) {
-            if (details.offsetFromOrigin.distance > 24) {
-              final dragIsHorizontal = details.offsetFromOrigin.dx.abs() >
-                  details.offsetFromOrigin.dy.abs();
-              if (attachment.type.usesVideoPlayer &&
-                  (dragIsHorizontal ^ _rotate90DegreesClockwise)) {
-                lightHapticFeedback();
-                controller._longPressMode = _LongPressMode.scrub;
-                controller.onLongPressStart(absolute: false);
-              } else {
-                controller._longPressMode = _LongPressMode.zoom;
-              }
+      shouldStart: () =>
+          attachment.type.isZoomable &&
+          controller.isFullResolution &&
+          allowGestures,
+      onSingleTap: onTap,
+      onDoubleTapDrag: (details) {
+        if (controller.gestureKey.currentState == null) {
+          return;
+        }
+        final state = controller.gestureKey.currentState!;
+        final scaleBefore = state.gestureDetails!.totalScale!;
+        final offsetBefore = state.gestureDetails!.offset!;
+        final logicalAnchor = controller._doubleTapDragAnchor ??=
+            ((details.localPosition - offsetBefore) / scaleBefore);
+        if (controller._longPressMode == null) {
+          if (details.offsetFromOrigin.distance > 24) {
+            final dragIsHorizontal =
+                details.offsetFromOrigin.dx.abs() >
+                details.offsetFromOrigin.dy.abs();
+            if (attachment.type.usesVideoPlayer &&
+                (dragIsHorizontal ^ _rotate90DegreesClockwise)) {
+              lightHapticFeedback();
+              controller._longPressMode = _LongPressMode.scrub;
+              controller.onLongPressStart(absolute: false);
+            } else {
+              controller._longPressMode = _LongPressMode.zoom;
             }
           }
-          if (controller._longPressMode == _LongPressMode.zoom) {
-            final anchorBefore = (logicalAnchor * scaleBefore) + offsetBefore;
-            final delta = _rotate90DegreesClockwise
-                ? details.localDelta.dx
-                : details.localDelta.dy;
-            final scaleAfter =
-                (state.gestureDetails!.totalScale! * (1 + (0.005 * delta)))
-                    .clamp(1.0, state.imageGestureConfig?.maxScale ?? 5.0);
-            final offsetAfter = anchorBefore - (logicalAnchor * scaleAfter);
-            state.gestureDetails = GestureDetails(
-                offset: offsetAfter,
-                totalScale: scaleAfter,
-                actionType: ActionType.zoom);
-          } else if (controller._longPressMode == _LongPressMode.scrub) {
-            final factor = _rotate90DegreesClockwise
-                ? details.offsetFromOrigin.dy /
+        }
+        if (controller._longPressMode == _LongPressMode.zoom) {
+          final anchorBefore = (logicalAnchor * scaleBefore) + offsetBefore;
+          final delta = _rotate90DegreesClockwise
+              ? details.localDelta.dx
+              : details.localDelta.dy;
+          final scaleAfter =
+              (state.gestureDetails!.totalScale! * (1 + (0.005 * delta))).clamp(
+                1.0,
+                state.imageGestureConfig?.maxScale ?? 5.0,
+              );
+          final offsetAfter = anchorBefore - (logicalAnchor * scaleAfter);
+          state.gestureDetails = GestureDetails(
+            offset: offsetAfter,
+            totalScale: scaleAfter,
+            actionType: ActionType.zoom,
+          );
+        } else if (controller._longPressMode == _LongPressMode.scrub) {
+          final factor = _rotate90DegreesClockwise
+              ? details.offsetFromOrigin.dy /
                     (MediaQuery.sizeOf(controller.context).height / 2)
-                : details.offsetFromOrigin.dx /
+              : details.offsetFromOrigin.dx /
                     (MediaQuery.sizeOf(controller.context).width / 2);
-            controller.onLongPressUpdate(factor);
-          }
-        },
-        onDoubleTapDragEnd: (details) {
-          if (details.localOffsetFromOrigin.distance < 1 &&
-              controller.gestureKey.currentState != null) {
-            onDoubleTap(controller.gestureKey.currentState!);
-          }
-          if (controller._longPressMode == _LongPressMode.scrub) {
-            lightHapticFeedback();
-            controller.onLongPressEnd();
-          }
-          controller._doubleTapDragAnchor = null;
-          controller._longPressMode = null;
-        },
-        child: child);
+          controller.onLongPressUpdate(factor);
+        }
+      },
+      onDoubleTapDragEnd: (details) {
+        if (details.localOffsetFromOrigin.distance < 1 &&
+            controller.gestureKey.currentState != null) {
+          onDoubleTap(controller.gestureKey.currentState!);
+        }
+        if (controller._longPressMode == _LongPressMode.scrub) {
+          lightHapticFeedback();
+          controller.onLongPressEnd();
+        }
+        controller._doubleTapDragAnchor = null;
+        controller._longPressMode = null;
+      },
+      child: child,
+    );
   }
 
   bool _canScaleImage(GestureDetails? gestureDetails) {
@@ -1795,128 +1992,153 @@ class AttachmentViewer extends StatelessWidget {
         controller.error == null;
   }
 
-  Widget _buildContextMenu(BuildContext context,
-      Widget Function({required bool inContextMenu}) buildChild) {
+  Widget _buildContextMenu(
+    BuildContext context,
+    Widget Function({required bool inContextMenu}) buildChild,
+  ) {
     return ContextMenu(
-        actions: [
+      actions: [
+        ContextMenuAction(
+          trailingIcon: CupertinoIcons.cloud_download,
+          onPressed: controller.cacheCompleted
+              ? () async {
+                  final download =
+                      !controller.isDownloaded ||
+                      (await confirm(context, 'Redownload?'));
+                  if (!download) return;
+                  final filename = await controller.download(force: true);
+                  if (filename != null && context.mounted) {
+                    showToast(
+                      context: context,
+                      message: 'Downloaded $filename',
+                      icon: CupertinoIcons.cloud_download,
+                    );
+                  }
+                }
+              : null,
+          child: const Text('Download'),
+        ),
+        if (isSaveFileAsSupported)
           ContextMenuAction(
-              trailingIcon: CupertinoIcons.cloud_download,
-              onPressed: controller.cacheCompleted
-                  ? () async {
-                      final download = !controller.isDownloaded ||
-                          (await confirm(context, 'Redownload?'));
-                      if (!download) return;
-                      final filename = await controller.download(force: true);
-                      if (filename != null && context.mounted) {
-                        showToast(
-                            context: context,
-                            message: 'Downloaded $filename',
-                            icon: CupertinoIcons.cloud_download);
-                      }
-                    }
-                  : null,
-              child: const Text('Download')),
-          if (isSaveFileAsSupported)
-            ContextMenuAction(
-                trailingIcon: Icons.folder,
-                onPressed: controller.cacheCompleted
-                    ? () async {
-                        final filename = await controller.download(
-                            force: true, saveAs: true);
-                        if (filename != null && context.mounted) {
-                          showToast(
-                              context: context,
-                              message: 'Downloaded $filename',
-                              icon: Icons.folder);
-                        }
-                      }
-                    : null,
-                child: const Text('Download to...')),
-          ContextMenuAction(
-              trailingIcon: Adaptive.icons.share,
-              onPressed: controller.cacheCompleted
-                  ? () async {
-                      await controller.share(controller
-                          .contextMenuShareButtonKey
-                          .currentContext
-                          ?.globalSemanticBounds);
-                    }
-                  : null,
-              key: controller.contextMenuShareButtonKey,
-              child: const Text('Share')),
-          ContextMenuAction(
-              key: controller.contextMenuShareLinkButtonKey,
-              child: const Text('Share link'),
-              trailingIcon: CupertinoIcons.link,
-              onPressed: () async {
-                final text = controller.goodImagePublicSource.toString();
-                await shareOne(
-                    context: context,
-                    text: text,
-                    type: "text",
-                    sharePositionOrigin: controller
-                        .contextMenuShareLinkButtonKey
-                        .currentContext
-                        ?.globalSemanticBounds);
-              }),
-          if (attachment.type == AttachmentType.image &&
-              isTextRecognitionSupported)
-            ContextMenuAction(
-                trailingIcon: Icons.translate,
-                onPressed: () async {
-                  try {
-                    await modalLoad(
-                        context,
-                        'Translating...',
-                        (c) => controller
-                            .translate()
-                            .timeout(const Duration(seconds: 10)));
-                  } catch (e, st) {
-                    if (context.mounted) {
-                      alertError(context, e, st);
+            trailingIcon: Icons.folder,
+            onPressed: controller.cacheCompleted
+                ? () async {
+                    final filename = await controller.download(
+                      force: true,
+                      saveAs: true,
+                    );
+                    if (filename != null && context.mounted) {
+                      showToast(
+                        context: context,
+                        message: 'Downloaded $filename',
+                        icon: Icons.folder,
+                      );
                     }
                   }
-                },
-                child: const Text('Translate')),
-          ...buildImageSearchActions(
-              context, controller.imageboard, [attachment]),
-          if (context
-              .select<Settings, bool>((p) => p.isMD5Hidden(attachment.md5)))
-            ContextMenuAction(
-                trailingIcon: CupertinoIcons.eye_slash_fill,
-                onPressed: () {
-                  Settings.instance.unHideByMD5s([attachment.md5]);
-                  Settings.instance.didEdit();
-                },
-                child: const Text('Unhide by image'))
-          else
-            ContextMenuAction(
-                trailingIcon: CupertinoIcons.eye_slash,
-                onPressed: () async {
-                  Settings.instance.hideByMD5(attachment.md5);
-                  Settings.instance.didEdit();
-                },
-                child: const Text('Hide by image')),
-          ...additionalContextMenuActions
-        ],
-        child: buildChild(inContextMenu: false),
-        trimStartRect: (rect) {
-          // Remove the layoutInsets
-          final laidOut = layoutInsets.deflateRect(rect);
-          // Clip to aspectRatio
-          final size = RenderAspectRatio(
-                  aspectRatio: _rotate90DegreesClockwise
-                      ? (1 / attachment.aspectRatio)
-                      : attachment.aspectRatio)
-              .getDryLayout(BoxConstraints.loose(laidOut.size));
-          return Rect.fromCenter(
-              center: laidOut.center, width: size.width, height: size.height);
-        },
-        previewBuilder: (context, child) => AspectRatio(
-            aspectRatio: _rotate90DegreesClockwise
-                ? (1 / attachment.aspectRatio)
-                : attachment.aspectRatio,
-            child: buildChild(inContextMenu: true)));
+                : null,
+            child: const Text('Download to...'),
+          ),
+        ContextMenuAction(
+          trailingIcon: Adaptive.icons.share,
+          onPressed: controller.cacheCompleted
+              ? () async {
+                  await controller.share(
+                    controller
+                        .contextMenuShareButtonKey
+                        .currentContext
+                        ?.globalSemanticBounds,
+                  );
+                }
+              : null,
+          key: controller.contextMenuShareButtonKey,
+          child: const Text('Share'),
+        ),
+        ContextMenuAction(
+          key: controller.contextMenuShareLinkButtonKey,
+          child: const Text('Share link'),
+          trailingIcon: CupertinoIcons.link,
+          onPressed: () async {
+            final text = controller.goodImagePublicSource.toString();
+            await shareOne(
+              context: context,
+              text: text,
+              type: "text",
+              sharePositionOrigin: controller
+                  .contextMenuShareLinkButtonKey
+                  .currentContext
+                  ?.globalSemanticBounds,
+            );
+          },
+        ),
+        if (attachment.type == AttachmentType.image &&
+            isTextRecognitionSupported)
+          ContextMenuAction(
+            trailingIcon: Icons.translate,
+            onPressed: () async {
+              try {
+                await modalLoad(
+                  context,
+                  'Translating...',
+                  (c) => controller.translate().timeout(
+                    const Duration(seconds: 10),
+                  ),
+                );
+              } catch (e, st) {
+                if (context.mounted) {
+                  alertError(context, e, st);
+                }
+              }
+            },
+            child: const Text('Translate'),
+          ),
+        ...buildImageSearchActions(context, controller.imageboard, [
+          attachment,
+        ]),
+        if (context.select<Settings, bool>(
+          (p) => p.isMD5Hidden(attachment.md5),
+        ))
+          ContextMenuAction(
+            trailingIcon: CupertinoIcons.eye_slash_fill,
+            onPressed: () {
+              Settings.instance.unHideByMD5s([attachment.md5]);
+              Settings.instance.didEdit();
+            },
+            child: const Text('Unhide by image'),
+          )
+        else
+          ContextMenuAction(
+            trailingIcon: CupertinoIcons.eye_slash,
+            onPressed: () async {
+              Settings.instance.hideByMD5(attachment.md5);
+              Settings.instance.didEdit();
+            },
+            child: const Text('Hide by image'),
+          ),
+        ...additionalContextMenuActions,
+      ],
+      child: buildChild(inContextMenu: false),
+      trimStartRect: (rect) {
+        // Remove the layoutInsets
+        final laidOut = layoutInsets.deflateRect(rect);
+        // Clip to aspectRatio
+        final size = RenderAspectRatio(
+          aspectRatio: _rotate90DegreesClockwise
+              ? (1 / attachment.aspectRatio)
+              : attachment.aspectRatio,
+        ).getDryLayout(BoxConstraints.loose(laidOut.size));
+        return Rect.fromCenter(
+          center: laidOut.center,
+          width: size.width,
+          height: size.height,
+        );
+      },
+      previewBuilder: (context, child) => AspectRatio(
+        aspectRatio: _rotate90DegreesClockwise
+            ? (1 / attachment.aspectRatio)
+            : attachment.aspectRatio,
+        child: buildChild(inContextMenu: true),
+      ),
+    );
   }
 
   Widget _buildImage(BuildContext context, Size? size, bool passedFirstBuild) {
@@ -1932,247 +2154,294 @@ class AttachmentViewer extends StatelessWidget {
     final theme = context.watch<SavedTheme>();
     if (source.toString().isEmpty) {
       return ExtendedImageSlidePageHandler(
-          heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
-          child: Center(
-              child: AspectRatio(
-                  aspectRatio: attachment.aspectRatio,
-                  child: ColoredBox(color: theme.barColor))));
+        heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: attachment.aspectRatio,
+            child: ColoredBox(color: theme.barColor),
+          ),
+        ),
+      );
     }
-    ImageProvider image = CNetworkImageProvider(source.toString(),
-        client: controller.site.client,
-        cache: true,
-        priority: controller.isPrimary
-            ? RequestPriority.interactive
-            : RequestPriority.functional,
-        headers: controller.getHeaders(source));
+    ImageProvider image = CNetworkImageProvider(
+      source.toString(),
+      client: controller.site.client,
+      cache: true,
+      priority: controller.isPrimary
+          ? RequestPriority.interactive
+          : RequestPriority.functional,
+      headers: controller.getHeaders(source),
+    );
     if (source.scheme == 'file') {
-      image = ExtendedFileImageProvider(File(source.toStringFFMPEG()),
-          imageCacheName: attachment.id);
+      image = ExtendedFileImageProvider(
+        File(source.toStringFFMPEG()),
+        imageCacheName: attachment.id,
+      );
     }
     if (maxWidth != null) {
-      image = ExtendedResizeImage(image,
-          maxBytes: 800 << 10, width: maxWidth!.ceil());
+      image = ExtendedResizeImage(
+        image,
+        maxBytes: 800 << 10,
+        width: maxWidth!.ceil(),
+      );
     }
     Widget buildChild({required bool inContextMenu}) => ValueListenableBuilder(
-        valueListenable: controller.showLoadingProgress,
-        builder: (context, showLoadingProgress, _) => AbsorbPointer(
-            absorbing: !allowGestures,
-            child: ExtendedImage(
-                image: image,
-                extendedImageGestureKey:
-                    inContextMenu ? null : controller.gestureKey,
-                canScaleImage: _canScaleImage,
-                color: const Color.fromRGBO(238, 242, 255, 1),
-                colorBlendMode: BlendMode.dstOver,
-                enableSlideOutPage: true,
-                gaplessPlayback: true,
-                fit: fit,
-                mode: ExtendedImageMode.gesture,
-                width: size?.width ?? double.infinity,
-                height: size?.height ?? double.infinity,
-                enableLoadState: true,
-                handleLoadingProgress: true,
-                layoutInsets: inContextMenu ? EdgeInsets.zero : layoutInsets,
-                afterPaintImage: (
-                  key: controller.textBlocks.toString(),
-                  fn: (canvas, rect, image, paint) {
-                    final transform = Matrix4.identity();
-                    transform.setFromTranslationRotationScale(
-                        Vector3(rect.left, rect.top, 0),
-                        Quaternion.identity(),
-                        Vector3(rect.width / image.width,
-                            rect.height / image.height, 0));
-                    for (final block in controller.textBlocks) {
-                      // Assume the text is always one line
-                      final transformedRect =
-                          MatrixUtils.transformRect(transform, block.rect);
-                      double fontSize = 14;
-                      final builder1 = ui.ParagraphBuilder(ui.ParagraphStyle())
-                        ..pushStyle(ui.TextStyle(fontSize: fontSize))
-                        ..addText(block.text)
-                        ..pop();
-                      final paragraph1 = builder1.build();
-                      paragraph1.layout(const ui.ParagraphConstraints(
-                          width: double.infinity));
-                      fontSize *= min(
-                          transformedRect.width / paragraph1.maxIntrinsicWidth,
-                          transformedRect.height / paragraph1.height);
-                      final builder2 = ui.ParagraphBuilder(ui.ParagraphStyle())
-                        ..pushStyle(ui.TextStyle(
-                            fontSize: fontSize, color: Colors.black))
-                        ..addText(block.text)
-                        ..pop();
-                      final paragraph2 = builder2.build();
-                      paragraph2.layout(const ui.ParagraphConstraints(
-                          width: double.infinity));
-                      canvas.drawRect(transformedRect,
-                          Paint()..color = Colors.white.withValues(alpha: 1));
-                      canvas.drawParagraph(
-                          paragraph2,
-                          transformedRect.topLeft +
-                              Offset(
-                                  0,
-                                  max(
-                                      0,
-                                      (paragraph2.height -
-                                              transformedRect.height) /
-                                          2)));
-                    }
-                  }
+      valueListenable: controller.showLoadingProgress,
+      builder: (context, showLoadingProgress, _) => AbsorbPointer(
+        absorbing: !allowGestures,
+        child: ExtendedImage(
+          image: image,
+          extendedImageGestureKey: inContextMenu ? null : controller.gestureKey,
+          canScaleImage: _canScaleImage,
+          color: const Color.fromRGBO(238, 242, 255, 1),
+          colorBlendMode: BlendMode.dstOver,
+          enableSlideOutPage: true,
+          gaplessPlayback: true,
+          fit: fit,
+          mode: ExtendedImageMode.gesture,
+          width: size?.width ?? double.infinity,
+          height: size?.height ?? double.infinity,
+          enableLoadState: true,
+          handleLoadingProgress: true,
+          layoutInsets: inContextMenu ? EdgeInsets.zero : layoutInsets,
+          afterPaintImage: (
+            key: controller.textBlocks.toString(),
+            fn: (canvas, rect, image, paint) {
+              final transform = Matrix4.identity();
+              transform.setFromTranslationRotationScale(
+                Vector3(rect.left, rect.top, 0),
+                Quaternion.identity(),
+                Vector3(
+                  rect.width / image.width,
+                  rect.height / image.height,
+                  0,
                 ),
-                rotate90DegreesClockwise: _rotate90DegreesClockwise,
-                loadStateChanged: (loadstate) {
-                  void tryUpdatingAttachment() {
-                    if (attachment.width != null && attachment.height != null) {
-                      return;
-                    }
-                    final image = loadstate.extendedImageInfo?.image;
-                    if (image != null) {
-                      attachment.width ??= image.width;
-                      attachment.height ??= image.height;
-                      // Now we know the dimensions of the image, maybe we want to allow more zoom
-                      final aspectRatio = attachment.aspectRatio;
-                      controller.gestureKey.currentState?.imageGestureConfig
-                          ?.maxScale = 5 * max(aspectRatio, 1 / aspectRatio);
-                    }
-                  }
+              );
+              for (final block in controller.textBlocks) {
+                // Assume the text is always one line
+                final transformedRect = MatrixUtils.transformRect(
+                  transform,
+                  block.rect,
+                );
+                double fontSize = 14;
+                final builder1 = ui.ParagraphBuilder(ui.ParagraphStyle())
+                  ..pushStyle(ui.TextStyle(fontSize: fontSize))
+                  ..addText(block.text)
+                  ..pop();
+                final paragraph1 = builder1.build();
+                paragraph1.layout(
+                  const ui.ParagraphConstraints(width: double.infinity),
+                );
+                fontSize *= min(
+                  transformedRect.width / paragraph1.maxIntrinsicWidth,
+                  transformedRect.height / paragraph1.height,
+                );
+                final builder2 = ui.ParagraphBuilder(ui.ParagraphStyle())
+                  ..pushStyle(
+                    ui.TextStyle(fontSize: fontSize, color: Colors.black),
+                  )
+                  ..addText(block.text)
+                  ..pop();
+                final paragraph2 = builder2.build();
+                paragraph2.layout(
+                  const ui.ParagraphConstraints(width: double.infinity),
+                );
+                canvas.drawRect(
+                  transformedRect,
+                  Paint()..color = Colors.white.withValues(alpha: 1),
+                );
+                canvas.drawParagraph(
+                  paragraph2,
+                  transformedRect.topLeft +
+                      Offset(
+                        0,
+                        max(
+                          0,
+                          (paragraph2.height - transformedRect.height) / 2,
+                        ),
+                      ),
+                );
+              }
+            },
+          ),
+          rotate90DegreesClockwise: _rotate90DegreesClockwise,
+          loadStateChanged: (loadstate) {
+            void tryUpdatingAttachment() {
+              if (attachment.width != null && attachment.height != null) {
+                return;
+              }
+              final image = loadstate.extendedImageInfo?.image;
+              if (image != null) {
+                attachment.width ??= image.width;
+                attachment.height ??= image.height;
+                // Now we know the dimensions of the image, maybe we want to allow more zoom
+                final aspectRatio = attachment.aspectRatio;
+                controller
+                        .gestureKey
+                        .currentState
+                        ?.imageGestureConfig
+                        ?.maxScale =
+                    5 * max(aspectRatio, 1 / aspectRatio);
+              }
+            }
 
-                  // We can't rely on loadstate.extendedImageLoadState because of using gaplessPlayback
-                  if (!controller.cacheCompleted ||
-                      showLoadingProgress ||
-                      loadstate.extendedImageLoadState == LoadState.failed) {
-                    if (loadstate.extendedImageLoadState == LoadState.failed &&
-                        controller.isFullResolution) {
-                      // This is to handle successful download of corrupt image
-                      final e = loadstate.lastException;
-                      final st = loadstate.lastStack;
-                      if (e != null &&
-                          st != null &&
-                          !e.toStringDio().contains(attachment.thumbnailUrl)) {
-                        // Make sure this isn't an exception for the thumb
-                        controller._error ??= (e, st);
-                      }
+            // We can't rely on loadstate.extendedImageLoadState because of using gaplessPlayback
+            if (!controller.cacheCompleted ||
+                showLoadingProgress ||
+                loadstate.extendedImageLoadState == LoadState.failed) {
+              if (loadstate.extendedImageLoadState == LoadState.failed &&
+                  controller.isFullResolution) {
+                // This is to handle successful download of corrupt image
+                final e = loadstate.lastException;
+                final st = loadstate.lastStack;
+                if (e != null &&
+                    st != null &&
+                    !e.toStringDio().contains(attachment.thumbnailUrl)) {
+                  // Make sure this isn't an exception for the thumb
+                  controller._error ??= (e, st);
+                }
+              }
+              double? loadingValue;
+              if (controller.cacheCompleted) {
+                loadingValue = 1;
+              } else {
+                final image = loadstate.extendedImageInfo?.image;
+                if (source.toString() == attachment.thumbnailUrl) {
+                  controller._thumbnail = image;
+                }
+                final progress = loadstate.loadingProgress;
+                if (progress == null &&
+                    image != null &&
+                    image != controller._thumbnail) {
+                  loadingValue = 1;
+                  tryUpdatingAttachment();
+                  getCachedImageFile(source.toString()).then((file) {
+                    if (file != null) {
+                      controller._onCacheCompleted(file);
                     }
-                    double? loadingValue;
-                    if (controller.cacheCompleted) {
-                      loadingValue = 1;
-                    } else {
-                      final image = loadstate.extendedImageInfo?.image;
-                      if (source.toString() == attachment.thumbnailUrl) {
-                        controller._thumbnail = image;
-                      }
-                      final progress = loadstate.loadingProgress;
-                      if (progress == null &&
-                          image != null &&
-                          image != controller._thumbnail) {
-                        loadingValue = 1;
-                        tryUpdatingAttachment();
-                        getCachedImageFile(source.toString()).then((file) {
-                          if (file != null) {
-                            controller._onCacheCompleted(file);
-                          }
-                        });
-                      } else {
-                        loadingValue = switch (loadstate.loadingProgress) {
-                          ImageChunkEvent p => p.cumulativeBytesLoaded /
-                              (p.expectedTotalBytes ??
-                                  attachment.sizeInBytes ??
-                                  switch ((
-                                    attachment.width,
-                                    attachment.height
-                                  )) {
-                                    (int w, int h) => w * h * 0.3,
-                                    _ => 1e6
-                                  }),
-                          null => null
-                        };
-                      }
-                    }
-                    Widget buildContent(BuildContext context, Widget? _) {
-                      Widget child = const SizedBox.shrink();
-                      if (controller.error case (Object e, StackTrace st)) {
-                        child = Center(
-                            child: Padding(
-                                padding: const EdgeInsets.all(32),
-                                child: ErrorMessageCard(e.toStringDio(),
-                                    remedies: {
-                                      'Retry': () =>
-                                          controller.reloadFullAttachment(),
-                                      'Open browser': () => openBrowser(
-                                          context,
-                                          controller._goodImageSource ??
-                                              Uri.parse(
-                                                  controller.attachment.url),
-                                          useGalleryIfPossible: false),
-                                      ...generateBugRemedies(e, st, context,
-                                          afterFix:
-                                              controller.reloadFullAttachment),
-                                      if (controller.canCheckArchives &&
-                                          !controller.checkArchives)
-                                        'Try archives': () =>
-                                            controller.tryArchives()
-                                    })));
-                      } else if (controller.gestureKey.currentState
-                                  ?.extendedImageSlidePageState?.popping !=
-                              true &&
-                          (showLoadingProgress ||
-                              !controller.isFullResolution)) {
-                        child = _centeredLoader(
-                            active: controller.isFullResolution,
-                            value: loadingValue,
-                            useRealKey: !inContextMenu);
-                      }
-                      return Positioned.fill(
-                          child: Transform.scale(
-                              scale: controller.gestureKey.currentState
-                                      ?.extendedImageSlidePageState?.scale ??
-                                  1,
-                              child: Transform.translate(
-                                  offset: controller
-                                          .gestureKey
-                                          .currentState
-                                          ?.extendedImageSlidePageState
-                                          ?.offset ??
-                                      Offset.zero,
-                                  child: child)));
-                    }
+                  });
+                } else {
+                  loadingValue = switch (loadstate.loadingProgress) {
+                    ImageChunkEvent p =>
+                      p.cumulativeBytesLoaded /
+                          (p.expectedTotalBytes ??
+                              attachment.sizeInBytes ??
+                              switch ((attachment.width, attachment.height)) {
+                                (int w, int h) => w * h * 0.3,
+                                _ => 1e6,
+                              }),
+                    null => null,
+                  };
+                }
+              }
+              Widget buildContent(BuildContext context, Widget? _) {
+                Widget child = const SizedBox.shrink();
+                if (controller.error case (Object e, StackTrace st)) {
+                  child = Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: ErrorMessageCard(
+                        e.toStringDio(),
+                        remedies: {
+                          'Retry': () => controller.reloadFullAttachment(),
+                          'Open browser': () => openBrowser(
+                            context,
+                            controller._goodImageSource ??
+                                Uri.parse(controller.attachment.url),
+                            useGalleryIfPossible: false,
+                          ),
+                          ...generateBugRemedies(
+                            e,
+                            st,
+                            context,
+                            afterFix: controller.reloadFullAttachment,
+                          ),
+                          if (controller.canCheckArchives &&
+                              !controller.checkArchives)
+                            'Try archives': () => controller.tryArchives(),
+                        },
+                      ),
+                    ),
+                  );
+                } else if (controller
+                            .gestureKey
+                            .currentState
+                            ?.extendedImageSlidePageState
+                            ?.popping !=
+                        true &&
+                    (showLoadingProgress || !controller.isFullResolution)) {
+                  child = _centeredLoader(
+                    active: controller.isFullResolution,
+                    value: loadingValue,
+                    useRealKey: !inContextMenu,
+                  );
+                }
+                return Positioned.fill(
+                  child: Transform.scale(
+                    scale:
+                        controller
+                            .gestureKey
+                            .currentState
+                            ?.extendedImageSlidePageState
+                            ?.scale ??
+                        1,
+                    child: Transform.translate(
+                      offset:
+                          controller
+                              .gestureKey
+                              .currentState
+                              ?.extendedImageSlidePageState
+                              ?.offset ??
+                          Offset.zero,
+                      child: child,
+                    ),
+                  ),
+                );
+              }
 
-                    return Stack(children: [
-                      if (loadstate.extendedImageLoadState ==
-                          LoadState.completed)
-                        loadstate.completedWidget
-                      else
-                        Center(
-                            child: AspectRatio(
-                                aspectRatio: attachment.aspectRatio,
-                                child: Container(
-                                    color: theme.barColor,
-                                    alignment: Alignment.center))),
-                      if (controller.redrawGestureListenable != null)
-                        AnimatedBuilder(
-                            animation: controller.redrawGestureListenable!,
-                            builder: buildContent)
-                      else
-                        buildContent(context, null)
-                    ]);
-                  } else if (
-                      // We may load an anonymous image from disk cache, if we loaded it before
-                      // But the fakeAttachment will be new, need to re-fill its fields
-                      controller.cacheCompleted &&
-                          loadstate.extendedImageLoadState ==
-                              LoadState.completed &&
-                          source.toString() != attachment.thumbnailUrl) {
-                    tryUpdatingAttachment();
-                  }
-                  return null;
-                },
-                initGestureConfigHandler: (state) => _createGestureConfig(),
-                heroBuilderForSlidingPage:
-                    controller.isPrimary ? _heroBuilder : null)));
+              return Stack(
+                children: [
+                  if (loadstate.extendedImageLoadState == LoadState.completed)
+                    loadstate.completedWidget
+                  else
+                    Center(
+                      child: AspectRatio(
+                        aspectRatio: attachment.aspectRatio,
+                        child: Container(
+                          color: theme.barColor,
+                          alignment: Alignment.center,
+                        ),
+                      ),
+                    ),
+                  if (controller.redrawGestureListenable != null)
+                    AnimatedBuilder(
+                      animation: controller.redrawGestureListenable!,
+                      builder: buildContent,
+                    )
+                  else
+                    buildContent(context, null),
+                ],
+              );
+            } else if (
+            // We may load an anonymous image from disk cache, if we loaded it before
+            // But the fakeAttachment will be new, need to re-fill its fields
+            controller.cacheCompleted &&
+                loadstate.extendedImageLoadState == LoadState.completed &&
+                source.toString() != attachment.thumbnailUrl) {
+              tryUpdatingAttachment();
+            }
+            return null;
+          },
+          initGestureConfigHandler: (state) => _createGestureConfig(),
+          heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
+        ),
+      ),
+    );
     return _buildDoubleTapDragDetector(
-        child: !allowContextMenu
-            ? buildChild(inContextMenu: false)
-            : _buildContextMenu(context, buildChild));
+      child: !allowContextMenu
+          ? buildChild(inContextMenu: false)
+          : _buildContextMenu(context, buildChild),
+    );
   }
 
   double get aspectRatio {
@@ -2192,306 +2461,501 @@ class AttachmentViewer extends StatelessWidget {
     final rotate90DegreesClockwise = _rotate90DegreesClockwise;
     final soundSourceDownload = controller._soundSourceDownload;
     Widget buildChild({required bool inContextMenu}) {
-      Widget centerWithPage({required Widget child}) => Positioned.fill(
-          child: AnimatedBuilder(
-              animation: controller.redrawGestureListenable ??
-                  const AlwaysStoppedAnimation(null),
-              builder: (context, _) => Padding(
-                  padding: inContextMenu ? EdgeInsets.zero : layoutInsets,
-                  child: Transform.translate(
-                      offset: controller.gestureKey.currentState
-                              ?.extendedImageSlidePageState?.offset ??
-                          Offset.zero,
-                      child: Transform.scale(
-                          scale: (controller.gestureKey.currentState
-                                  ?.extendedImageSlidePageState?.scale ??
-                              1),
-                          child: Center(child: child))))));
+      Widget alignWithPage({
+        required Widget child,
+        required Alignment alignment,
+      }) => Positioned.fill(
+        child: AnimatedBuilder(
+          animation:
+              controller.redrawGestureListenable ??
+              const AlwaysStoppedAnimation(null),
+          builder: (context, _) => Padding(
+            padding: inContextMenu ? EdgeInsets.zero : layoutInsets,
+            child: Transform.translate(
+              offset:
+                  controller
+                      .gestureKey
+                      .currentState
+                      ?.extendedImageSlidePageState
+                      ?.offset ??
+                  Offset.zero,
+              child: Transform.scale(
+                scale:
+                    (controller
+                        .gestureKey
+                        .currentState
+                        ?.extendedImageSlidePageState
+                        ?.scale ??
+                    1),
+                child: Align(alignment: alignment, child: child),
+              ),
+            ),
+          ),
+        ),
+      );
+      Widget centerWithPage({required Widget child}) =>
+          alignWithPage(child: child, alignment: Alignment.center);
       return AbsorbPointer(
-          absorbing: !allowGestures,
-          child: Stack(alignment: Alignment.center, children: [
+        absorbing: !allowGestures,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
             Positioned.fill(
-                child: AnimatedBuilder(
-                    animation: controller,
-                    builder: (context, _) {
-                      if (controller.cacheCompleted ||
-                          controller.overrideSource == null) {
-                        // Needed to enable tapping to reveal chrome via an ancestor GestureDetector
-                        return const AbsorbPointer();
-                      }
-                      // For reddit videos or random hotlinked stuff
-                      return Center(
-                          child: AspectRatio(
-                              aspectRatio: rotate90DegreesClockwise
-                                  ? (1 / controller.attachment.aspectRatio)
-                                  : controller.attachment.aspectRatio,
-                              child: Container(
-                                  color: Settings.instance.theme.barColor)));
-                    })),
+              child: AnimatedBuilder(
+                animation: controller,
+                builder: (context, _) {
+                  if (controller.cacheCompleted ||
+                      controller.overrideSource == null) {
+                    // Needed to enable tapping to reveal chrome via an ancestor GestureDetector
+                    return const AbsorbPointer();
+                  }
+                  // For reddit videos or random hotlinked stuff
+                  return Center(
+                    child: AspectRatio(
+                      aspectRatio: rotate90DegreesClockwise
+                          ? (1 / controller.attachment.aspectRatio)
+                          : controller.attachment.aspectRatio,
+                      child: Container(color: Settings.instance.theme.barColor),
+                    ),
+                  );
+                },
+              ),
+            ),
             if (controller.videoPlayerController != null &&
                 allowGestures &&
                 Settings.instance.doubleTapToSeekVideo)
               Positioned.fill(
-                  child: Flex(
-                direction:
-                    rotate90DegreesClockwise ? Axis.vertical : Axis.horizontal,
-                children: [
-                  Expanded(
+                child: Flex(
+                  direction: rotate90DegreesClockwise
+                      ? Axis.vertical
+                      : Axis.horizontal,
+                  children: [
+                    Expanded(
                       child: GestureDetector(
-                          onDoubleTap: controller.seekBackward)),
-                  Expanded(
-                      child:
-                          GestureDetector(onDoubleTap: controller.seekForward))
-                ],
-              )),
+                        onDoubleTap: controller.seekBackward,
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onDoubleTap: controller.seekForward,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Positioned.fill(
-                child: ExtendedImageGestureWidget(
-                    heroBuilderForSlidingPage:
-                        controller.isPrimary ? _heroBuilder : null,
-                    key: inContextMenu ? null : controller.gestureKey,
-                    layoutInsets:
-                        inContextMenu ? EdgeInsets.zero : layoutInsets,
-                    fit: fit,
-                    canScaleImage: _canScaleImage,
-                    initGestureConfigHandler: () => _createGestureConfig(),
-                    child: _buildDoubleTapDragDetector(
-                        child: RotatedBox(
-                            quarterTurns: rotate90DegreesClockwise ? 1 : 0,
-                            child:
-                                Stack(alignment: Alignment.center, children: [
-                              if (controller.overrideSource == null)
-                                Padding(
-                                    // Sometimes it's very slightly off from the video.
-                                    // This errs to have it too small rather than too large.
-                                    padding: videoThumbnailMicroPadding
-                                        ? const EdgeInsets.all(1)
-                                        : EdgeInsets.zero,
-                                    child: AttachmentThumbnail(
-                                        attachment: attachment,
-                                        width: attachment.width?.toDouble(),
-                                        height: attachment.height?.toDouble(),
-                                        gaplessPlayback: true,
-                                        revealSpoilers: true,
-                                        site: controller.site,
-                                        mayObscure: false)),
-                              ValueListenableBuilder(
-                                  valueListenable: controller
-                                          .videoPlayerController?.notifier ??
-                                      const ConstantValueListenable<
-                                          PlatformVideoController?>(null),
-                                  builder: (context, pvc, placeholder) {
-                                    return ValueListenableBuilder(
-                                        valueListenable: Combining2ValueListenable(
-                                            child1: pvc?.id ??
-                                                const ConstantValueListenable<
-                                                    int?>(null),
-                                            child2: pvc?.rect ??
-                                                const ConstantValueListenable<
-                                                    Rect?>(null),
-                                            combine: (id, rect) => (id, rect)),
-                                        builder: (context, data, placeholder) {
-                                          final (id, rect) = data;
-                                          if (id == null ||
-                                              rect == null ||
-                                              (rect.width <= 1 &&
-                                                  rect.height <= 1)) {
-                                            return placeholder!;
-                                          }
-                                          return SizedBox(
-                                              width: rect.width,
-                                              height: rect.height,
-                                              child: Texture(textureId: id));
-                                        },
-                                        child: placeholder);
-                                  },
-                                  child: const SizedBox.shrink())
-                            ]))))),
+              child: ExtendedImageGestureWidget(
+                heroBuilderForSlidingPage: controller.isPrimary
+                    ? _heroBuilder
+                    : null,
+                key: inContextMenu ? null : controller.gestureKey,
+                layoutInsets: inContextMenu ? EdgeInsets.zero : layoutInsets,
+                fit: fit,
+                canScaleImage: _canScaleImage,
+                initGestureConfigHandler: () => _createGestureConfig(),
+                child: _buildDoubleTapDragDetector(
+                  child: RotatedBox(
+                    quarterTurns: rotate90DegreesClockwise ? 1 : 0,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (controller.overrideSource == null)
+                          Padding(
+                            // Sometimes it's very slightly off from the video.
+                            // This errs to have it too small rather than too large.
+                            padding: videoThumbnailMicroPadding
+                                ? const EdgeInsets.all(1)
+                                : EdgeInsets.zero,
+                            child: AttachmentThumbnail(
+                              attachment: attachment,
+                              width: attachment.width?.toDouble(),
+                              height: attachment.height?.toDouble(),
+                              gaplessPlayback: true,
+                              revealSpoilers: true,
+                              site: controller.site,
+                              mayObscure: false,
+                            ),
+                          ),
+                        ValueListenableBuilder(
+                          valueListenable:
+                              controller.videoPlayerController?.notifier ??
+                              const StoppedValueListenable<
+                                PlatformVideoController?
+                              >(null),
+                          builder: (context, pvc, placeholder) {
+                            return ValueListenableBuilder(
+                              valueListenable: Combining2ValueListenable(
+                                child1:
+                                    pvc?.id ??
+                                    const StoppedValueListenable<int?>(null),
+                                child2:
+                                    pvc?.rect ??
+                                    const StoppedValueListenable<Rect?>(null),
+                                combine: (id, rect) => (id, rect),
+                              ),
+                              builder: (context, data, placeholder) {
+                                final (id, rect) = data;
+                                if (id == null ||
+                                    rect == null ||
+                                    (rect.width <= 1 && rect.height <= 1)) {
+                                  return placeholder!;
+                                }
+                                return SizedBox(
+                                  width: rect.width,
+                                  height: rect.height,
+                                  child: Texture(textureId: id),
+                                );
+                              },
+                              child: placeholder,
+                            );
+                          },
+                          child: const SizedBox.shrink(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             if (attachment.type == AttachmentType.mp3)
               centerWithPage(
-                  child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.all(Radius.circular(8))),
-                      child: IntrinsicWidth(
-                          child:
-                              Column(mainAxisSize: MainAxisSize.min, children: [
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                  ),
+                  child: IntrinsicWidth(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         const SizedBox(height: 10),
-                        const Row(mainAxisSize: MainAxisSize.min, children: [
-                          SizedBox(width: 64),
-                          Icon(CupertinoIcons.waveform,
-                              size: 32, color: Colors.white),
-                          Text('Audio only',
-                              style:
-                                  TextStyle(fontSize: 32, color: Colors.white)),
-                          SizedBox(width: 64)
-                        ]),
+                        const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(width: 64),
+                            Icon(
+                              CupertinoIcons.waveform,
+                              size: 32,
+                              color: Colors.white,
+                            ),
+                            Text(
+                              'Audio only',
+                              style: TextStyle(
+                                fontSize: 32,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 64),
+                          ],
+                        ),
                         const SizedBox(height: 10),
                         VideoControls(
-                            controller: controller, showMuteButton: false),
-                        const SizedBox(height: 10)
-                      ])))),
+                          controller: controller,
+                          showMuteButton: false,
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             centerWithPage(
-                child: ValueListenableBuilder(
-                    valueListenable: controller.showLoadingProgress,
-                    builder: (context, showLoadingProgress, _) => StreamBuilder(
-                        stream: controller
-                            .videoPlayerController?.player.stream.buffering,
-                        builder: (context, buffering) => LatchedBuilder(
-                            value: buffering.data ?? false,
-                            period: const Duration(milliseconds: 300),
-                            builder: (context, buffering) => ((showLoadingProgress || buffering) &&
-                                    controller._soundSourceDownload == null)
-                                ? ValueListenableBuilder(
-                                    valueListenable:
-                                        controller.videoLoadingProgress,
-                                    builder: (context, double? loadingProgress, child) => _centeredLoader(
-                                        active: controller.isFullResolution,
-                                        value: (loadingProgress == 1 && buffering)
-                                            ? null
-                                            : loadingProgress,
-                                        useRealKey: !inContextMenu,
-                                        force: buffering && !controller._currentlyWithinLongPress))
-                                : const SizedBox.shrink())))),
+              child: ValueListenableBuilder(
+                valueListenable: controller.showLoadingProgress,
+                builder: (context, showLoadingProgress, _) => StreamBuilder(
+                  stream:
+                      controller.videoPlayerController?.player.stream.buffering,
+                  builder: (context, buffering) => LatchedBuilder(
+                    value: buffering.data ?? false,
+                    period: const Duration(milliseconds: 300),
+                    builder: (context, buffering) =>
+                        ((showLoadingProgress || buffering) &&
+                            controller._soundSourceDownload == null)
+                        ? ValueListenableBuilder(
+                            valueListenable: controller.videoLoadingProgress,
+                            builder:
+                                (context, double? loadingProgress, child) =>
+                                    _centeredLoader(
+                                      active: controller.isFullResolution,
+                                      value: (loadingProgress == 1 && buffering)
+                                          ? null
+                                          : loadingProgress,
+                                      useRealKey: !inContextMenu,
+                                      force:
+                                          buffering &&
+                                          !controller._currentlyWithinLongPress,
+                                    ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ),
             if (soundSourceDownload != null)
               centerWithPage(
-                  child: Container(
-                      margin: const EdgeInsets.all(16),
-                      padding: const EdgeInsets.all(24),
-                      decoration: const BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.all(Radius.circular(10))),
-                      child: IntrinsicWidth(
-                          child:
-                              Column(mainAxisSize: MainAxisSize.min, children: [
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(24),
+                  decoration: const BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
+                  child: IntrinsicWidth(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         const SizedBox(height: 10),
-                        const Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(CupertinoIcons.waveform,
-                              size: 32, color: Colors.white),
-                          SizedBox(width: 8),
-                          Text('Downloading sound',
-                              style:
-                                  TextStyle(fontSize: 32, color: Colors.white))
-                        ]),
-                        Text('from ${soundSourceDownload.uri.host}',
-                            style: const TextStyle(fontSize: 24)),
+                        const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              CupertinoIcons.waveform,
+                              size: 32,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Downloading sound',
+                              style: TextStyle(
+                                fontSize: 32,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          'from ${soundSourceDownload.uri.host}',
+                          style: const TextStyle(fontSize: 24),
+                        ),
                         const SizedBox(height: 16),
                         ValueListenableBuilder(
-                            valueListenable: soundSourceDownload.currentBytes,
-                            builder: (context, currentBytes, _) => SizedBox(
-                                width: 350,
-                                child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      LinearProgressIndicator(
-                                          value: switch (
-                                              soundSourceDownload.totalBytes) {
-                                            int totalBytes =>
-                                              currentBytes / totalBytes,
-                                            null => null
-                                          },
-                                          backgroundColor: ChanceTheme
-                                              .primaryColorWithBrightness20Of(
-                                                  context)),
-                                      const SizedBox(height: 16),
-                                      Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            AdaptiveFilledButton(
-                                                onPressed: () => VideoServer
-                                                    .instance
-                                                    .interruptOngoingDownloadFromUri(
-                                                        soundSourceDownload
-                                                            .uri),
-                                                child: const Text('Cancel')),
-                                            const Spacer(),
-                                            if (soundSourceDownload.totalBytes
-                                                case int totalBytes)
-                                              Text(
-                                                  '${formatFilesize(currentBytes)} / ${formatFilesize(totalBytes)}')
-                                          ])
-                                    ]))),
-                        const SizedBox(height: 10)
-                      ])))),
+                          valueListenable: soundSourceDownload.currentBytes,
+                          builder: (context, currentBytes, _) => SizedBox(
+                            width: 350,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                LinearProgressIndicator(
+                                  value: switch (soundSourceDownload
+                                      .totalBytes) {
+                                    int totalBytes => currentBytes / totalBytes,
+                                    null => null,
+                                  },
+                                  backgroundColor:
+                                      ChanceTheme.primaryColorWithBrightness20Of(
+                                        context,
+                                      ),
+                                ),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    AdaptiveFilledButton(
+                                      onPressed: () => VideoServer.instance
+                                          .interruptOngoingDownloadFromUri(
+                                            soundSourceDownload.uri,
+                                          ),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    const Spacer(),
+                                    if (soundSourceDownload.totalBytes
+                                        case int totalBytes)
+                                      Text(
+                                        '${formatFilesize(currentBytes)} / ${formatFilesize(totalBytes)}',
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            alignWithPage(
+              alignment: _rotate90DegreesClockwise
+                  ? Alignment.centerRight
+                  : Alignment.topCenter,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child:
+                    (controller._videoPlayerController?.player.state.rate ??
+                            1) >
+                        1
+                    ? RotatedBox(
+                        quarterTurns: _rotate90DegreesClockwise ? 1 : 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          margin: const EdgeInsets.only(top: 12, bottom: 12),
+                          decoration: const BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.all(Radius.circular(32)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 100),
+                                child: controller._currentlyWithinLongPressEdge
+                                    ? const SizedBox.shrink()
+                                    : const Icon(CupertinoIcons.lock),
+                              ),
+                              Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  ValueListenableBuilder(
+                                    valueListenable:
+                                        controller._longPressEdgeFactor,
+                                    builder: (context, value0, _) =>
+                                        TweenAnimationBuilder<double>(
+                                          tween: Tween<double>(
+                                            begin: 0,
+                                            end: value0,
+                                          ),
+                                          duration: const Duration(
+                                            milliseconds: 100,
+                                          ),
+                                          curve: Curves.ease,
+                                          builder: (context, value1, _) =>
+                                              CircularProgressIndicator(
+                                                value: value1,
+                                              ),
+                                        ),
+                                  ),
+                                  const Text(
+                                    '2x',
+                                    style: CommonTextStyles.bold,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
             centerWithPage(
-                child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: (controller.overlayText != null)
-                        ? Container(
-                            padding: const EdgeInsets.all(8),
-                            margin: const EdgeInsets.only(top: 12, bottom: 12),
-                            decoration: const BoxDecoration(
-                                color: Colors.black54,
-                                borderRadius:
-                                    BorderRadius.all(Radius.circular(8))),
-                            child: IntrinsicWidth(
-                                child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                  Text(controller.overlayText!,
-                                      style: const TextStyle(
-                                          fontSize: 32, color: Colors.white))
-                                ])))
-                        : const SizedBox.shrink())),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: (controller.overlayText != null)
+                    ? Container(
+                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.only(top: 12, bottom: 12),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.all(Radius.circular(8)),
+                        ),
+                        child: IntrinsicWidth(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                controller.overlayText!,
+                                style: const TextStyle(
+                                  fontSize: 32,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
             if (controller.error case (Object e, StackTrace st))
               centerWithPage(
-                  child: ErrorMessageCard(e.toStringDio(), remedies: {
-                'Retry': () => controller.reloadFullAttachment(),
-                'Open browser': () => openBrowser(
-                    context,
-                    controller._goodImageSource ??
-                        Uri.parse(controller.attachment.url),
-                    useGalleryIfPossible: false),
-                ...generateBugRemedies(e, st, context,
-                    afterFix: controller.reloadFullAttachment),
-                if (controller.canCheckArchives && !controller.checkArchives)
-                  'Try archives': () => controller.tryArchives()
-              })),
+                child: ErrorMessageCard(
+                  e.toStringDio(),
+                  remedies: {
+                    'Retry': () => controller.reloadFullAttachment(),
+                    'Open browser': () => openBrowser(
+                      context,
+                      controller._goodImageSource ??
+                          Uri.parse(controller.attachment.url),
+                      useGalleryIfPossible: false,
+                    ),
+                    ...generateBugRemedies(
+                      e,
+                      st,
+                      context,
+                      afterFix: controller.reloadFullAttachment,
+                    ),
+                    if (controller.canCheckArchives &&
+                        !controller.checkArchives)
+                      'Try archives': () => controller.tryArchives(),
+                  },
+                ),
+              ),
             if (controller.videoPlayerController != null &&
                 allowGestures &&
                 !Settings.instance.videoContextMenuInGallery)
               Positioned.fill(
-                  child: Flex(
-                direction:
-                    rotate90DegreesClockwise ? Axis.vertical : Axis.horizontal,
-                children: [
-                  Expanded(
-                      child: GestureDetector(onLongPressStart: (x) {
-                    lightHapticFeedback();
-                    controller._videoPlayerController?.player.setRate(2);
-                  }, onLongPressEnd: (x) {
-                    lightHapticFeedback();
-                    controller._videoPlayerController?.player.setRate(1);
-                  })),
-                  Expanded(
+                child: Flex(
+                  direction: rotate90DegreesClockwise
+                      ? Axis.vertical
+                      : Axis.horizontal,
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onLongPressStart: controller._onLongPressEdgeStart,
+                        onLongPressMoveUpdate: (x) =>
+                            controller._onLongPressEdgeMoveUpdate(
+                              _rotate90DegreesClockwise
+                                  ? -x.offsetFromOrigin.dx
+                                  : x.offsetFromOrigin.dy,
+                            ),
+                        onLongPressEnd: controller._onLongPressEdgeEnd,
+                      ),
+                    ),
+                    Expanded(
                       flex: 3,
-                      child: GestureDetector(onLongPressStart: (x) {
-                        lightHapticFeedback();
-                        controller._playingBeforeLongPress = controller
-                                ._videoPlayerController?.player.state.playing ??
-                            false;
-                        if (controller._playingBeforeLongPress) {
-                          controller._videoPlayerController?.player.pause();
-                        }
-                      }, onLongPressEnd: (x) {
-                        lightHapticFeedback();
-                        if (controller._playingBeforeLongPress) {
-                          controller._videoPlayerController?.player.play();
-                        }
-                      })),
-                  Expanded(
-                      child: GestureDetector(onLongPressStart: (x) {
-                    lightHapticFeedback();
-                    controller._videoPlayerController?.player.setRate(2);
-                  }, onLongPressEnd: (x) {
-                    lightHapticFeedback();
-                    controller._videoPlayerController?.player.setRate(1);
-                  }))
-                ],
-              ))
-          ]));
+                      child: GestureDetector(
+                        onLongPressStart: (x) {
+                          lightHapticFeedback();
+                          controller._playingBeforeLongPress =
+                              controller
+                                  ._videoPlayerController
+                                  ?.player
+                                  .state
+                                  .playing ??
+                              false;
+                          if (controller._playingBeforeLongPress) {
+                            controller._videoPlayerController?.player.pause();
+                          }
+                        },
+                        onLongPressEnd: (x) {
+                          lightHapticFeedback();
+                          if (controller._playingBeforeLongPress) {
+                            controller._videoPlayerController?.player.play();
+                          }
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onLongPressStart: controller._onLongPressEdgeStart,
+                        onLongPressMoveUpdate: (x) =>
+                            controller._onLongPressEdgeMoveUpdate(
+                              _rotate90DegreesClockwise
+                                  ? -x.offsetFromOrigin.dx
+                                  : x.offsetFromOrigin.dy,
+                            ),
+                        onLongPressEnd: controller._onLongPressEdgeEnd,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      );
     }
 
     if (!(allowContextMenu && Settings.instance.videoContextMenuInGallery)) {
@@ -2502,13 +2966,58 @@ class AttachmentViewer extends StatelessWidget {
 
   Widget _buildExternal(BuildContext context, Size? size) {
     return ExtendedImageSlidePageHandler(
-        heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
-        child: GestureDetector(
-            onTap: onTap,
-            child: SizedBox.fromSize(
-                size: size,
-                child: Stack(children: [
-                  AttachmentThumbnail(
+      heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox.fromSize(
+          size: size,
+          child: Stack(
+            children: [
+              AttachmentThumbnail(
+                attachment: attachment,
+                width: double.infinity,
+                height: double.infinity,
+                rotate90DegreesClockwise: _rotate90DegreesClockwise,
+                gaplessPlayback: true,
+                revealSpoilers: true,
+                site: controller.site,
+                mayObscure: false,
+              ),
+              Center(
+                child: ErrorMessageCard(
+                  '${attachment.type.noun.toUpperCase()}s not viewable in-app',
+                  remedies: {
+                    'Open externally': () => shareOne(
+                      context: context,
+                      text: controller.goodImagePublicSource.toString(),
+                      type: 'text',
+                      sharePositionOrigin: null,
+                    ),
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrowser(BuildContext context, Size? size) {
+    final isExternalUrl =
+        attachment.shouldOpenExternally &&
+        !controller._forceBrowserForExternalUrl;
+    return ExtendedImageSlidePageHandler(
+      heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox.fromSize(
+          size: size,
+          child: isExternalUrl
+              ? Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    AttachmentThumbnail(
                       attachment: attachment,
                       width: double.infinity,
                       height: double.infinity,
@@ -2516,107 +3025,93 @@ class AttachmentViewer extends StatelessWidget {
                       gaplessPlayback: true,
                       revealSpoilers: true,
                       site: controller.site,
-                      mayObscure: false),
-                  Center(
-                      child: ErrorMessageCard(
-                          '${attachment.type.noun.toUpperCase()}s not viewable in-app',
-                          remedies: {
-                        'Open externally': () => shareOne(
-                            context: context,
-                            text: controller.goodImagePublicSource.toString(),
-                            type: 'text',
-                            sharePositionOrigin: null)
-                      }))
-                ]))));
-  }
-
-  Widget _buildBrowser(BuildContext context, Size? size) {
-    final isExternalUrl = attachment.shouldOpenExternally &&
-        !controller._forceBrowserForExternalUrl;
-    return ExtendedImageSlidePageHandler(
-        heroBuilderForSlidingPage: controller.isPrimary ? _heroBuilder : null,
-        child: GestureDetector(
-            onTap: onTap,
-            child: SizedBox.fromSize(
-                size: size,
-                child: isExternalUrl
-                    ? Stack(alignment: Alignment.center, children: [
-                        AttachmentThumbnail(
-                            attachment: attachment,
-                            width: double.infinity,
-                            height: double.infinity,
-                            rotate90DegreesClockwise: _rotate90DegreesClockwise,
-                            gaplessPlayback: true,
-                            revealSpoilers: true,
-                            site: controller.site,
-                            mayObscure: false),
-                        Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                                color: ChanceTheme.primaryColorOf(context),
-                                borderRadius:
-                                    const BorderRadius.all(Radius.circular(8))),
-                            child: IntrinsicWidth(
-                                child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                  Icon(Icons.launch_rounded,
-                                      color: ChanceTheme.backgroundColorOf(
-                                          context)),
-                                  const SizedBox(height: 8),
-                                  Flexible(
-                                      child: Text(
-                                          'Link to ${Uri.parse(attachment.url).host}',
-                                          style: TextStyle(
-                                              color:
-                                                  ChanceTheme.backgroundColorOf(
-                                                      context)),
-                                          textAlign: TextAlign.center,
-                                          overflow: TextOverflow.fade)),
-                                  const SizedBox(height: 8),
-                                  CupertinoButton(
-                                      color: ChanceTheme.backgroundColorOf(
-                                          context),
-                                      onPressed: () async {
-                                        final url = Uri.parse(attachment.url);
-                                        if (!await launchUrl(url,
-                                            mode: LaunchMode
-                                                .externalNonBrowserApplication)) {
-                                          await launchUrlExternally(url);
-                                        }
-                                      },
-                                      child: Text('Open',
-                                          style: TextStyle(
-                                              color: ChanceTheme.primaryColorOf(
-                                                  context)),
-                                          textAlign: TextAlign.center)),
-                                  const SizedBox(height: 8),
-                                  CupertinoButton(
-                                      color: ChanceTheme.backgroundColorOf(
-                                          context),
-                                      onPressed: controller
-                                          ._doForceBrowserForExternalUrl,
-                                      child: Text('View in-app',
-                                          style: TextStyle(
-                                              color: ChanceTheme.primaryColorOf(
-                                                  context)),
-                                          textAlign: TextAlign.center))
-                                ])))
-                      ])
-                    : CooperativeInAppBrowser(
-                        initialUrlRequest: URLRequest(
-                            url: WebUri.uri(
-                                Uri.parse(controller.attachment.url)))))));
+                      mayObscure: false,
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: ChanceTheme.primaryColorOf(context),
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(8),
+                        ),
+                      ),
+                      child: IntrinsicWidth(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Icon(
+                              Icons.launch_rounded,
+                              color: ChanceTheme.backgroundColorOf(context),
+                            ),
+                            const SizedBox(height: 8),
+                            Flexible(
+                              child: Text(
+                                'Link to ${Uri.parse(attachment.url).host}',
+                                style: TextStyle(
+                                  color: ChanceTheme.backgroundColorOf(context),
+                                ),
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.fade,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            CupertinoButton(
+                              color: ChanceTheme.backgroundColorOf(context),
+                              onPressed: () async {
+                                final url = Uri.parse(attachment.url);
+                                if (!await launchUrl(
+                                  url,
+                                  mode:
+                                      LaunchMode.externalNonBrowserApplication,
+                                )) {
+                                  await launchUrlExternally(url);
+                                }
+                              },
+                              child: Text(
+                                'Open',
+                                style: TextStyle(
+                                  color: ChanceTheme.primaryColorOf(context),
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            CupertinoButton(
+                              color: ChanceTheme.backgroundColorOf(context),
+                              onPressed:
+                                  controller._doForceBrowserForExternalUrl,
+                              child: Text(
+                                'View in-app',
+                                style: TextStyle(
+                                  color: ChanceTheme.primaryColorOf(context),
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : CooperativeInAppBrowser(
+                  initialUrlRequest: URLRequest(
+                    url: WebUri.uri(Uri.parse(controller.attachment.url)),
+                  ),
+                ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return FirstBuildDetector(
-        identifier: _tag,
-        builder: (context, passedFirstBuild) {
-          return LayoutBuilder(builder: (context, constraints) {
+      identifier: _tag,
+      builder: (context, passedFirstBuild) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
             Size? targetSize;
             if (!fill &&
                 attachment.width != null &&
@@ -2624,11 +3119,13 @@ class AttachmentViewer extends StatelessWidget {
                 constraints.hasBoundedHeight &&
                 constraints.hasBoundedWidth) {
               targetSize = applyBoxFit(
-                      BoxFit.scaleDown,
-                      Size(attachment.width!.toDouble(),
-                          attachment.height!.toDouble()),
-                      layoutInsets.deflateSize(constraints.biggest))
-                  .destination;
+                BoxFit.scaleDown,
+                Size(
+                  attachment.width!.toDouble(),
+                  attachment.height!.toDouble(),
+                ),
+                layoutInsets.deflateSize(constraints.biggest),
+              ).destination;
             }
             if (attachment.type == AttachmentType.image &&
                 (attachment.soundSource == null ||
@@ -2637,14 +3134,17 @@ class AttachmentViewer extends StatelessWidget {
             } else if (attachment.type == AttachmentType.pdf ||
                 attachment.type == AttachmentType.swf) {
               return Padding(
-                  padding: layoutInsets,
-                  child: _buildExternal(context, targetSize));
+                padding: layoutInsets,
+                child: _buildExternal(context, targetSize),
+              );
             } else if (attachment.type == AttachmentType.url) {
               return _buildBrowser(context, targetSize);
             } else {
               return _buildVideo(context, targetSize);
             }
-          });
-        });
+          },
+        );
+      },
+    );
   }
 }

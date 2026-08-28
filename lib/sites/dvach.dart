@@ -36,6 +36,7 @@ class SiteDvach extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 		required this.name,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders
@@ -63,7 +64,8 @@ class SiteDvach extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 				maxCommentCharacters: board['max_comment'] as int?,
 				maxImageSizeBytes: maxFileSizeBytes,
 				maxWebmSizeBytes: maxFileSizeBytes,
-				pageCount: board['max_pages'] as int?
+				pageCount: board['max_pages'] as int?,
+				filesPerPost: 4
 			);
 		}).toList();
 	}
@@ -216,7 +218,6 @@ class SiteDvach extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 
 	@override
 	Future<PostReceipt> submitPost(DraftPost post, CaptchaSolution captchaSolution, CancelToken cancelToken) async {
-		final file = post.file;
 		final passcodeAuth = (await Persistence.currentCookies.loadForRequest(Uri.https(baseUrl))).tryFirstWhere((c) => c.name == 'passcode_auth')?.value;
 		final Map<String, dynamic> fields = {
 			'task': 'post',
@@ -234,7 +235,10 @@ class SiteDvach extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 			},
 			if (passcodeAuth != null) 'usercode': passcodeAuth,
 			'comment': post.text,
-			if (file != null) 'file[]': await MultipartFile.fromFile(file, filename: post.overrideFilename),
+			if (post.files.isNotEmpty) 'file[]': [
+				for (final file in post.files)
+					await MultipartFile.fromFile(file.path, filename: file.overrideFilename)
+			],
 			if (post.threadId != null) 'thread': post.threadId.toString()
 		};
 		final response = await client.postUri<Map>(
@@ -413,6 +417,7 @@ class SiteDvachPasscodeLoginSystem extends ImageboardSiteLoginSystem {
 
   @override
   Future<void> login(Map<ImageboardSiteLoginField, String> fields, CancelToken cancelToken) async {
+		try {
 		final response = await parent.client.postUri(
 			Uri.https(parent.baseUrl, '/user/passlogin'),
 			data: FormData.fromMap({
@@ -437,6 +442,11 @@ class SiteDvachPasscodeLoginSystem extends ImageboardSiteLoginSystem {
 			throw ImageboardSiteLoginException(message ?? 'Unknown error');
 		}
 		loggedIn[Persistence.currentCookies] = true;
+  }
+		catch (e) {
+			loggedIn[Persistence.currentCookies] = false;
+			rethrow;
+		}
   }
 
   @override

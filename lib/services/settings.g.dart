@@ -3030,6 +3030,65 @@ class SavedSettingsFields {
     fieldName: 'megucaThreadLastN',
     merger: PrimitiveMerger(),
   );
+  static TlsClientHello? getCachedWebViewTlsHello3(SavedSettings x) =>
+      x.cachedWebViewTlsHello3;
+  static void setCachedWebViewTlsHello3(SavedSettings x, TlsClientHello? v) =>
+      x.cachedWebViewTlsHello3 = v;
+  static const int kCachedWebViewTlsHello3 = 236;
+  static const cachedWebViewTlsHello3 =
+      HiveFieldAdapter<SavedSettings, TlsClientHello?>(
+    getter: getCachedWebViewTlsHello3,
+    setter: setCachedWebViewTlsHello3,
+    fieldNumber: kCachedWebViewTlsHello3,
+    fieldName: 'cachedWebViewTlsHello3',
+    merger: NullableMerger(AdaptedMerger(TlsClientHelloAdapter.kTypeId)),
+  );
+  static bool getShowAttachmentsPageButton(SavedSettings x) =>
+      x.showAttachmentsPageButton;
+  static void setShowAttachmentsPageButton(SavedSettings x, bool v) =>
+      x.showAttachmentsPageButton = v;
+  static const int kShowAttachmentsPageButton = 237;
+  static const showAttachmentsPageButton =
+      HiveFieldAdapter<SavedSettings, bool>(
+    getter: getShowAttachmentsPageButton,
+    setter: setShowAttachmentsPageButton,
+    fieldNumber: kShowAttachmentsPageButton,
+    fieldName: 'showAttachmentsPageButton',
+    merger: PrimitiveMerger(),
+  );
+  static bool getTabBarPagesAlignedToEnd(SavedSettings x) =>
+      x.tabBarPagesAlignedToEnd;
+  static void setTabBarPagesAlignedToEnd(SavedSettings x, bool v) =>
+      x.tabBarPagesAlignedToEnd = v;
+  static const int kTabBarPagesAlignedToEnd = 238;
+  static const tabBarPagesAlignedToEnd = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getTabBarPagesAlignedToEnd,
+    setter: setTabBarPagesAlignedToEnd,
+    fieldNumber: kTabBarPagesAlignedToEnd,
+    fieldName: 'tabBarPagesAlignedToEnd',
+    merger: PrimitiveMerger(),
+  );
+  static bool getUsePaginatedTabBar(SavedSettings x) => x.usePaginatedTabBar;
+  static void setUsePaginatedTabBar(SavedSettings x, bool v) =>
+      x.usePaginatedTabBar = v;
+  static const int kUsePaginatedTabBar = 239;
+  static const usePaginatedTabBar = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getUsePaginatedTabBar,
+    setter: setUsePaginatedTabBar,
+    fieldNumber: kUsePaginatedTabBar,
+    fieldName: 'usePaginatedTabBar',
+    merger: PrimitiveMerger(),
+  );
+  static bool getUseHttp3(SavedSettings x) => x.useHttp3;
+  static void setUseHttp3(SavedSettings x, bool v) => x.useHttp3 = v;
+  static const int kUseHttp3 = 240;
+  static const useHttp3 = HiveFieldAdapter<SavedSettings, bool>(
+    getter: getUseHttp3,
+    setter: setUseHttp3,
+    fieldNumber: kUseHttp3,
+    fieldName: 'useHttp3',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
@@ -3265,13 +3324,18 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
     232: SavedSettingsFields.reverseDownloadedThreadsSorting,
     233: SavedSettingsFields.showActiveDownloadsAboveArchivedDownloads,
     234: SavedSettingsFields.useAlternativeGalleryLayout,
-    235: SavedSettingsFields.megucaThreadLastN
+    235: SavedSettingsFields.megucaThreadLastN,
+    236: SavedSettingsFields.cachedWebViewTlsHello3,
+    237: SavedSettingsFields.showAttachmentsPageButton,
+    238: SavedSettingsFields.tabBarPagesAlignedToEnd,
+    239: SavedSettingsFields.usePaginatedTabBar,
+    240: SavedSettingsFields.useHttp3
   };
 
   @override
   SavedSettings read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(236, null);
+    final List<dynamic> fields = List.filled(241, null);
     for (int i = 0; i < numOfFields; i++) {
       final int fieldId = reader.readByte();
       final dynamic value = reader.read();
@@ -3520,13 +3584,18 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       showActiveDownloadsAboveArchivedDownloads: fields[233] as bool?,
       useAlternativeGalleryLayout: fields[234] as bool?,
       megucaThreadLastN: fields[235] as int?,
+      cachedWebViewTlsHello3: fields[236] as TlsClientHello?,
+      showAttachmentsPageButton: fields[237] as bool?,
+      tabBarPagesAlignedToEnd: fields[238] as bool?,
+      usePaginatedTabBar: fields[239] as bool?,
+      useHttp3: fields[240] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SavedSettings obj) {
     writer
-      ..writeByte(223)
+      ..writeByte(228)
       ..writeByte(0)
       ..write(obj.autoloadAttachments)
       ..writeByte(1)
@@ -3972,7 +4041,17 @@ class SavedSettingsAdapter extends TypeAdapter<SavedSettings> {
       ..writeByte(234)
       ..write(obj.useAlternativeGalleryLayout)
       ..writeByte(235)
-      ..write(obj.megucaThreadLastN);
+      ..write(obj.megucaThreadLastN)
+      ..writeByte(236)
+      ..write(obj.cachedWebViewTlsHello3)
+      ..writeByte(237)
+      ..write(obj.showAttachmentsPageButton)
+      ..writeByte(238)
+      ..write(obj.tabBarPagesAlignedToEnd)
+      ..writeByte(239)
+      ..write(obj.usePaginatedTabBar)
+      ..writeByte(240)
+      ..write(obj.useHttp3);
   }
 
   @override

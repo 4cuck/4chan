@@ -19,7 +19,8 @@ class WrappedArchive extends ImageboardSite {
     imageHeaders: const {},
     videoHeaders: const {},
     overrideUserAgent: archive.overrideUserAgent,
-    addIntrospectedHeaders: archive.addIntrospectedHeaders
+    addIntrospectedHeaders: archive.addIntrospectedHeaders,
+    preferHttp3WithoutAltSvc: archive.preferHttp3WithoutAltSvc
   );
 
   @override
@@ -90,7 +91,7 @@ class WrappedArchive extends ImageboardSite {
   String get siteData => '';
   
   @override
-  Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) => archive.decodeUrl(url);
+  Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) => archive.decodeUrl(url, cancelToken: cancelToken);
 
   @override
   bool decodeUrlPossible(Uri url) => archive.decodeUrlPossible(url);

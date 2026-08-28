@@ -3,37 +3,34 @@ import 'dart:async';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/util.dart';
 import 'package:chan/widgets/util.dart';
-import 'package:mutex/mutex.dart';
+import 'package:flutter/foundation.dart' show mergeSort;
 
 class _PriorityQueueEntry<Key> {
 	final Key key;
+	int priority;
 	Completer<void> completer = Completer();
-	_PriorityQueueEntry(this.key);
+	_PriorityQueueEntry(this.key, this.priority);
 
 	@override
-	String toString() => '_PriorityQueueEntry<$Key>($key)';
+	String toString() => '_PriorityQueueEntry<$Key>($key, priority: $priority)';
 }
 
 class _PriorityQueueGroup<Key, GroupKey> {
 	final GroupKey groupKey;
 	final PriorityQueue<Key, GroupKey> parent;
 	final _stack = <_PriorityQueueEntry<Key>>[];
-	final _lock = Mutex();
 	Timer? _timer;
 	DateTime? delayUntil;
 	_PriorityQueueGroup(this.groupKey, this.parent);
 
-	Future<void> start(Key key) async {
-		final completer = await _lock.protect(() async {
-			if (delayUntil != null) {
-				print('[$groupKey] Add $key');
-			}
-			final entry = _PriorityQueueEntry(key);
-			_stack.add(entry);
-			Future.microtask(_process);
-			return entry.completer;
-		});
-		return completer.future;
+	Future<void> start(Key key, {int priority = 0}) async {
+		if (delayUntil != null) {
+			print('[$groupKey] Add $key');
+		}
+		final entry = _PriorityQueueEntry(key, priority);
+		_stack.add(entry);
+		Future.microtask(_process);
+		return entry.completer.future;
 	}
 
 	Future<void> delay(Key key, Duration delay) async {
@@ -50,24 +47,21 @@ class _PriorityQueueGroup<Key, GroupKey> {
 				}
 			);
 		}
-		final completer = await _lock.protect(() async {
-			delayUntil = DateTime.now().add(delay);
-			final entry = _stack.tryFirstWhere((e) => e.key == key);
-			if (entry == null) {
-				throw ArgumentError.value(key, 'key', 'Queue entry to delay not found');
-			}
-			if (!entry.completer.isCompleted) {
-				throw StateError('Tried to delay while already waiting on a completer');
-			}
-			entry.completer = Completer();
-			print('[$groupKey] Delay $key by $delay');
-			Future.microtask(_process);
-			return entry.completer;
-		});
-		return completer.future;
+		delayUntil = DateTime.now().add(delay);
+		final entry = _stack.tryFirstWhere((e) => e.key == key);
+		if (entry == null) {
+			throw ArgumentError.value(key, 'key', 'Queue entry to delay not found');
+		}
+		if (!entry.completer.isCompleted) {
+			throw StateError('Tried to delay while already waiting on a completer');
+		}
+		entry.completer = Completer();
+		print('[$groupKey] Delay $key by $delay');
+		Future.microtask(_process);
+		return entry.completer.future;
 	}
 
-	Future<void> end(Key key) => _lock.protect(() async {
+	void end(Key key) {
 		if (delayUntil != null) {
 			print('[$groupKey] End $key');
 		}
@@ -80,9 +74,9 @@ class _PriorityQueueGroup<Key, GroupKey> {
 			removed.completer.completeError(Exception('Queue entry interrupted'), StackTrace.current);
 		}
 		Future.microtask(_process);
-	});
+	}
 
-	Future<bool> prioritize(Key key) => _lock.protect(() async {
+	bool prioritize(Key key) {
 		if (delayUntil != null) {
 			print('[$groupKey] Prioritizing $key');
 		}
@@ -94,9 +88,17 @@ class _PriorityQueueGroup<Key, GroupKey> {
 		_stack.insert(0, removed);
 		Future.microtask(_process);
 		return true;
-	});
+	}
 
-	Future<void> _process() => _lock.protect(() async {
+	void reset() {
+		print('[$groupKey] Resetting');
+		// Stay in series mode but allow it to continue
+		delayUntil = DateTime.now();
+		// Give a chance for highest priority url request to establish itself at top of queue
+		Future.delayed(const Duration(milliseconds: 50), _process);
+	}
+
+	void _process() {
 		if (delayUntil?.isAfter(DateTime.now()) ?? false) {
 			// Kick it
 			final delay = delayUntil?.difference(DateTime.now());
@@ -121,6 +123,18 @@ class _PriorityQueueGroup<Key, GroupKey> {
 			delayUntil = null;
 			return;
 		}
+		// Merge sort to keep stuff as most recent first
+		mergeSort(_stack, compare: (a, b) {
+			// First put wait "completed" (request in progress) task(s)
+			if (a.completer.isCompleted && !b.completer.isCompleted) {
+				return -1;
+			}
+			if (b.completer.isCompleted && !a.completer.isCompleted) {
+				return 1;
+			}
+			// Then sort based on priority (higher first)
+			return b.priority - a.priority;
+		});
 		if (!_stack.first.completer.isCompleted) {
 			print('[$groupKey] Allowing ${_stack.first.key} to continue');
 			_stack.first.completer.complete();
@@ -128,7 +142,7 @@ class _PriorityQueueGroup<Key, GroupKey> {
 		else {
 			print('[$groupKey] Still waiting for ${_stack.first.key}');
 		}
-	});
+	}
 
 	@override
 	String toString() => '_PriorityQueueGroup<$Key, $GroupKey>(groupKey: $groupKey, _stack: $_stack, delayUntil: $delayUntil)';
@@ -154,8 +168,8 @@ class PriorityQueue<Key, GroupKey> {
 	void _reap(Timer _) {
 		// Use .toList() to avoid ConcurrentModificationException
 		for (final group in _groups.values.toList()) {
-			// Check if group is not busy and nothing is outstanding
-			if (!group._lock.isLocked && group._stack.isEmpty) {
+			// Check if group has nothing outstanding
+			if (group._stack.isEmpty) {
 				group._timer?.cancel();
 				_groups.remove(group.groupKey);
 			}
@@ -167,13 +181,19 @@ class PriorityQueue<Key, GroupKey> {
 		return _groups[groupKey] ??= _PriorityQueueGroup(groupKey, this);
 	}
 
-	Future<void> start(Key key) => _getGroup(key).start(key);
+	Future<void> start(Key key, {int priority = 0}) => _getGroup(key).start(key, priority: priority);
 
 	Future<void> delay(Key key, Duration delay) => _getGroup(key).delay(key, delay);
 
-	Future<void> end(Key key) => _getGroup(key).end(key);
+	void end(Key key) => _getGroup(key).end(key);
 
-	Future<bool> prioritize(Key key) async => await _groups[groupKeyer(key)]?.prioritize(key) ?? false;
+	bool prioritize(Key key) => _groups[groupKeyer(key)]?.prioritize(key) ?? false;
+
+	Duration getCurrentDelay(Key key) {
+		return _groups[groupKeyer(key)]?.delayUntil?.difference(DateTime.now()) ?? Duration.zero;
+	}
+
+	void reset(Key key) => _getGroup(key).reset();
 
 	Future<T> task<T>(Key key, Future<T> Function() cb) async {
 		try {
@@ -181,7 +201,7 @@ class PriorityQueue<Key, GroupKey> {
 			return await cb();
 		}
 		finally {
-			await end(key);
+			end(key);
 		}
 	}
 

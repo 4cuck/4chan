@@ -77,6 +77,7 @@ class SiteFutaba extends ImageboardSite {
 		required this.maxUploadSizeBytes,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.archives,
 		required super.imageHeaders,
 		required super.videoHeaders
@@ -169,7 +170,7 @@ class SiteFutaba extends ImageboardSite {
 	}
 
 	@override
-	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url) async {
+	Future<BoardThreadOrPostIdentifier?> decodeUrl(Uri url, {CancelToken? cancelToken}) async {
 		return _decodeUrl(url);
 	}
 
@@ -196,7 +197,8 @@ class SiteFutaba extends ImageboardSite {
 				webmAudioAllowed: true,
 				maxImageSizeBytes: maxUploadSizeBytes,
 				maxWebmSizeBytes: maxUploadSizeBytes,
-				subdomain: urlParts[urlParts.length - 3]
+				subdomain: urlParts[urlParts.length - 3],
+				filesPerPost: 1
 			);
 		}).toList();
 	}

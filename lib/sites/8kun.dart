@@ -24,6 +24,7 @@ class Site8Kun extends SiteLainchan2 {
 		required super.imageThumbnailExtension,
 		required super.overrideUserAgent,
 		required super.addIntrospectedHeaders,
+		required super.preferHttp3WithoutAltSvc,
 		required super.boardsWithHtmlOnlyFlags,
 		required super.boardsWithMemeFlags,
 		required super.archives,
@@ -34,7 +35,10 @@ class Site8Kun extends SiteLainchan2 {
 		super.boardsPath,
 		super.boards,
 		super.defaultUsername
-	});
+	}) : super(
+		maxUploadSizeBytes: 16000000,
+		filesPerPost: 5
+	);
 
 	@override
 	Uri getAttachmentUrl(String board, String filename) => Uri.https(imageUrl ?? baseUrl, '/file_store/$filename');
@@ -68,7 +72,8 @@ class Site8Kun extends SiteLainchan2 {
 				int count => count,
 				String str => int.tryParse(str),
 				_ => null
-			}
+			},
+			filesPerPost: filesPerPost
 		)).toList();
 	}
 
@@ -102,7 +107,8 @@ class Site8Kun extends SiteLainchan2 {
 				int count => count,
 				String str => int.tryParse(str),
 				_ => null
-			}
+			},
+			filesPerPost: filesPerPost
 		)).toList();
 	}
 
@@ -124,6 +130,11 @@ class Site8Kun extends SiteLainchan2 {
 			);
 		}
 		return null;
+	}
+
+	@override
+	bool isKnownHost(String host) {
+		return super.isKnownHost(host) || host == sysUrl;
 	}
 
 	@override

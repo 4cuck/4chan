@@ -12,6 +12,7 @@ import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/notifications.dart';
 import 'package:chan/services/persistence.dart';
 import 'package:chan/services/settings.dart';
+import 'package:chan/services/tls.dart';
 import 'package:chan/services/translation.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/sites/imageboard_site.dart';
@@ -60,15 +61,17 @@ final behaviorSettings = [
 		setting: const SettingWithFallback(Settings.usePushNotificationsSetting, false),
 		injectButton: (context, usePushNotifications, setUsePushNotifications) {
 			final errors = context.watch<ImageboardRegistry>().notificationErrors;
+			final attributableErrors = {
+				for (final entry in errors.entries)
+					if (entry.key case final ib?) ib: entry.value
+			};
 			return Row(
 				mainAxisSize: MainAxisSize.min,
 				children: [
-					if (errors.isNotEmpty) CupertinoButton(
+					if (attributableErrors.isNotEmpty) CupertinoButton(
 						onPressed: () {
-							// TODO: Pick which one to show?
-							final entry = errors.entries.first;
-							alertError(context, entry.value.$1, entry.value.$2, actions: {
-								if (entry.key case final i?) 'Retry': () => i.notifications.initialize(allowDeleteAll: false)
+							alertError(context, ImageboardCoalescedError(attributableErrors), attributableErrors.values.first.$2, actions: {
+								'Retry': () => Future.wait(attributableErrors.keys.map((i) => i.notifications.initialize(allowDeleteAll: false)))
 							});
 						},
 						child: const Icon(CupertinoIcons.exclamationmark_triangle, color: Colors.red)
@@ -615,6 +618,12 @@ final behaviorSettings = [
 		}
 	),
 	const SwitchSettingWidget(
+		description: 'Paginated tab bar',
+		icon: CupertinoIcons.rectangle_split_3x1,
+		helpText: 'Group tabs into snapping pages. Turn this off to use the original continuously scrolling tab bar.',
+		setting: Settings.usePaginatedTabBarSetting
+	),
+	const SwitchSettingWidget(
 		description: 'Tap post IDs to reply',
 		icon: CupertinoIcons.reply,
 		setting: Settings.tapPostIdToReplySetting
@@ -760,5 +769,21 @@ final behaviorSettings = [
 		),
 		confirm: (context, newValue) =>
 			confirm(context, 'Are you sure? The app will close and you will have to relaunch it.')
+	),
+	SwitchSettingWidget(
+		description: 'HTTP/3',
+		icon: CupertinoIcons.speedometer,
+		helpText: 'Use HTTP/3 protocol.\n\nThis should help with site firewalls. But may be broken in certain countries.',
+		keywords: ['http3'],
+		disabled: CustomMutableSetting(
+			reader: (context) => !enableQuic,
+			didMutater: (_) async {}
+		),
+		// Using a custom setting to show the switch as off when disabled
+		setting: CustomImmutableSetting(
+			reader: (context) => enableQuic && Settings.useHttp3Setting.read(context),
+			watcher: (context) => enableQuic && Settings.useHttp3Setting.watch(context),
+			writer: Settings.useHttp3Setting.write
+		)
 	)
 ];
