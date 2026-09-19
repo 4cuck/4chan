@@ -97,8 +97,11 @@
                <data android:scheme="https" android:host="kohlchan.top"/>
                <!-- krautchan -->
                <data android:scheme="https" android:host="krautchan.org"/>
-               <!-- awoo -->
+               <!-- awoo (neo.st is the temporary live apex; awoo.cf still serves JSON/API) -->
                <data android:scheme="https" android:host="awoo.cf"/>
+               <data android:scheme="https" android:host="www.awoo.cf"/>
+               <data android:scheme="https" android:host="neo.st"/>
+               <data android:scheme="https" android:host="www.neo.st"/>
                <!-- lainchan  -->
                <data android:scheme="https" android:host="lainchan.org"/>
                <!-- leftypol  -->

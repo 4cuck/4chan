@@ -51,6 +51,14 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   Map<int, String>? _extensions;
   bool _jpegThumbnails = false;
 
+  /// Live HTML apex from `/json/config` (`officialDomain`). awoo.cf currently
+  /// 302s browsers to neo.st; JSON/API on awoo.cf is not redirected.
+  String? _officialDomain;
+
+  /// Every official apex (live + aliases). Always includes awoo.cf and neo.st
+  /// so shared links work before `/json/config` returns.
+  Set<String> _officialDomains = const {'awoo.cf', 'neo.st'};
+
   String? _pendingPostCaptchaToken;
 
   static const _kNoFileType = 14;
@@ -110,6 +118,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
     try {
       final cfg = await fetchMegucaPublicConfig(this);
       _jpegThumbnails = cfg['JPEGThumbnails'] == true;
+      _applyOfficialDomains(cfg);
       final extResponse = await client.getUri<Map>(
         Uri.https(baseUrl, '/json/extensions'),
         options: Options(responseType: ResponseType.json, extra: {kPriority: RequestPriority.functional}),
@@ -126,6 +135,41 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
   String _extForFileType(int fileType) {
     return _extensions?[fileType] ?? megucaFileExtensions[fileType] ?? 'jpg';
   }
+
+  void _applyOfficialDomains(Map<String, dynamic> cfg) {
+    final live = (cfg['officialDomain'] as String?)?.trim();
+    if (live != null && live.isNotEmpty) {
+      _officialDomain = live;
+    }
+    final listed = <String>{
+      baseUrl,
+      'awoo.cf',
+      'neo.st',
+      if (_officialDomain != null) _officialDomain!,
+    };
+    final fromServer = cfg['officialDomains'];
+    if (fromServer is List) {
+      for (final raw in fromServer) {
+        if (raw is String && raw.trim().isNotEmpty) {
+          listed.add(raw.trim().toLowerCase());
+        }
+      }
+    }
+    _officialDomains = listed.map((h) => h.toLowerCase()).toSet();
+  }
+
+  /// True for the API host and every official apex (plus `www.`).
+  bool _hostMatches(String host) {
+    host = host.toLowerCase();
+    for (final apex in _officialDomains) {
+      if (host == apex || host == 'www.$apex') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String get _webHost => _officialDomain ?? baseUrl;
 
   static Map<int, ({String board, int threadId})> _parseMegucaLinks(dynamic ln, String defaultBoard) {
     if (ln is! List) {
@@ -560,7 +604,7 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
 
   @override
   bool decodeUrlPossible(Uri url) {
-    if (url.host != baseUrl) {
+    if (!_hostMatches(url.host)) {
       return false;
     }
     final segments = url.pathSegments.where((s) => s.isNotEmpty).toList();
@@ -615,12 +659,12 @@ class SiteMeguca extends ImageboardSite with Http304CachingThreadMixin, Http304C
       // Meguca links to posts with a `#pN` fragment (see client/posts/render/etc.ts),
       // which is also what decodeUrl parses. Emitting `?p=N` here silently dropped
       // the post id on the round-trip, so shared links didn't jump to the post.
-      return 'https://$baseUrl/$board/$threadId#p$postId';
+      return 'https://$_webHost/$board/$threadId#p$postId';
     }
     if (threadId != null) {
-      return 'https://$baseUrl/$board/$threadId';
+      return 'https://$_webHost/$board/$threadId';
     }
-    return 'https://$baseUrl/$board/';
+    return 'https://$_webHost/$board/';
   }
 
   @override

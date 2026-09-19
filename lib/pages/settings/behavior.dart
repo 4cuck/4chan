@@ -495,9 +495,9 @@ final behaviorSettings = [
 		setting: Settings.backgroundThreadAutoUpdatePeriodSecondsSetting
 	),
 	const SegmentedSettingWidget(
-		description: 'awoo.cf — load only the last N posts per thread',
+		description: 'awoo.cf / neo.st — load only the last N posts per thread',
 		icon: CupertinoIcons.list_number,
-		helpText: 'Awoo.cf threads can have 10,000+ posts. Showing only the latest N keeps scrolling smooth on mobile. Pick 0 to load the entire thread. Used for both opening a thread and live refresh.',
+		helpText: 'Awoo threads can have 10,000+ posts. Showing only the latest N keeps scrolling smooth on mobile. Pick 0 to load the entire thread. Used for both opening a thread and live refresh.',
 		children: {
 			100: (null, '100'),
 			250: (null, '250'),
