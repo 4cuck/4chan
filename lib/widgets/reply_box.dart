@@ -452,7 +452,7 @@ class ReplyBoxState extends State<ReplyBox> {
     } else {
       final possibleEmbed = findEmbedUrl(_textFieldController.text);
       if (possibleEmbed != _lastFoundUrl && possibleEmbed != null) {
-        final embedData = await loadEmbedData(possibleEmbed, highQuality: true);
+        final embedData = await loadEmbedData(possibleEmbed, highQuality: true, priority: RequestPriority.interactive);
         if (_textFieldController.text != original) {
           // Text changed
           return;
@@ -3710,10 +3710,7 @@ class ReplyBoxState extends State<ReplyBox> {
                                             },
                                             child: child,
                                           ),
-                                      onReorder: (oldIndex, newIndex) {
-                                        if (oldIndex < newIndex) {
-                                          newIndex -= 1;
-                                        }
+                                      onReorderItem: (oldIndex, newIndex) {
                                         final item =
                                             _attachments.removeAt(oldIndex);
                                         _attachments.insert(newIndex, item);

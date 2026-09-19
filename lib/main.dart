@@ -172,7 +172,13 @@ void main() async {
 	if ((Platform.isAndroid || Platform.isIOS) && !developerMode) {
 		runZonedGuarded<Future<void>>(
 			innerMain,
-			(error, stack) => FirebaseCrashlytics.instance.recordError(error, stack, fatal: true)
+			(error, stack) => FirebaseCrashlytics.instance.recordError(
+				error, stack,
+				information: [
+					if (error is ExtendedException) error.additionalFiles.entries.map((entry) => '${entry.key}: ${base64.encode(entry.value)}')
+				],
+				fatal: true
+			)
 		);
 	}
 	else {
@@ -1007,11 +1013,8 @@ class ChanTabs extends ChangeNotifier {
 		});
 	}
 
-	void onReorder(int oldIndex, int newIndex) {
+	void onReorderItem(int oldIndex, int newIndex) {
 		final currentTab = Persistence.tabs[activeBrowserTab.value];
-		if (oldIndex < newIndex) {
-			newIndex -= 1;
-		}
 		if (Settings.instance.usingHomeBoard) {
 			newIndex += 1;
 			oldIndex += 1;
@@ -2316,7 +2319,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 							(false, int i) => i
 						},
 						scrollDirection: axis,
-						onReorder: _tabs.onReorder,
+						onReorderItem: _tabs.onReorderItem,
 						itemCount: usingHomeBoard ? Persistence.tabs.length - 1 : Persistence.tabs.length,
 						itemBuilder: (context, index) {
 							final i = usingHomeBoard ? index + 1 : index;
@@ -2332,7 +2335,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 					) : ReorderableList(
 						controller: _tabs._legacyTabListController,
 						scrollDirection: axis,
-						onReorder: _tabs.onReorder,
+						onReorderItem: _tabs.onReorderItem,
 						itemCount: usingHomeBoard ? Persistence.tabs.length - 1 : Persistence.tabs.length,
 						itemBuilder: (context, index) {
 							final i = usingHomeBoard ? index + 1 : index;

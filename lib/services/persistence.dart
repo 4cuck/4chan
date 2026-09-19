@@ -723,6 +723,8 @@ class Persistence extends ChangeNotifier {
       if (await shareCacheDirectory.exists()) {
         // This data is always useless upon app relaunch
         await shareCacheDirectory.delete(recursive: true);
+        // Recreate blank directory
+        await shareCacheDirectory.create(recursive: true);
       }
     } catch (e, st) {
       Future.error(e, st); // Just continue and report error

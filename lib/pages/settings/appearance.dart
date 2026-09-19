@@ -1080,10 +1080,7 @@ final appearanceSettings = [
                         ),
                       );
                     }).toList(),
-                    onReorder: (oldIndex, newIndex) {
-                      if (oldIndex < newIndex) {
-                        newIndex -= 1;
-                      }
+                    onReorderItem: (oldIndex, newIndex) {
                       final item = list.removeAt(oldIndex);
                       list.insert(newIndex, item);
                       setFieldOrder(list.toList());

@@ -720,7 +720,7 @@ class _SavedPageState extends State<SavedPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tickerMode = TickerMode.of(context);
+    final tickerMode = TickerMode.valuesOf(context).enabled;
     if (!_lastTickerMode && tickerMode) {
       Future.microtask(_removeArchivedHack.didUpdate);
     }
@@ -911,7 +911,7 @@ class _SavedPageState extends State<SavedPage> {
             minUpdateDuration: Duration.zero,
             autoExtendDuringScroll: true,
             updateAnimation: persistencesAnimation,
-            disableUpdates: !TickerMode.of(context),
+            disableUpdates: !TickerMode.valuesOf(context).enabled,
             key: _watchedThreadsListKey,
             id: 'watched',
             minCacheExtent: settings.useCatalogGrid
@@ -936,7 +936,7 @@ class _SavedPageState extends State<SavedPage> {
               padding: const EdgeInsets.all(16),
               child: Builder(
                 builder: (context) => AnimatedBuilder(
-                  animation: TickerMode.of(context)
+                  animation: TickerMode.valuesOf(context).enabled
                       ? Listenable.merge([
                           _removeArchivedHack,
                           persistencesAnimation,
@@ -1360,7 +1360,7 @@ class _SavedPageState extends State<SavedPage> {
                 key: _savedThreadsListKey,
                 autoExtendDuringScroll: true,
                 updateAnimation: threadStateBoxesAnimation,
-                disableUpdates: !TickerMode.of(context),
+                disableUpdates: !TickerMode.valuesOf(context).enabled,
                 minCacheExtent: settings.useCatalogGrid
                     ? settings.catalogGridHeight
                     : 0,
@@ -1627,7 +1627,7 @@ class _SavedPageState extends State<SavedPage> {
             ),
             autoExtendDuringScroll: true,
             updateAnimation: threadStateBoxesAnimation,
-            disableUpdates: !TickerMode.of(context),
+            disableUpdates: !TickerMode.valuesOf(context).enabled,
             minUpdateDuration: Duration.zero,
             sortMethods: [
               (a, b) => b.post.time.toLocal().compareTo(a.post.time.toLocal()),
@@ -1850,7 +1850,7 @@ class _SavedPageState extends State<SavedPage> {
             key: _savedPostsListKey,
             autoExtendDuringScroll: true,
             updateAnimation: savedPostsNotifiersAnimation,
-            disableUpdates: !TickerMode.of(context),
+            disableUpdates: !TickerMode.valuesOf(context).enabled,
             minUpdateDuration: Duration.zero,
             sortMethods: [getSavedPostsSortMethodTuple()],
             itemBuilder: (context, savedPost, options) {
@@ -1965,7 +1965,7 @@ class _SavedPageState extends State<SavedPage> {
           actions: [
             Builder(
               builder: (context) => AnimatedBuilder(
-                animation: TickerMode.of(context)
+                animation: TickerMode.valuesOf(context).enabled
                     ? savedAttachmentsNotifiersAnimation
                     : const AlwaysStoppedAnimation(null),
                 builder: (context, _) => CupertinoButton(
@@ -2114,7 +2114,7 @@ class _SavedPageState extends State<SavedPage> {
               ),
               autoExtendDuringScroll: true,
               updateAnimation: savedAttachmentsNotifiersAnimation,
-              disableUpdates: !TickerMode.of(context),
+              disableUpdates: !TickerMode.valuesOf(context).enabled,
               useFiltersFromContext: false,
               includeImageboardKeyAndBoardInSearchString: true,
               filterHint: 'Search saved attachments',
