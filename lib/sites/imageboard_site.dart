@@ -29,6 +29,7 @@ import 'package:chan/services/webview_introspection.dart';
 import 'package:chan/sites/4chan.dart';
 import 'package:chan/sites/8chan.dart';
 import 'package:chan/sites/8kun.dart';
+import 'package:chan/sites/ayase_quart.dart';
 import 'package:chan/sites/dvach.dart';
 import 'package:chan/sites/erischan.dart';
 import 'package:chan/sites/foolfuuka.dart';
@@ -79,37 +80,42 @@ enum RequestPriority {
 }
 
 class PostNotFoundException extends ExtendedException {
-	String board;
-	int id;
-	PostNotFoundException(this.board, this.id);
+	final ImageboardSiteArchive site;
+	final String boardName;
+	final int id;
+	PostNotFoundException(this.site, this.boardName, this.id);
 	@override
-	String toString() => 'Post not found: /$board/$id';
+	String toString() => 'Post not found: ${site.formatBoardNameWithoutTrailingSlash(boardName)}/$id';
 
 	@override
 	bool get isReportable => false;
 }
 
 class ThreadNotFoundException extends ExtendedException {
-	const ThreadNotFoundException();
+	final ImageboardSiteArchive site;
+	final ThreadIdentifier identifier;
+	const ThreadNotFoundException(this.site, this.identifier);
 	@override
-	String toString() => 'Thread not found';
+	String toString() => 'Thread not found: ${site.formatBoardNameWithoutTrailingSlash(identifier.board)}/${identifier.id}';
 
 	@override
 	bool get isReportable => false;
 }
 
 class BoardNotFoundException implements Exception {
-	String board;
-	BoardNotFoundException(this.board);
+	final ImageboardSiteArchive site;
+	final String boardName;
+	BoardNotFoundException(this.site, this.boardName);
 	@override
-	String toString() => 'Board not found: /$board/';
+	String toString() => 'Board not found: ${site.formatBoardName(boardName)}';
 }
 
 class BoardNotArchivedException extends ExtendedException {
-	String board;
-	BoardNotArchivedException(this.board);
+	final ImageboardSiteArchive site;
+	final String boardName;
+	BoardNotArchivedException(this.site, this.boardName);
 	@override
-	String toString() => 'Board not archived: /$board/';
+	String toString() => 'Board not archived: ${site.formatBoardName(boardName)}';
 
 	@override
 	bool get isReportable => false;
@@ -1997,7 +2003,7 @@ abstract class ImageboardSiteArchive {
 			catalog ??= await getCatalogImpl(board, variant: variant, priority: priority, cancelToken: cancelToken);
 			insertCatalogIntoCache(board, variant, catalog);
 			return catalog;
-		});
+		}, cancelToken: cancelToken);
 	}
 	Catalog? getCatalogFromCatalogCache(String? board, {CatalogVariant? variant, CacheConstraints? constraints}) {
 		if (board == null) {
@@ -2095,7 +2101,7 @@ abstract class ImageboardSiteArchive {
 			pageMap ??= await getCatalogPageMapImpl(board, variant: variant, priority: priority, cancelToken: cancelToken);
 			(_catalogPageMapCache[key] ??= {})[variant.dataId] = pageMap;
 			return pageMap;
-		});
+		}, cancelToken: cancelToken);
 	}
 	/// If an empty list is returned from here, the bottom of the catalog has been reached.
 	@protected
@@ -2193,11 +2199,13 @@ abstract class ImageboardSiteArchive {
 		});
 	}
 
+	/// Return true if boards should be refreshed
 	@mustCallSuper
-	void migrateFromPrevious(covariant ImageboardSiteArchive oldSite) {
+	bool migrateFromPrevious(covariant ImageboardSiteArchive oldSite) {
 		_catalogCache.addAll(oldSite._catalogCache);
 		_catalogPageMapCache.addAll(oldSite._catalogPageMapCache);
 		_temporaryThreadCache.addAll(oldSite._temporaryThreadCache);
+		return false;
 	}
 
 	@mustCallSuper
@@ -2213,6 +2221,13 @@ abstract class ImageboardSiteArchive {
 	Future<ImageboardRedirectGateway?> getRedirectGateway(Uri uri, String? Function() title, Future<String?> Function() html) async => null;
 
 	String getExtraCookie(Uri url) => '';
+
+	String formatBoardNameShort(String name) => '/$name/';
+	String formatBoardName(String name) => '/$name/';
+	String formatBoardNameWithoutTrailingSlash(String name) => '/$name';
+	String formatBoardLink(String name) => '>>/$name/';
+	String formatBoardSearchLink(String name, String query) => '>>>/$name/$query';
+	String formatUsername(String name) => name;
 
 	@override
 	bool operator == (Object other) =>
@@ -2308,7 +2323,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 			throw ImageboardArchiveException(errors);
 		}
 		else {
-			throw BoardNotArchivedException(board);
+			throw BoardNotArchivedException(this, board);
 		}
 	}
 	Future<Thread> getThreadFromArchive(ThreadIdentifier thread, {Future<void> Function(Thread)? customValidator, required RequestPriority priority, CancelToken? cancelToken, String? archiveName}) async {
@@ -2487,7 +2502,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 				completer.completeError(ImageboardArchiveException(errors));
 			}
 			else {
-				completer.completeError(BoardNotArchivedException(thread.board));
+				completer.completeError(BoardNotArchivedException(this, thread.board));
 			}
 		}();
 		return completer.future;
@@ -2642,15 +2657,8 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 		)
 	];
 	List<ThreadVariant> get threadVariants => const [];
-	String formatBoardNameShort(String name) => '/$name/';
-	String formatBoardName(String name) => '/$name/';
-	String formatBoardNameWithoutTrailingSlash(String name) => '/$name';
-	String formatBoardLink(String name) => '>>/$name/';
-	String formatBoardSearchLink(String name, String query) => '>>>/$name/$query';
-	String formatUsername(String name) => name;
 	@override
-	void migrateFromPrevious(covariant ImageboardSite oldSite) {
-		super.migrateFromPrevious(oldSite);
+	bool migrateFromPrevious(covariant ImageboardSite oldSite) {
 		final oldLoggedIn = oldSite.loginSystem?.loggedIn;
 		if (oldLoggedIn != null) {
 			loginSystem?.loggedIn = oldLoggedIn;
@@ -2659,9 +2667,11 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 		for (final archive in archives) {
 			final index = oldSite.archives.indexOf(archive);
 			if (index != -1) {
+				// Archives can't refresh boards
 				archive.migrateFromPrevious(oldSite.archives[index]);
 			}
 		}
+		return super.migrateFromPrevious(oldSite);
 	}
 	@override
 	void initState() {
@@ -2863,9 +2873,24 @@ ImageboardSiteArchive? makeArchive(Map archive) {
 			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc
 		);
 	}
+	else if (archive['type'] == 'ayasequart') {
+		return AyaseQuartArchive(
+			name: archive['name'] as String,
+			baseUrl: archive['baseUrl'] as String,
+			boards: boards,
+			overrideUserAgent: overrideUserAgent,
+			addIntrospectedHeaders: addIntrospectedHeaders,
+			preferHttp3WithoutAltSvc: preferHttp3WithoutAltSvc
+		);
+	}
 	else {
 		// Maybe it's another full site API?
+		try {
 		return makeSite(archive);
+	}
+		on UnknownSiteTypeException {
+			return null;
+		}
 	}
 }
 
@@ -2875,8 +2900,8 @@ ImageboardSite makeSite(Map data) {
 	final preferHttp3WithoutAltSvc =  data['preferHttp3WithoutAltSvc'] as bool?;
 	final archives = [
 		...(data['archives'] as List? ?? []).cast<Map>().tryMap<ImageboardSiteArchive>(makeArchive),
-		// archives2 exists because old versions will crash with unsupported archives in 'archives' list
-		...(data['archives2'] as List? ?? []).cast<Map>().tryMap<ImageboardSiteArchive>(makeArchive)
+		// archives3 exists because old versions will crash with unsupported archives in 'archives' or 'archives2' list
+		...(data['archives3'] as List? ?? []).cast<Map>().tryMap<ImageboardSiteArchive>(makeArchive)
 	].toList(growable: false);
 	final imageHeaders = (data['imageHeaders'] as Map?)?.cast<String, String>() ?? {};
 	final videoHeaders = (data['videoHeaders'] as Map?)?.cast<String, String>() ?? {};

@@ -278,10 +278,10 @@ class SiteReddit extends ImageboardSite {
 	(int, DateTime)? _latestKnown;
 
 	@override
-	void migrateFromPrevious(SiteReddit oldSite) {
-		super.migrateFromPrevious(oldSite);
+	bool migrateFromPrevious(SiteReddit oldSite) {
 		_earliestKnown = oldSite._earliestKnown;
 		_latestKnown = oldSite._latestKnown;
+		return super.migrateFromPrevious(oldSite);
 	}
 
 	void _updateTimeEstimateData(int id, DateTime time) {
@@ -320,6 +320,7 @@ class SiteReddit extends ImageboardSite {
 
 	static const _kDeleted = '[deleted]';
 	static const _kRemoved = '[removed]';
+	static const _kCleaned = 'Edit: Comment has been cleaned';
 
 	static String toRedditId(int id) {
 		if (id < 0) {
@@ -1172,16 +1173,17 @@ class SiteReddit extends ImageboardSite {
 		}
 		final author = data['author'] as String;
 		final authorIsDeleted = author == _kDeleted;
-		final textIsDeleted = text == _kRemoved || text == _kDeleted;
+		final edited = switch (data['edited']) {
+			num number => DateTimeConversion.fromSecondsSinceEpoch(number.toInt()),
+			_ => null
+		};
+		final textIsDeleted = text == _kRemoved || text == _kDeleted || (edited != null && text == _kCleaned);
 		final asPost = Post(
 			board: data['subreddit'] as String,
 			name: authorIsDeleted ? '' : author,
 			flag: _makeFlag(data['author_flair_richtext'] as List?, data),
 			time: DateTimeConversion.fromSecondsSinceEpoch((data['created'] as num).toInt()),
-			edited: switch (data['edited']) {
-				num number => DateTimeConversion.fromSecondsSinceEpoch(number.toInt()),
-				_ => null
-			},
+			edited: edited,
 			threadId: id,
 			id: id,
 			text: textIsDeleted ? '' : text,
@@ -1339,7 +1341,7 @@ class SiteReddit extends ImageboardSite {
 		final children = ((response.data!['data'] as Map)['children'] as List).cast<Map>();
 		if (children.every((c) => c['kind'] == 't5')) {
 			// This is the subreddit search results
-			throw BoardNotFoundException(board);
+			throw BoardNotFoundException(this, board);
 		}
 		final threads = await Future.wait(children.map((d) async {
 			final t = await _makeThread(d['data'] as Map, cancelToken: cancelToken);
@@ -1411,7 +1413,8 @@ class SiteReddit extends ImageboardSite {
 					});
 					final author = doc.querySelector('.author')?.text ?? '';
 					final authorIsDeleted = author == _kDeleted;
-					final textIsDeleted = text == _kRemoved || text == _kDeleted;
+					final edited = DateTime.tryParse(doc.querySelector('.edited-timestamp')?.attributes['datetime'] ?? '');
+					final textIsDeleted = text == _kRemoved || text == _kDeleted || (edited != null && text == _kCleaned);
 					final post = Post(
 						board: thread.board,
 						text: textIsDeleted ? '' : text,
@@ -1419,6 +1422,7 @@ class SiteReddit extends ImageboardSite {
 						isDeleted: authorIsDeleted || textIsDeleted,
 						flag: flag,
 						time: DateTime.tryParse(doc.querySelector('.live-timestamp')?.attributes['datetime'] ?? '') ?? _estimateTime(id),
+						edited: edited,
 						threadId: thread.id,
 						parentId: parentId,
 						id: id,
@@ -1564,7 +1568,11 @@ class SiteReddit extends ImageboardSite {
 		}
 		final author = child['author'] as String;
 		final authorIsDeleted = author == _kDeleted;
-		final textIsDeleted = text == _kRemoved || text == _kDeleted;
+		final edited = switch (child['edited']) {
+			num number => DateTimeConversion.fromSecondsSinceEpoch(number.toInt()),
+			_ => null
+		};
+		final textIsDeleted = text == _kRemoved || text == _kDeleted || (edited != null && text == _kCleaned);
 		return Post(
 			board: thread.board,
 			text: textIsDeleted ? '' : text,
@@ -1572,10 +1580,7 @@ class SiteReddit extends ImageboardSite {
 			isDeleted: authorIsDeleted || textIsDeleted,
 			flag: _makeFlag(child['author_flair_richtext'] as List?, child),
 			time: DateTimeConversion.fromSecondsSinceEpoch((child['created'] as num).toInt()),
-			edited: switch (child['edited']) {
-				num number => DateTimeConversion.fromSecondsSinceEpoch(number.toInt()),
-				_ => null
-			},
+			edited: edited,
 			threadId: thread.id,
 			id: id,
 			spanFormat: PostSpanFormat.reddit,
@@ -1588,7 +1593,7 @@ class SiteReddit extends ImageboardSite {
 
 	@override
 	Future<Thread> getThreadImpl(ThreadIdentifier thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
-		final response = await client.getThreadUri(Uri.https(baseUrl, '/r/${thread.board}/comments/${toRedditId(thread.id)}.json', {
+		final response = await getThreadUri(thread, Uri.https(baseUrl, '/r/${thread.board}/comments/${toRedditId(thread.id)}.json', {
 			if (variant?.redditApiName != null) 'sort': variant!.redditApiName!
 		}.ifNotEmpty), priority: priority, responseType: ResponseType.json, cancelToken: cancelToken);
 		final (opData, repliesData) = switch(response.data) {

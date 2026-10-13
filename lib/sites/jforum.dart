@@ -364,8 +364,9 @@ class SiteJForum extends ImageboardSite with ForumSite {
 	}
 
 	@override
-	Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) {
-		throw UnimplementedError();
+	Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) async {
+		final posts = await getStubPosts(ThreadIdentifier(board, 0), [ParentAndChildIdentifier.same(id)], priority: priority, cancelToken: cancelToken);
+		return posts.firstWhere((p) => p.id == id);
 	}
 
 	List<Post> _getPostsFromThreadPage(int threadId, dom.Document document) {
@@ -392,7 +393,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 			text: '',
 			// Not actually sure what will happen here now that OP name is unknown
 			name: '',
-			time: DateTime.now(), // arbitrary
+			time: DateTime(2000), // arbitrary
 			id: -pageNumber,
 			spanFormat: PostSpanFormat.pageStub,
 			attachments_: const [],
@@ -433,7 +434,7 @@ class SiteJForum extends ImageboardSite with ForumSite {
 
   @override
   Future<Thread> getThreadImpl(ThreadIdentifier thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
-    final response = await client.getThreadUri(Uri.https(baseUrl, '$basePath/posts/list/${thread.id}.page'), priority: priority, responseType: ResponseType.plain, cancelToken: cancelToken);
+    final response = await getThreadUri(thread, Uri.https(baseUrl, '$basePath/posts/list/${thread.id}.page'), priority: priority, responseType: ResponseType.plain, cancelToken: cancelToken);
 		final document = parse(response.data);
 		final lastPageNumber = document.querySelector('.pagination')?.querySelectorAll('a').tryMap((a) => a.text.tryParseInt).last;
 		final posts = _getPostsFromThreadPage(thread.id, document);
@@ -486,8 +487,9 @@ class SiteJForum extends ImageboardSite with ForumSite {
 			),
 			cancelToken: cancelToken
 		);
+		final resolved = (await decodeUrl(response.realUri))?.threadIdentifier ?? thread;
 		final document = parse(response.data);
-		return _getPostsFromThreadPage(thread.id, document);
+		return _getPostsFromThreadPage(resolved.id, document);
 	}
 
 	@override

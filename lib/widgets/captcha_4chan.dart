@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:ui' as ui show Image, ImageByteFormat, PictureRecorder;
 
 import 'package:chan/services/base64_image.dart';
+import 'package:chan/pages/overscroll_modal.dart';
 import 'package:chan/services/captcha.dart';
 import 'package:chan/services/captcha_4chan.dart';
 import 'package:chan/services/cloudflare.dart';
@@ -66,7 +67,6 @@ typedef _CloudGuess = ({
 typedef CloudGuessedCaptcha4ChanCustom = ({
 	Captcha4ChanCustomChallenge challenge,
 	Chan4CustomCaptchaSolution solution,
-	int? slide,
 	bool confident
 });
 
@@ -590,15 +590,11 @@ Future<int> _alignImage(Captcha4ChanCustomChallengeText challenge) async {
 
 Future<_CloudGuess> _cloudGuess({
 	required ImageboardSite site,
-	required ui.Image image,
+	required Uint8List bytes,
+	required Uri endpoint,
 	CancelToken? cancelToken
 }) async {
-	final pngData = await image.toByteData(format: ui.ImageByteFormat.png);
-	if (pngData == null) {
-		throw Exception('Could not encode captcha image');
-	}
-	final bytes = pngData.buffer.asUint8List();
-	final response = await site.client.postUri<String>(Uri.https('captcha.chance.surf', '/solve'), 
+	final response = await site.client.postUri<String>(endpoint,
 		data: bytes,
 		options: Options(
 			responseType: ResponseType.plain,
@@ -620,6 +616,37 @@ Future<_CloudGuess> _cloudGuess({
 		answer: answer,
 		confidence: response.headers.value('Chance-Confidence')?.tryParseDouble ?? 0,
 		ip: response.headers.value('Chance-X-Forwarded-For')
+	);
+}
+
+Future<_CloudGuess> _cloudGuessText({
+	required ImageboardSite site,
+	required ui.Image image,
+	CancelToken? cancelToken
+}) async {
+	final pngData = await image.toByteData(format: ui.ImageByteFormat.png);
+	if (pngData == null) {
+		throw Exception('Could not encode captcha image');
+	}
+	final bytes = pngData.buffer.asUint8List();
+	return _cloudGuess(
+		site: site,
+		endpoint: Uri.https('captcha.chance.surf', '/solve'),
+		bytes: bytes,
+		cancelToken: cancelToken
+	);
+}
+
+Future<_CloudGuess> _cloudGuessTasks({
+	required ImageboardSite site,
+	required Map data,
+	CancelToken? cancelToken
+}) async {
+	return _cloudGuess(
+		site: site,
+		endpoint: Uri.https('captcha.chance.surf', '/solve2'),
+		bytes: utf8.encode(json.encode({'challenge': data})),
+		cancelToken: cancelToken
 	);
 }
 
@@ -667,6 +694,30 @@ Future<CloudGuessedCaptcha4ChanCustom?> headlessSolveCaptcha4ChanCustom({
 		}
 	}
 
+	if (challenge is Captcha4ChanCustomChallengeTasks) {
+		final cloudGuess = await _cloudGuessTasks(
+			site: site,
+			data: challenge.originalData,
+			cancelToken: cancelToken
+		);
+
+		return (
+			challenge: challenge,
+			solution: Chan4CustomCaptchaSolution(
+				challenge: challenge.challenge,
+				response: cloudGuess.answer,
+				acquiredAt: challenge.acquiredAt,
+				lifetime: challenge.lifetime,
+				originalData: challenge.originalData,
+				slide: null,
+				cloudflare: challenge.cloudflare,
+				ip: cloudGuess.ip,
+				autoSolved: true
+			),
+			confident: cloudGuess.confidence >= 1
+		);
+	}
+
 	if (challenge is! Captcha4ChanCustomChallengeText) {
 		// Other captcha types not auto-solvable
 		return null;
@@ -706,7 +757,7 @@ Future<CloudGuessedCaptcha4ChanCustom?> headlessSolveCaptcha4ChanCustom({
 			image = challenge.foregroundImage!.clone();
 		}
 
-		final cloudGuess = await _cloudGuess(
+		final cloudGuess = await _cloudGuessText(
 			site: site,
 			image: image,
 			cancelToken: cancelToken
@@ -729,7 +780,6 @@ Future<CloudGuessedCaptcha4ChanCustom?> headlessSolveCaptcha4ChanCustom({
 	return (
 		challenge: challenge,
 		solution: solution,
-		slide: slide,
 		confident: confident
 	);
 }
@@ -842,7 +892,7 @@ class _ModifiedBouncingScrollPhysics extends BouncingScrollPhysics {
 	String toString() => '_ModifiedBouncingScrollPhysics()';
 }
 
-class Captcha4ChanCustom extends StatefulWidget {
+class Captcha4ChanCustomPage extends StatefulWidget {
 	final ImageboardSite site;
 	final Chan4CustomCaptchaRequest request;
 	final ValueChanged<Chan4CustomCaptchaSolution?> onCaptchaSolved;
@@ -852,7 +902,7 @@ class Captcha4ChanCustom extends StatefulWidget {
 	final ValueChanged<DateTime>? onTryAgainAt;
 	final bool allowChallengeRefresh;
 
-	const Captcha4ChanCustom({
+	const Captcha4ChanCustomPage({
 		required this.site,
 		required this.request,
 		required this.onCaptchaSolved,
@@ -865,7 +915,7 @@ class Captcha4ChanCustom extends StatefulWidget {
 	}) : super(key: key);
 
 	@override
-	createState() => _Captcha4ChanCustomState();
+	createState() => _Captcha4ChanCustomPageState();
 }
 
 class Captcha4ChanCustomException implements Exception {
@@ -1051,7 +1101,7 @@ class _Captcha4ChanCustomPainter extends CustomPainter{
 
 typedef _PickerStuff = ({GlobalKey key, UniqueKey wrapperKey, FixedExtentScrollController controller});
 
-class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
+class _Captcha4ChanCustomPageState extends State<Captcha4ChanCustomPage> {
 	(Object, StackTrace)? error;
 	DateTime? tryAgainAt;
 	Captcha4ChanCustomChallenge? challenge;
@@ -1083,14 +1133,23 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 		final thisCancelToken = cancelToken = CancelToken();
 		setState(() {});
 		try {
-			final image = await (challenge as Captcha4ChanCustomChallengeText)._screenshotImage(backgroundSlide);
-			final guess = await _cloudGuess(
+			final guess = switch (challenge) {
+				Captcha4ChanCustomChallengeText text => await _cloudGuessText(
 				site: widget.site,
-				image: image,
+					image: await text._screenshotImage(backgroundSlide),
 				cancelToken: thisCancelToken
-			);
+				),
+				Captcha4ChanCustomChallengeTasks tasks => await _cloudGuessTasks(
+					site: widget.site,
+					data: tasks.originalData,
+					cancelToken: thisCancelToken
+				),
+				null => null
+			};
+			if (guess != null) {
 			_ip = guess.ip ?? _ip;
 			_useCloudGuess(guess.answer);
+		}
 		}
 		catch (e, st) {
 			if (!thisCancelToken.isCancelled) {
@@ -1131,6 +1190,9 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 			_solutionController.selection = const TextSelection(baseOffset: 0, extentOffset: 1);
 			_solutionNode.requestFocus();
 		}
+		final chars = answer.split('');
+		_taskChoices = chars.map(int.tryParse).toList();
+		_collapseTasks = chars.map((c) => c != ' ').toList();
 		setState(() {}); // numLetters may have changed
 	}
 
@@ -1177,7 +1239,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 		}
 	}
 
-	Future<void> _animateGuess(String? wipAnswer) async {
+	Future<bool> _animateGuess() async {
 		Settings.useCloudCaptchaSolverSetting.value ??= await showAdaptiveDialog<bool>(
 			context: context,
 			barrierDismissible: true,
@@ -1205,11 +1267,11 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 			if (!_cloudGuessFailed) {
 				await _animateCloudGuess();
 				if (!_cloudGuessFailed) {
-					return;
+					return true;
 				}
 			}
 		}
-		_animateLocalGuess(wipAnswer);
+		return false;
 	}
 
 	_PickerStuff _getPickerStuffForWidgetIndex(int i) {
@@ -1274,7 +1336,9 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 				backgroundSlide = 0;
 			}
 			if (useNewCaptchaForm) {
-				await _animateGuess(challenge._wipAnswer);
+				if (!await _animateGuess()) {
+					_animateLocalGuess(challenge._wipAnswer);
+				}
 			}
 			else {
 				setState(() {});
@@ -1303,6 +1367,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 					}
 				}
 				_collapseTasks = List.filled(challenge.tasks.length, false);
+				await _animateGuess();
 			}
 			setState(() {});
 		}
@@ -1443,7 +1508,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 		else if (guess != null) {
 			_ip = guess.solution.ip;
 			challenge = guess.challenge;
-			backgroundSlide = guess.slide ?? 0;
+			backgroundSlide = guess.solution.slide ?? 0;
 			tryAgainAt = guess.challenge.tryAgainAt;
 			Future.delayed(const Duration(milliseconds: 10), () {
 				_useCloudGuess(guess.solution.response);
@@ -1522,9 +1587,13 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 		);
 	}
 
-	Widget _build(BuildContext context) {
+	({
+		Widget child,
+		Wrapper<Future<void> Function()?>? onSubmit
+	}) _build(BuildContext context) {
 		if (error != null) {
-			return Center(
+			return (
+				onSubmit: null,
 				child: Column(
 					children: [
 						Row(
@@ -1590,7 +1659,8 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 				List<int> list => list
 			};
 			final maxSlide = ((challenge.backgroundWidth ?? challenge.backgroundImage?.width ?? challenge.foregroundImage?.width ?? 0) - (challenge.foregroundImage?.width ?? 0)).abs();
-			return Center(
+			return (
+				onSubmit: null,
 				child: ConstrainedBox(
 					constraints: BoxConstraints(
 						maxWidth: maxWidth
@@ -1610,7 +1680,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 												backgroundSlide = await _alignImage(challenge);
 												setState(() {});
 											}
-											await _animateGuess(null);
+											await _animateGuess();
 										},
 										child: CustomPaint(
 											size: Size(min(challenge.backgroundImage?.width ?? challenge.foregroundImage!.width, challenge.foregroundImage!.width).toDouble(), challenge.foregroundImage!.height.toDouble()),
@@ -1648,7 +1718,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 												},
 												onChangeEnd: (newOffset) {
 													if (_solutionController.text.toUpperCase() == _lastGuess.guess.toUpperCase()) {
-														_animateGuess(null);
+														_animateGuess();
 													}
 												}
 											)
@@ -1977,7 +2047,8 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 		}
 		else if (challenge case Captcha4ChanCustomChallengeTasks challenge) {
 			final theme = context.watch<SavedTheme>();
-			return Center(
+			return (
+				onSubmit: Wrapper(_taskChoices.any((t) => t == null) ? null : () => _submit(_taskChoices.join())),
 				child: ConstrainedBox(
 					constraints: const BoxConstraints(
 						maxWidth: 500
@@ -2010,7 +2081,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 												Wrap(
 													children: task.$2.choices.indexed.map((choice) => CupertinoInkwell(
 														padding: EdgeInsets.zero,
-														onPressed: () {
+														onPressed: _greyOutPickers ? null : () {
 															setState(() {
 																_taskChoices[task.$1] = choice.$1;
 															});
@@ -2045,7 +2116,7 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 														bottomSafe: true,
 														child: CupertinoInkwell(
 															padding: EdgeInsets.zero,
-															onPressed: () {
+															onPressed: _greyOutPickers ? null : () {
 																setState(() {
 																	if (_taskChoices[task.$1] == choice.$1) {
 																		_collapseTasks[task.$1] = !_collapseTasks[task.$1];
@@ -2097,55 +2168,21 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 										]
 									)
 								);
-							}),
-							Row(
-								mainAxisAlignment: MainAxisAlignment.center,
-								children: [
-									Flexible(
-										fit: FlexFit.tight,
-										flex: 1,
-										child:  _cooldownedRetryButton(context)
-									),
-									Flexible(
-										flex: 1,
-										fit: FlexFit.tight,
-										child: _expiryWidget()
-									)
-								]
-							),
-							const SizedBox(height: 16),
-							CupertinoButton(
-								padding: EdgeInsets.zero,
-								color: theme.primaryColor,
-								disabledColor: theme.primaryColorWithBrightness(0.5),
-								onPressed: _taskChoices.any((t) => t == null) ? null : () {
-									_submit(_taskChoices.join());
-								},
-								child: SizedBox(
-									height: 50,
-									child: Center(
-										child: Text(
-											'Submit',
-											style: TextStyle(
-												fontSize: 20,
-												color: theme.backgroundColor
-											)
-										)
-									)
-								)
-							)
+							})
 						]
 					)
 				)
 			);
 		}
 		else if (challenge != null) {
-			return Center(
+			return (
+				onSubmit: null,
 				child: Text('Unknown inner challenge: $challenge')
 			);
 		}
 		else {
-			return Center(
+			return (
+				onSubmit: null,
 				child: Column(
 					mainAxisSize: MainAxisSize.min,
 					children: [
@@ -2163,16 +2200,109 @@ class _Captcha4ChanCustomState extends State<Captcha4ChanCustom> {
 
 	@override
 	Widget build(BuildContext context) {
-		return Container(
+		final resolved = _build(context);
+		final theme = context.watch<SavedTheme>();
+		final child = Container(
 			decoration: BoxDecoration(
-				color: ChanceTheme.backgroundColorOf(context),
+				color: theme.backgroundColor,
 			),
 			width: double.infinity,
 			padding: const EdgeInsets.all(16),
 			child: AnimatedSize(
 				duration: const Duration(milliseconds: 100),
-				child: _build(context)
+				child: Center(
+					child: resolved.child
 			)
+			)
+		);
+		Widget? pinnedFooter;
+		if (resolved.onSubmit case final onSubmit?) {
+			pinnedFooter = Container(
+				color: ChanceTheme.barColorOf(context),
+				padding: const EdgeInsets.all(16),
+				child: Row(
+					children: [
+						TimedRebuilder(
+							interval: () => const Duration(seconds: 1),
+							function: () {
+								return max(0, tryAgainAt?.difference(DateTime.now()).inSeconds ?? 0);
+							},
+							builder: (context, seconds) {
+								return Stack(
+									alignment: Alignment.center,
+									children: [
+										AdaptiveIconButton(
+											onPressed: seconds > 0 ? null : _tryRequestChallenge,
+											minimumSize: Size.zero,
+											icon: const Icon(CupertinoIcons.refresh)
+										),
+										if (seconds > 0) Text(
+											'$seconds',
+											style: const TextStyle(
+												fontWeight: FontWeight.bold,
+												fontFeatures: [FontFeature.tabularFigures()]
+											)
+										)
+									]
+								);
+							}
+						),
+						const SizedBox(width: 16),
+						Expanded(
+							child: TimedRebuilder(
+								interval: () => const Duration(seconds: 1),
+								function: () {
+									return max(0, challenge?.expiresAt.difference(DateTime.now()).inMilliseconds ?? 0) / 1000;
+								},
+								builder: (context, seconds) {
+									return Stack(
+										children: [
+											ClipRRect(
+												borderRadius: BorderRadius.circular(8),
+												child: LinearProgressIndicator(
+													value: _greyOutPickers ? null : switch (challenge) {
+														Captcha4ChanCustomChallenge challenge => 1 - (DateTime.now().difference(challenge.acquiredAt).inMilliseconds / challenge.lifetime.inMilliseconds).clamp(0, 1),
+														null => null
+													},
+													minHeight: 50,
+													valueColor: AlwaysStoppedAnimation(theme.primaryColor),
+													backgroundColor: theme.primaryColor.withValues(alpha: 0.3)
+												)
+											),
+											CupertinoButton(
+												padding: EdgeInsets.zero,
+												onPressed: _greyOutPickers || seconds <= 0 ? null : onSubmit.value,
+												child: SizedBox(
+													height: 50,
+													child: Center(
+														child: Text(
+															seconds > 0 ? 'Submit' : 'Expired',
+															style: TextStyle(
+																fontSize: 20,
+																color: theme.backgroundColor
+															)
+														)
+													)
+												)
+											)
+										]
+									);
+								}
+							)
+						),
+						HiddenCancelButton(
+							cancelToken: cancelToken,
+							icon: const Icon(CupertinoIcons.xmark),
+							alignment: Alignment.centerRight
+						)
+					]
+				)
+			);
+		}
+		return OverscrollModalPage(
+			increasePopDifficulty: true,
+			pinnedFooter: pinnedFooter,
+			child: child
 		);
 	}
 

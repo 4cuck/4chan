@@ -227,6 +227,12 @@ class PaginatedReorderableListItem extends SingleChildRenderObjectWidget {
   const PaginatedReorderableListItem(
       {required this.index, required super.child, required super.key});
 
+  /// The selected item's index relative to this item on the same page.
+  /// Positive values mean the selected item is after this one; negative values
+  /// mean it is before. Returns null for the selected item or another page.
+  static int? selectedItemDeltaOf(BuildContext context) =>
+      _PaginatedItemSelectionScope.maybeOf(context)?.selectedItemDelta;
+
   @override
   RenderObject createRenderObject(BuildContext context) =>
       _RenderPaginatedReorderableListItem(index);
@@ -234,6 +240,128 @@ class PaginatedReorderableListItem extends SingleChildRenderObjectWidget {
   @override
   void updateRenderObject(BuildContext context, RenderObject renderObject) {
     (renderObject as _RenderPaginatedReorderableListItem).update(index);
+  }
+}
+
+class _PaginatedItemSelectionScope extends InheritedWidget {
+  final int? selectedItemDelta;
+
+  const _PaginatedItemSelectionScope({
+    required this.selectedItemDelta,
+    required super.child,
+    super.key,
+  });
+
+  static _PaginatedItemSelectionScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_PaginatedItemSelectionScope>();
+
+  @override
+  bool updateShouldNotify(_PaginatedItemSelectionScope oldWidget) =>
+      selectedItemDelta != oldWidget.selectedItemDelta;
+}
+
+/// Horizontal item padding that gives content more room only when its slot
+/// becomes too narrow. [shrinkWeights] controls which side may contract:
+/// `dx` is the left side and `dy` is the right side.
+class PaginatedReorderableListItemPadding extends SingleChildRenderObjectWidget {
+  final double preferredContentExtent;
+  final Offset shrinkWeights;
+
+  const PaginatedReorderableListItemPadding({
+    required this.preferredContentExtent,
+    required this.shrinkWeights,
+    required super.child,
+    super.key,
+  }) : assert(preferredContentExtent >= 0);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderPaginatedItemPadding(preferredContentExtent, shrinkWeights);
+
+  @override
+  void updateRenderObject(
+      BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderPaginatedItemPadding)
+      ..preferredContentExtent = preferredContentExtent
+      ..shrinkWeights = shrinkWeights;
+  }
+}
+
+class _RenderPaginatedItemPadding extends RenderShiftedBox {
+  _RenderPaginatedItemPadding(
+      this._preferredContentExtent, this._shrinkWeights)
+      : super(null);
+
+  static const double _normalSidePadding = 16;
+  static const double _minimumSidePadding = 4;
+  static const double _verticalPadding = 8;
+
+  double _preferredContentExtent;
+  set preferredContentExtent(double value) {
+    if (_preferredContentExtent == value) return;
+    _preferredContentExtent = value;
+    markNeedsLayout();
+  }
+
+  Offset _shrinkWeights;
+  set shrinkWeights(Offset value) {
+    if (_shrinkWeights == value) return;
+    final oldPadding = hasSize ? _paddingForWidth(constraints.maxWidth) : null;
+    _shrinkWeights = value;
+    if (oldPadding == null ||
+        oldPadding != _paddingForWidth(constraints.maxWidth)) {
+      markNeedsLayout();
+    }
+  }
+
+  EdgeInsets _paddingForWidth(double availableWidth) {
+    final leftCapacity =
+        (_normalSidePadding - _minimumSidePadding) * _shrinkWeights.dx;
+    final rightCapacity =
+        (_normalSidePadding - _minimumSidePadding) * _shrinkWeights.dy;
+    final totalCapacity = leftCapacity + rightCapacity;
+    if (!availableWidth.isFinite || totalCapacity == 0) {
+      return const EdgeInsets.symmetric(
+          horizontal: _normalSidePadding, vertical: _verticalPadding);
+    }
+    final deficit = math.max(0.0,
+        _preferredContentExtent + 2 * _normalSidePadding - availableWidth);
+    final shrink = math.min(deficit, totalCapacity);
+    return EdgeInsets.only(
+        left: _normalSidePadding - shrink * leftCapacity / totalCapacity,
+        right: _normalSidePadding - shrink * rightCapacity / totalCapacity,
+        top: _verticalPadding,
+        bottom: _verticalPadding);
+  }
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) {
+    final padding = _paddingForWidth(constraints.maxWidth);
+    final childSize = child?.getDryLayout(constraints.deflate(padding)) ??
+        Size.zero;
+    return constraints.constrain(Size(
+        childSize.width + padding.horizontal,
+        childSize.height + padding.vertical));
+  }
+
+  @override
+  void performLayout() {
+    final padding = _paddingForWidth(constraints.maxWidth);
+    final childBox = child;
+    if (childBox == null) {
+      size = constraints.constrain(Size(padding.horizontal, padding.vertical));
+      return;
+    }
+    childBox.layout(constraints.deflate(padding), parentUsesSize: true);
+    size = constraints.constrain(Size(
+        childBox.size.width + padding.horizontal,
+        childBox.size.height + padding.vertical));
+    final extraWidth = math.max(
+        0.0, size.width - padding.horizontal - childBox.size.width);
+    final extraHeight = math.max(
+        0.0, size.height - padding.vertical - childBox.size.height);
+    (childBox.parentData! as BoxParentData).offset = Offset(
+        padding.left + extraWidth / 2, padding.top + extraHeight / 2);
   }
 }
 
@@ -308,6 +436,8 @@ class _PaginatedSliverReorderableList extends SliverReorderableList {
 class _PaginatedSliverReorderableListState extends SliverReorderableListState {
   late final AnimationController _selectionController;
   late final CurvedAnimation _selectionAnimation;
+  late final AnimationController _contentSizeController;
+  late final CurvedAnimation _contentSizeAnimation;
   int? _previousSelectedIndex;
 
   @override
@@ -322,6 +452,13 @@ class _PaginatedSliverReorderableListState extends SliverReorderableListState {
     _selectionAnimation = CurvedAnimation(
         parent: _selectionController,
         curve: configuration.selectedItemAnimationCurve);
+    _contentSizeController = AnimationController(
+        vsync: this,
+        duration: configuration.selectedItemAnimationDuration,
+        value: 1);
+    _contentSizeAnimation = CurvedAnimation(
+        parent: _contentSizeController,
+        curve: configuration.selectedItemAnimationCurve);
   }
 
   @override
@@ -331,11 +468,15 @@ class _PaginatedSliverReorderableListState extends SliverReorderableListState {
     final configuration = widget as _PaginatedSliverReorderableList;
     _selectionController.duration = configuration.selectedItemAnimationDuration;
     _selectionAnimation.curve = configuration.selectedItemAnimationCurve;
+    _contentSizeController.duration = configuration.selectedItemAnimationDuration;
+    _contentSizeAnimation.curve = configuration.selectedItemAnimationCurve;
     if (oldConfiguration.selectedIndex == null &&
         configuration.selectedIndex != null) {
+      _contentSizeController.value = 1;
       _previousSelectedIndex = configuration.selectedIndex;
       _selectionController.value = 1;
     } else if (oldConfiguration.selectedIndex != configuration.selectedIndex) {
+      _contentSizeController.value = 1;
       _previousSelectedIndex = oldConfiguration.selectedIndex;
       _selectionController.forward(from: 0);
     }
@@ -343,6 +484,8 @@ class _PaginatedSliverReorderableListState extends SliverReorderableListState {
 
   @override
   void dispose() {
+    _contentSizeAnimation.dispose();
+    _contentSizeController.dispose();
     _selectionAnimation.dispose();
     _selectionController.dispose();
     super.dispose();
@@ -366,7 +509,11 @@ class _PaginatedSliverReorderableListState extends SliverReorderableListState {
         previousSelectedIndex: _previousSelectedIndex,
         selectedIndex: configuration.selectedIndex,
         selectedItemExtentFactor: configuration.selectedItemExtentFactor,
-        selectionAnimation: _selectionAnimation);
+        selectionAnimation: _selectionAnimation,
+        contentSizeAnimation: _contentSizeAnimation,
+        onContentSizeChanged: () {
+          if (mounted) _contentSizeController.forward(from: 0);
+        });
   }
 }
 
@@ -381,6 +528,8 @@ class _SliverSelectedFirstList extends SliverMultiBoxAdaptorWidget {
   final int? selectedIndex;
   final double selectedItemExtentFactor;
   final Animation<double> selectionAnimation;
+  final Animation<double> contentSizeAnimation;
+  final VoidCallback onContentSizeChanged;
 
   const _SliverSelectedFirstList(
       {required super.delegate,
@@ -393,7 +542,9 @@ class _SliverSelectedFirstList extends SliverMultiBoxAdaptorWidget {
       required this.previousSelectedIndex,
       required this.selectedIndex,
       required this.selectedItemExtentFactor,
-      required this.selectionAnimation});
+      required this.selectionAnimation,
+      required this.contentSizeAnimation,
+      required this.onContentSizeChanged});
 
   @override
   RenderSliverVariedExtentList createRenderObject(BuildContext context) {
@@ -408,7 +559,9 @@ class _SliverSelectedFirstList extends SliverMultiBoxAdaptorWidget {
         previousSelectedIndex: previousSelectedIndex,
         selectedIndex: selectedIndex,
         selectedItemExtentFactor: selectedItemExtentFactor,
-        selectionAnimation: selectionAnimation);
+        selectionAnimation: selectionAnimation,
+        contentSizeAnimation: contentSizeAnimation,
+        onContentSizeChanged: onContentSizeChanged);
   }
 
   @override
@@ -424,7 +577,9 @@ class _SliverSelectedFirstList extends SliverMultiBoxAdaptorWidget {
       ..previousSelectedIndex = previousSelectedIndex
       ..selectedIndex = selectedIndex
       ..selectedItemExtentFactor = selectedItemExtentFactor
-      ..selectionAnimation = selectionAnimation;
+      ..selectionAnimation = selectionAnimation
+      ..contentSizeAnimation = contentSizeAnimation
+      ..onContentSizeChanged = onContentSizeChanged;
   }
 }
 
@@ -440,7 +595,9 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
       required int? previousSelectedIndex,
       required int? selectedIndex,
       required double selectedItemExtentFactor,
-      required Animation<double> selectionAnimation})
+      required Animation<double> selectionAnimation,
+      required Animation<double> contentSizeAnimation,
+      required VoidCallback onContentSizeChanged})
       : _itemCount = itemCount,
         _paginationDelegate = paginationDelegate,
         _gutterExtent = gutterExtent,
@@ -451,6 +608,8 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
         _selectedIndex = selectedIndex,
         _selectedItemExtentFactor = selectedItemExtentFactor,
         _selectionAnimation = selectionAnimation,
+        _contentSizeAnimation = contentSizeAnimation,
+        _onContentSizeChanged = onContentSizeChanged,
         super(itemExtentBuilder: _unusedItemExtentBuilder);
 
   int _itemCount;
@@ -464,8 +623,14 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
   int? _selectedIndex;
   double _selectedItemExtentFactor;
   Animation<double> _selectionAnimation;
+  Animation<double> _contentSizeAnimation;
+  VoidCallback _onContentSizeChanged;
   double? _previousPreferredSelectedExtent;
   double? _preferredSelectedExtent;
+  double? _contentSizeAnimationStart;
+  bool _animateNextPreferredMeasurement = false;
+  bool _contentSizeAnimationPending = false;
+  int _contentSizeChangeGeneration = 0;
   bool _previousPreferredExtentNeedsMeasurement = true;
   bool _preferredExtentNeedsMeasurement = true;
   bool _didCorrectInitialSelectedPage = false;
@@ -534,6 +699,11 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
   set selectedIndex(int? value) {
     if (_selectedIndex == value) return;
     _selectedIndex = value;
+    _preferredSelectedExtent = null;
+    _animateNextPreferredMeasurement = false;
+    _contentSizeAnimationStart = null;
+    _contentSizeAnimationPending = false;
+    _contentSizeChangeGeneration++;
     _preferredExtentNeedsMeasurement = true;
     markNeedsLayout();
   }
@@ -560,7 +730,23 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
     markNeedsLayout();
   }
 
+  set contentSizeAnimation(Animation<double> value) {
+    if (identical(_contentSizeAnimation, value)) return;
+    if (attached) _contentSizeAnimation.removeListener(markNeedsLayout);
+    _contentSizeAnimation = value;
+    if (attached) _contentSizeAnimation.addListener(markNeedsLayout);
+    markNeedsLayout();
+  }
+
+  set onContentSizeChanged(VoidCallback value) {
+    _onContentSizeChanged = value;
+  }
+
   void _invalidatePreferredExtents() {
+    _animateNextPreferredMeasurement = false;
+    _contentSizeAnimationStart = null;
+    _contentSizeAnimationPending = false;
+    _contentSizeChangeGeneration++;
     _previousPreferredExtentNeedsMeasurement = true;
     _preferredExtentNeedsMeasurement = true;
   }
@@ -573,6 +759,7 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
     }
     if (index == _selectedIndex) {
       _preferredExtentNeedsMeasurement = true;
+      _animateNextPreferredMeasurement = true;
       invalidated = true;
     }
     if (invalidated) {
@@ -584,12 +771,14 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
   void attach(PipelineOwner owner) {
     super.attach(owner);
     _selectionAnimation.addListener(markNeedsLayout);
+    _contentSizeAnimation.addListener(markNeedsLayout);
     _pageAlignmentAnimation.addListener(markNeedsLayout);
   }
 
   @override
   void detach() {
     _selectionAnimation.removeListener(markNeedsLayout);
+    _contentSizeAnimation.removeListener(markNeedsLayout);
     _pageAlignmentAnimation.removeListener(markNeedsLayout);
     super.detach();
   }
@@ -639,6 +828,14 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
             _maximumSelectedExtentForPage(page, alignPagesToEnd));
   }
 
+  double? get _animatedPreferredSelectedExtent {
+    final target = _preferredSelectedExtent;
+    final start = _contentSizeAnimationStart;
+    if (target == null || start == null) return target;
+    final t = _contentSizeAnimationPending ? 0.0 : _contentSizeAnimation.value;
+    return start + (target - start) * t;
+  }
+
   double _normalExtentForPage(
       int page,
       int? selectedIndex,
@@ -677,7 +874,7 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
         _previousPreferredSelectedExtent,
         alignPagesToEnd);
     final end = _extentForSelection(index, _selectedIndex,
-        _preferredSelectedExtent, alignPagesToEnd);
+        _animatedPreferredSelectedExtent, alignPagesToEnd);
     final t = _selectionAnimation.value;
     return begin + (end - begin) * t;
   }
@@ -699,7 +896,7 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
         _previousPreferredSelectedExtent,
         alignPagesToEnd);
     final end = _normalExtentForPage(page, _selectedIndex,
-        _preferredSelectedExtent, alignPagesToEnd);
+        _animatedPreferredSelectedExtent, alignPagesToEnd);
     final t = _selectionAnimation.value;
     return begin + (end - begin) * t;
   }
@@ -794,7 +991,7 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
     final begin = _layoutOffsetForSelection(index, _previousSelectedIndex,
         _previousPreferredSelectedExtent, alignPagesToEnd);
     final end = _layoutOffsetForSelection(index, _selectedIndex,
-        _preferredSelectedExtent, alignPagesToEnd);
+        _animatedPreferredSelectedExtent, alignPagesToEnd);
     final t = _selectionAnimation.value;
     return begin + (end - begin) * t;
   }
@@ -866,6 +1063,8 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
         if (addInitialChild(index: _selectedIndex!)) selectedChild = firstChild;
       }
       if (selectedChild != null && _preferredExtentNeedsMeasurement) {
+        final oldTarget = _preferredSelectedExtent;
+        final oldAnimatedExtent = _animatedPreferredSelectedExtent;
         selectedChild.layout(
             constraints.asBoxConstraints(
                 minExtent: 0,
@@ -874,9 +1073,30 @@ class _RenderSelectedFirstList extends RenderSliverVariedExtentList {
             parentUsesSize: true);
         _preferredSelectedExtent = _laidOutMainAxisExtent(selectedChild);
         _preferredExtentNeedsMeasurement = false;
+        if (_animateNextPreferredMeasurement && oldTarget != null &&
+            oldAnimatedExtent != null &&
+            (_preferredSelectedExtent! - oldTarget).abs() >
+                precisionErrorTolerance) {
+          _contentSizeAnimationStart = oldAnimatedExtent;
+          _contentSizeAnimationPending = true;
+          final generation = ++_contentSizeChangeGeneration;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!attached || generation != _contentSizeChangeGeneration) return;
+            _contentSizeAnimationPending = false;
+            _onContentSizeChanged();
+          });
+        } else if (!_animateNextPreferredMeasurement) {
+          _contentSizeAnimationStart = null;
+          _contentSizeAnimationPending = false;
+          _contentSizeChangeGeneration++;
+        }
+        _animateNextPreferredMeasurement = false;
       }
     } else {
       _preferredSelectedExtent = null;
+      _contentSizeAnimationStart = null;
+      _contentSizeAnimationPending = false;
+      _contentSizeChangeGeneration++;
       _preferredExtentNeedsMeasurement = false;
     }
 
@@ -1199,6 +1419,21 @@ class PaginatedReorderableListState extends State<PaginatedReorderableList>
 
   int pageForItem(int index) =>
       (index + leadingEmptySlots) ~/ itemsPerPage;
+
+  int? _selectedItemDeltaFor(int index) {
+    final selectedIndex = widget.selectedIndex;
+    if (selectedIndex == null || selectedIndex < 0 ||
+        selectedIndex >= widget.itemCount || index == selectedIndex) {
+      return null;
+    }
+    // The selected page is initially laid out by the sliver. Until that first
+    // layout resolves its count, compacting other items avoids a first-frame
+    // padding change on the page that contains the selected item.
+    if (!_hasLayout || pageForItem(index) == pageForItem(selectedIndex)) {
+      return selectedIndex - index;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -1972,7 +2207,14 @@ class PaginatedReorderableListState extends State<PaginatedReorderableList>
                                 widget.selectedItemAnimationDuration,
                             selectedItemAnimationCurve:
                                 widget.selectedItemAnimationCurve,
-                            itemBuilder: widget.itemBuilder,
+                            itemBuilder: (context, index) {
+                              final item = widget.itemBuilder(context, index);
+                              return _PaginatedItemSelectionScope(
+                                  key: ValueKey(item.key),
+                                  selectedItemDelta:
+                                      _selectedItemDeltaFor(index),
+                                  child: item);
+                            },
                             itemCount: widget.itemCount,
                             onReorderItem: widget.onReorderItem,
                             onReorderStart: _handleReorderStart,

@@ -1573,6 +1573,24 @@ class BoardPageState extends State<BoardPage> {
     final radius = settings.materialStyle
         ? const Radius.circular(4)
         : const Radius.circular(8);
+    List<Thread>? initialList;
+    if (_lastCatalogUpdateTime == null &&
+        !(kDebugMode && Navigator.of(context).userGestureInProgress)) {
+      final catalog = site?.getCatalogFromCatalogCache(
+        board?.name,
+        variant: variant,
+      );
+      if (catalog != null) {
+        initialList = catalog.threads.values.toList();
+        _lastCatalogUpdateTime = catalog.fetchedTime;
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (!mounted) return;
+          if (_loadCompleter?.isCompleted == false) {
+            _loadCompleter?.complete();
+          }
+        });
+      }
+    }
     return AdaptiveScaffold(
       resizeToAvoidBottomInset: false,
       bar: AdaptiveBar(
@@ -1998,6 +2016,7 @@ class BoardPageState extends State<BoardPage> {
                                           )
                                         : null,
                                     controller: _listController,
+                                    initialList: initialList,
                                     listUpdater: (options) async {
                                       final catalog = (await site.getCatalog(
                                         board!.name,

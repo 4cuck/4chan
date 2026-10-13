@@ -152,6 +152,14 @@ flutter {
     source '../..'
 }
 
+// UnifiedPush pulls tink 1.23 while flutter_secure_storage pulls tink-android 1.9.
+// Both jars contain the same classes. Keep tink-android 1.23, which includes the
+// Android keystore helpers and the tink 1.23 API.
+configurations.configureEach {
+    exclude group: 'com.google.crypto.tink', module: 'tink'
+    resolutionStrategy.force 'com.google.crypto.tink:tink-android:1.23.0'
+}
+
 dependencies {
     testImplementation 'junit:junit:4.12'
     androidTestImplementation 'androidx.test:runner:1.2.0'

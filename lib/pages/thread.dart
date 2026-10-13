@@ -746,7 +746,8 @@ class ThreadPageState extends State<ThreadPage> {
       try {
         await controller.preloadFullAttachment();
       } catch (e) {
-        if (mounted) {
+        _checkForeground();
+        if (mounted && _foreground) {
           showToast(
             context: context,
             message: 'Error getting attachment: ${e.toStringDio()}',
@@ -1589,6 +1590,7 @@ class ThreadPageState extends State<ThreadPage> {
         rethrow;
       }
     }
+		if (!mounted) throw StateError('Thread page disposed');
     bool shouldScroll = false;
     final watch = tmpPersistentState.threadWatch;
     if (watch != null && newThread.identifier == widget.thread && mounted) {
@@ -1599,7 +1601,7 @@ class ThreadPageState extends State<ThreadPage> {
         foreground: _foreground,
       );
     }
-    await _listController.whenDoneAutoScrolling;
+    await _listController.waitUntilDoneAutoScrolling(cancelToken: cancelToken);
     if (tmpPersistentState.thread != null ||
         newThread.archiveName == null &&
             !identical(newThread, tmpPersistentState.thread)) {
@@ -1734,8 +1736,7 @@ class ThreadPageState extends State<ThreadPage> {
     });
     final treeSplitId = persistentState.treeSplitId;
     for (final p in newChildren) {
-      if (!p.isPageStub &&
-          (oldPosts[p.id]?.isStub != p.isStub) &&
+      if (oldPosts[p.id]?.isStub != p.isStub &&
           !persistentState.youIds.contains(p.id)) {
         if (treeSplitId != null && p.id <= treeSplitId) {
           needToSave |= persistentState.upgradedStubPostIds.data.add(p.id);
@@ -1748,7 +1749,7 @@ class ThreadPageState extends State<ThreadPage> {
       }
     }
     final anyNew = thread.mergePosts(null, newChildren, site);
-    if (ids.length == 1 && ids.single.childId == ids.single.parentId) {
+		if (ids.length == 1 && ids.single.childId == ids.single.parentId && !site.isPaged) {
       // Clear hasOmittedReplies in case it has only omitted shadowbanned replies
       thread.posts_
               .tryFirstWhere((p) => p.id == ids.single.childId)
@@ -4613,7 +4614,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                       .toSet() ??
                                   {};
                               for (final id in ids) {
-                                widget.highlightPosts[id] = 1.0;
+															widget.highlightPosts[id] = ThreadPageState._kHighlightFull;
                               }
                               widget.persistentState.unseenPostIds.data.addAll(
                                 ids,
@@ -5025,22 +5026,50 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                     if (!widget.blocked &&
                         (widget.persistentState.thread?.archiveName != null ||
                             (widget.persistentState.thread?.isArchived ??
-                                widget.persistentState.useArchive))) ...[
-                      Icon(
-                        CupertinoIcons.archivebox,
-                        color: theme.primaryColor.withValues(alpha: 0.5),
-                        applyTextScaling: true,
-                      ),
-                      if (widget.persistentState.thread?.archiveName
-                          case String archiveName)
-                        Text(
-                          ' $archiveName',
-                          style: TextStyle(
-                            color: theme.primaryColor.withValues(alpha: 0.5),
-                          ),
+                                widget.persistentState.useArchive)))
+                      AnimatedBuilder(
+                        animation: widget.listController.scrollController ??
+                            const AlwaysStoppedAnimation(null),
+                        builder: (context, child) => AnimatedCrossFade(
+                          firstChild: child!,
+                          secondChild: const SizedBox.shrink(),
+                          alignment: Alignment.centerLeft,
+                          crossFadeState:
+                              (widget.listController.scrollController
+                                          ?.tryPosition
+                                          ?.extentAfter ??
+                                      100) >
+                                  50
+                              ? CrossFadeState.showFirst
+                              : CrossFadeState.showSecond,
+                          duration: const Duration(milliseconds: 350),
+                          sizeCurve: Curves.ease,
+                          firstCurve: Curves.ease,
+                          secondCurve: Curves.ease,
                         ),
-                      const SizedBox(width: 8),
-                    ] else if (!widget.blocked &&
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              CupertinoIcons.archivebox,
+                              color: theme.primaryColor.withValues(alpha: 0.5),
+                              applyTextScaling: true,
+                            ),
+                            if (widget.persistentState.thread?.archiveName
+                                case String archiveName)
+                              Text(
+                                ' $archiveName',
+                                style: TextStyle(
+                                  color: theme.primaryColor.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 8),
+                          ],
+                        ),
+                      )
+                    else if (!widget.blocked &&
                         (widget.persistentState.thread?.isDeleted ??
                             false)) ...[
                       Icon(

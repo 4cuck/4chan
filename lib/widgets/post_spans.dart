@@ -1160,7 +1160,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 		else if (zone.isLoadingPostFromArchive(board, postId)) {
 			text += ' (Loading...)';
 		}
-		else {
+		else if (zone.imageboard.site.hasExpiringThreads) {
 			text += ' (Dead)';
 		}
 		final recognizer = options.overridingRecognizer ?? (TapGestureRecognizer(debugOwner: this)..onTap = () {
@@ -1264,7 +1264,8 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 			// Dead links do not know their thread
 			actualThreadId == null ||
 			// We think the post should be in this (or cross-loaded) thread, but we can't find it
-			(thisPostLoaded == null && zone.findThread(actualThreadId) != null)
+			// Exclude !showCrossThreadlabel (search results etc)
+			(thisPostLoaded == null && zone.findThread(actualThreadId) != null && options.showCrossThreadLabel)
 		) {
 			return _buildDeadLink(context, zone, settings, theme, options);
 		}

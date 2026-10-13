@@ -560,7 +560,7 @@ class SiteLainchan extends ImageboardSite with Http304CachingThreadMixin, Http30
 		CancelToken? cancelToken
 	}) async {
 		if (response.redirects.tryLast?.location.pathSegments.tryLast?.startsWith('404.') ?? false) {
-			throw const ThreadNotFoundException();
+			throw ThreadNotFoundException(this, thread);
 		}
 		final data = response.data as Map;
 		final firstPost = (data['posts'] as List)[0] as Map;
@@ -1024,6 +1024,11 @@ class SiteLainchan extends ImageboardSite with Http304CachingThreadMixin, Http30
 	String formatBoardName(String name) => '/${persistence?.maybeGetBoard(name)?.name ?? name}/';
 	@override
 	String formatBoardNameWithoutTrailingSlash(String name) => '/${persistence?.maybeGetBoard(name)?.name ?? name}';
+
+	@override
+	bool migrateFromPrevious(SiteLainchan oldSite) {
+		return super.migrateFromPrevious(oldSite) || (oldSite.filesPerPost != filesPerPost);
+	}
 }
 
 class SiteLainchanLoginSystem extends ImageboardSiteLoginSystem {

@@ -312,6 +312,7 @@ class AttachmentViewerController extends ChangeNotifier {
   final Imageboard imageboard;
   ImageboardSite get site => imageboard.site;
   final Uri? overrideSource;
+	final String? overrideFilename;
   final VoidCallback? onDownloaded;
 
   // Private usage
@@ -464,6 +465,7 @@ class AttachmentViewerController extends ChangeNotifier {
     this.redrawGestureListenable,
     required this.imageboard,
     this.overrideSource,
+		this.overrideFilename,
     Uri? initialGoodSource,
     this.onDownloaded,
     bool isPrimary = false,
@@ -606,6 +608,10 @@ class AttachmentViewerController extends ChangeNotifier {
     _isPrimary = val;
     notifyListeners();
   }
+
+	Future<void> softReset() async {
+		await videoPlayerController?.player.seek(Duration.zero);
+	}
 
   Map<String, String> getHeaders(Uri url) {
     final serverUrl = Persistence.settings.copypartyServerUrl;
@@ -831,7 +837,7 @@ class AttachmentViewerController extends ChangeNotifier {
       }
       return;
     }
-    if (attachment.type.usesVideoPlayer &&
+    if (attachment.usesVideoPlayer &&
         ((videoPlayerController != null && !force) ||
             _ongoingConversion != null)) {
       return;
@@ -1379,7 +1385,7 @@ class AttachmentViewerController extends ChangeNotifier {
     if (Settings.instance.downloadUsingServerSideFilenames) {
       filename = attachment.id.afterLast('/');
     } else {
-      filename = attachment.filename;
+      filename = overrideFilename ?? attachment.filename;
     }
     if (filename.startsWith('.')) {
       // Not able to save hidden files
@@ -1416,6 +1422,7 @@ class AttachmentViewerController extends ChangeNotifier {
         hideable: true,
       );
     }
+		await Persistence.shareCacheDirectory.create(recursive: true);
     return await file.copy(Persistence.shareCacheDirectory.child(newFilename));
   }
 
@@ -1856,7 +1863,7 @@ class AttachmentViewer extends StatelessWidget {
         // Don't allow it
         return;
       }
-      if (attachment.type.usesVideoPlayer &&
+      if (attachment.usesVideoPlayer &&
           Settings.instance.doubleTapToSeekVideo) {
         final center =
             state.context.globalPaintBounds?.center ??
@@ -1935,7 +1942,7 @@ class AttachmentViewer extends StatelessWidget {
             final dragIsHorizontal =
                 details.offsetFromOrigin.dx.abs() >
                 details.offsetFromOrigin.dy.abs();
-            if (attachment.type.usesVideoPlayer &&
+            if (attachment.usesVideoPlayer &&
                 (dragIsHorizontal ^ _rotate90DegreesClockwise)) {
               lightHapticFeedback();
               controller._longPressMode = _LongPressMode.scrub;

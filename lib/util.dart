@@ -116,7 +116,11 @@ extension EasySplit on String {
 		return substring(0, indexOfOrLength(delimiter));
 	}
 	String beforeLast(String delimiter) {
-		return substring(0, lastIndexOf(delimiter) + 1);
+		final index = lastIndexOf(delimiter);
+		if (index == -1) {
+			return this;
+		}
+		return substring(0, index);
 	}
 	String afterLast(String delimiter) {
 		return substring(lastIndexOf(delimiter) + 1);
@@ -692,6 +696,14 @@ class Trie<T extends Object> {
 	}
 	Iterable<(int, T)> _descend(List<int> codeUnits, Map<int, _TrieNode<T>> map, int depth) sync* {
 		if (codeUnits.isEmpty) {
+			// Dump all descendents, they all match the codeUnits prefix
+			for (final child in map.values) {
+				final value = child.value;
+				if (value != null) {
+					yield (depth, value);
+				}
+				yield* _descend([], child.children, depth + 1);
+			}
 			return;
 		}
 		final child = map[codeUnits.first];
@@ -779,17 +791,25 @@ extension WaitUntil<T> on ValueListenable<T> {
 }
 
 extension WaitUntilValue<T> on ValueNotifier<T> {
-	Future<void> waitUntilValue(T expectedValue) {
+	Future<void> waitUntilValue(T expectedValue, {CancelToken? cancelToken}) async {
 		final completer = Completer<void>();
 		void closure() {
-			if (value == expectedValue) {
+			if (!completer.isCompleted && value == expectedValue) {
 				completer.complete();
 				removeListener(closure);
 			}
 		}
 		addListener(closure);
 		closure();
-		return completer.future;
+		try {
+			await Future.any<void>([
+				completer.future,
+				if (cancelToken != null) cancelToken.whenCancel.then<void>((error) => throw error)
+			]);
+		}
+		finally {
+			removeListener(closure);
+		}
 	}
 }
 
@@ -874,26 +894,30 @@ extension DateTimeConversion on DateTime {
 class EphemeralLockOwner<K> {
 	final Map<K, Mutex> _ephemeralLocks = {};
 	EphemeralLockOwner();
-	Future<T> protect<T>(K key, Future<T> Function(bool) criticalSection) async {
+	Future<T> protect<T>(K key, Future<T> Function(bool) criticalSection, {CancelToken? cancelToken}) async {
 		final lock = _ephemeralLocks.putIfAbsent(key, () {
 			return Mutex();
 		});
-		try {
-			final wasLocked = lock.isLocked;
-			return await lock.protect(() => criticalSection(wasLocked));
-		}
-		finally {
+		final wasLocked = lock.isLocked;
+		final task = lock.protect(() {
+			cancelToken?.throwIfCancelled();
+			return criticalSection(wasLocked);
+		}).whenComplete(() {
 			if (!(_ephemeralLocks[key]?.isLocked ?? false)) {
 				// No one else waiting
 				_ephemeralLocks.remove(key);
 			}
-		}
+		});
+		return Future.any<T>([
+			task,
+			if (cancelToken != null) cancelToken.whenCancel.then<T>((error) => throw error)
+		]);
 	}
 }
 
 final _globalLocks = EphemeralLockOwner<String>();
-Future<T> runEphemerallyLocked<T>(String key, Future<T> Function(bool) criticalSection) async {
-	return _globalLocks.protect(key, criticalSection);
+Future<T> runEphemerallyLocked<T>(String key, Future<T> Function(bool) criticalSection, {CancelToken? cancelToken}) async {
+	return _globalLocks.protect(key, criticalSection, cancelToken: cancelToken);
 }
 
 class EasyDebouncer<K, T> {
@@ -1008,12 +1032,25 @@ class Debouncer2<T, A1, A2> {
 	}
 }
 
+extension CancellationCheck on CancelToken {
+	void throwIfCancelled() {
+		final error = cancelError;
+		if (error != null) throw error;
+	}
+}
+
 extension InterruptibleSleep on CancelToken {
 	Future<void> sleep(Duration duration) async {
 		final error = await Future.any([Future<DioError?>.delayed(duration), whenCancel]);
 		if (error != null) {
 			throw error;
 		}
+	}
+	Future<T> delayed<T>(Duration duration, [FutureOr<T> Function()? computation]) async {
+		if (computation == null && null is! T) {
+			throw ArgumentError.value(null, 'computation', 'The type parameter is not nullable');
+		}
+		return sleep(duration).then<T>((_) => computation?.call() ?? (null as T));
 	}
 }
 

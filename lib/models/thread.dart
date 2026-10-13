@@ -193,9 +193,40 @@ class Thread extends HiveObject implements Filterable {
 	}
 
 	Future<void> _fullPreinit() async {
+		if (_initialized) {
+			return;
+		}
+		bool handleWeakQuoteLinks = false;
+		final postsById = <int, Post>{};
+		for (final post in posts_) {
+			postsById[post.id] = post..replyIds = [];
+			handleWeakQuoteLinks |= post.spanFormat.hasWeakQuoteLinks;
+		}
+		final postTexts = <int, String>{};
 		for (final post in posts_) {
 			await post.preinit();
+			if (_initialized) {
+				// Race - someone else won
+				return;
+			}
+			if (handleWeakQuoteLinks) {
+				post.updateWeakQuoteLinks(postTexts);
+				postTexts[post.id] = post.buildText(forQuoteComparison: true);
+			}
+			for (final referencedPostId in post.repliedToIds) {
+				// Already deduplicated
+				postsById[referencedPostId]?.replyIds.add(post.id);
+			}
 		}
+		for (final post in posts_) {
+			if (post.replyIds.isEmpty) {
+				post.replyIds = const [];
+			}
+			else {
+				post.replyIds = post.replyIds.toList(growable: false);
+			}
+		}
+		_initialized = true;
 	}
 
 	Future<bool> preinit({bool catalog = false}) async {
@@ -244,6 +275,7 @@ class Thread extends HiveObject implements Filterable {
 	bool mergePosts(Thread? oldThread, List<Post> otherPosts, ImageboardSite site) {
 		final weAreOldThread = oldThread == null;
 		bool anyChanges = false;
+		final downgradedPages = <int>{};
 		if (oldThread != null) {
 			_markNewIPs(oldThread);
 			stickyReplyCap ??= oldThread.stickyReplyCap;
@@ -256,12 +288,17 @@ class Thread extends HiveObject implements Filterable {
 			if (indexToReplace != null) {
 				final postToReplace = posts_[indexToReplace];
 				if (
-					postToReplace.isStub ||
+					(postToReplace.isStub && !newChild.isStub) ||
 					newChild.archiveName != null ||
 					(postToReplace.isDeleted && !newChild.isDeleted) ||
 					(weAreOldThread && postToReplace != newChild)
 				) {
-					anyChanges = true;
+					if (newChild.isPageStub && newChild.hasOmittedReplies && !postToReplace.hasOmittedReplies) {
+						downgradedPages.add(newChild.id);
+					}
+					else {
+						anyChanges = true;
+					}
 					posts_.removeAt(indexToReplace);
 					newChild.replyIds = postToReplace.replyIds;
 					if (postToReplace.isDeleted && !newChild.isDeleted) {
@@ -308,12 +345,12 @@ class Thread extends HiveObject implements Filterable {
 				}
 				postIdToListIndex[newChild.id] = newIndex;
 				// new post may be a child of other posts
-				for (final int? repliedToId in [newChild.parentId, ...newChild.repliedToIds]) {
+				for (final int? repliedToId in newChild.repliedToIds) {
 					final parentIndex = postIdToListIndex[repliedToId];
 					if (parentIndex != null) {
 						final parent = posts_[parentIndex];
 						parent.maybeAddReplyId(newChild.id);
-						if (repliedToId == newChild.parentId) {
+						if (repliedToId == newChild.parentId && !parent.isPageStub) {
 							// This isn't a known stub, i tmust be part of the hasOmittedReplies.
 							// This code path isn't always perfect.
 							// E.g. unknownReplies in the new thread now may now mean 2 things instead of
@@ -345,9 +382,11 @@ class Thread extends HiveObject implements Filterable {
 				if (pair.value >= postsPerPage) {
 					// We have all the posts for this page
 					pageMap[pair.key]?.hasOmittedReplies = false;
+					downgradedPages.remove(pair.key);
 				}
 			}
 		}
+		anyChanges |= downgradedPages.isNotEmpty;
 		if (anyChanges && site.hasWeakQuoteLinks) {
 			// Rescan weak quote links
 			final postTexts = <int, String>{};

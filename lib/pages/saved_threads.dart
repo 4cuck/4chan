@@ -393,7 +393,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
             d.pendingDeletionAt == null &&
             (d.status == DownloadStatus.complete
                 ? !d.isLockedOnServer
-                : d.status == DownloadStatus.failed))
+                : d.status == DownloadStatus.failed ||
+                    d.status == DownloadStatus.pending))
         .toList();
     for (final d in toUpdate) {
       final imageboard =
@@ -1305,14 +1306,13 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     final thread = widget.preloadedThread;
     final theme = context.watch<SavedTheme>();
     final progress = d.totalFiles > 0 ? d.downloadedFiles / d.totalFiles : null;
-    final canOpen = d.status != DownloadStatus.pending;
 
     final isPendingDeletion = d.pendingDeletionAt != null;
     if (imageboard != null && thread != null) {
       return Opacity(
         opacity: isPendingDeletion ? 0.4 : 1.0,
         child: GestureDetector(
-          onTap: (canOpen || widget.isSelecting) ? widget.onTap : null,
+          onTap: widget.onTap,
           onLongPress:
               widget.isSelecting ? null : () => _showActionSheet(context, d),
           child: Container(
@@ -1403,7 +1403,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
     return Opacity(
       opacity: isPendingDeletion ? 0.4 : 1.0,
       child: GestureDetector(
-        onTap: (canOpen || widget.isSelecting) ? widget.onTap : null,
+        onTap: widget.onTap,
         onLongPress:
             widget.isSelecting ? null : () => _showActionSheet(context, d),
         child: Container(
@@ -1650,7 +1650,8 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
         actions: [
           if (d.status == DownloadStatus.complete ||
               d.status == DownloadStatus.failed ||
-              d.status == DownloadStatus.cancelled)
+              d.status == DownloadStatus.cancelled ||
+              d.status == DownloadStatus.pending)
             AdaptiveActionSheetAction(
               child: const Text('Update'),
               onPressed: () {

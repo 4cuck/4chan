@@ -66,6 +66,8 @@ Widget buildTestList(
     bool tabGestures = false,
     Map<int, double> preferredMainAxisExtents = const {},
     void Function(int index, BoxConstraints constraints)? onItemLayout,
+    void Function(int index, int? selectedItemDelta)?
+        onItemSelectionScope,
     bool delayedDragStart = false,
     Axis scrollDirection = Axis.horizontal,
     double width = 400,
@@ -113,6 +115,16 @@ Widget buildTestList(
                                   textDirection: TextDirection.ltr)),
                         );
                     var content = buildContent();
+                    if (onItemSelectionScope != null) {
+                      final scopedContent = content;
+                      content = Builder(builder: (context) {
+                        onItemSelectionScope(
+                            index,
+                            PaginatedReorderableListItem
+                                .selectedItemDeltaOf(context));
+                        return scopedContent;
+                      });
+                    }
                     if (onItemLayout != null) {
                       content = _LayoutRecorder(
                           onLayout: (constraints) =>
@@ -594,6 +606,96 @@ void main() {
     expect(key.currentState!.controller.position.maxScrollExtent, 300);
   });
 
+  testWidgets('only unselected items on the selected page can compact',
+      (tester) async {
+    final key = GlobalKey<PaginatedReorderableListState>();
+    final selectedItemDeltas = <int, int?>{};
+    late StateSetter setState;
+    var selectedIndex = 1;
+
+    await tester.pumpWidget(StatefulBuilder(builder: (context, setter) {
+      setState = setter;
+      return buildTestList(
+          listKey: key,
+          itemCount: 6,
+          width: 300,
+          selectedIndex: selectedIndex,
+          onItemSelectionScope: (index, value) => selectedItemDeltas[index] = value,
+          delegate:
+              const PaginatedReorderableListDelegateWithFixedMainAxisCount(
+                  mainAxisCount: 3));
+    }));
+    await tester.pump();
+
+    expect(selectedItemDeltas[0], 1);
+    expect(selectedItemDeltas[1], isNull);
+    expect(selectedItemDeltas[2], -1);
+
+    key.currentState!.jumpToPage(1);
+    await tester.pump();
+    expect(selectedItemDeltas[3], isNull);
+    expect(selectedItemDeltas[4], isNull);
+    expect(selectedItemDeltas[5], isNull);
+
+    setState(() => selectedIndex = 4);
+    await tester.pumpAndSettle();
+    expect(selectedItemDeltas[3], 1);
+    expect(selectedItemDeltas[4], isNull);
+    expect(selectedItemDeltas[5], -1);
+  });
+
+  testWidgets('item padding contracts only when content needs the space',
+      (tester) async {
+    late StateSetter setState;
+    var width = 100.0;
+    var weights = const Offset(1, 0);
+    final itemKey = GlobalKey();
+    final contentKey = GlobalKey();
+
+    await tester.pumpWidget(Directionality(
+        textDirection: TextDirection.ltr,
+        child: StatefulBuilder(builder: (context, setter) {
+          setState = setter;
+          return Center(
+              child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.ease,
+                  width: width,
+                  height: 40,
+                  child: TweenAnimationBuilder<Offset>(
+                      tween: Tween(begin: weights, end: weights),
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.ease,
+                      builder: (context, animatedWeights, child) =>
+                          PaginatedReorderableListItemPadding(
+                              key: itemKey,
+                              preferredContentExtent: 50,
+                              shrinkWeights: animatedWeights,
+                              child: child!),
+                      child: SizedBox.expand(key: contentKey))));
+        })));
+    await tester.pumpAndSettle();
+
+    double leftInset() => tester.getTopLeft(find.byKey(contentKey)).dx -
+        tester.getTopLeft(find.byKey(itemKey)).dx;
+    expect(leftInset(), 16);
+
+    setState(() => width = 70);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 175));
+    expect(leftInset(), inExclusiveRange(4, 16));
+    await tester.pumpAndSettle();
+    expect(leftInset(), closeTo(4, 0.001));
+    expect(tester.getSize(find.byKey(contentKey)).width, closeTo(50, 0.001));
+
+    setState(() => weights = Offset.zero);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 175));
+    expect(leftInset(), inExclusiveRange(4, 16));
+    await tester.pumpAndSettle();
+    expect(leftInset(), closeTo(16, 0.001));
+  });
+
   testWidgets('selected item redistributes only the gutter-adjusted page',
       (tester) async {
     final key = GlobalKey<PaginatedReorderableListState>();
@@ -780,7 +882,7 @@ void main() {
             'once, not measured again on every animation tick.');
   });
 
-  testWidgets('selected preferred extent is remeasured when content changes',
+  testWidgets('selected content size changes animate without changing selection',
       (tester) async {
     late StateSetter setState;
     var preferredExtent = 120.0;
@@ -801,9 +903,37 @@ void main() {
     setState(() => preferredExtent = 140);
     await tester.pump();
 
-    expect(tester.getSize(find.byKey(const ValueKey(0))).width, 80);
-    expect(tester.getSize(find.byKey(const ValueKey(1))).width, 140);
-    expect(tester.getSize(find.byKey(const ValueKey(2))).width, 80);
+    expect(tester.getSize(find.byKey(const ValueKey(0))).width, 90);
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width, 120);
+    expect(tester.getSize(find.byKey(const ValueKey(2))).width, 90);
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 175));
+    final midWidth = tester.getSize(find.byKey(const ValueKey(1))).width;
+    expect(midWidth, inExclusiveRange(120, 140));
+
+    setState(() => preferredExtent = 150);
+    await tester.pump();
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width,
+        closeTo(midWidth, 0.001));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 175));
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width,
+        inExclusiveRange(midWidth, 150));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byKey(const ValueKey(0))).width, 75);
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width, 150);
+    expect(tester.getSize(find.byKey(const ValueKey(2))).width, 75);
+
+    setState(() => preferredExtent = 110);
+    await tester.pump();
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width, 150);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 175));
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width,
+        inExclusiveRange(110, 150));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byKey(const ValueKey(1))).width, 110);
   });
 
   testWidgets('deleting the only item on the last page selects the prior page',

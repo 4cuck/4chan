@@ -652,18 +652,21 @@ class SiteXenforo extends ImageboardSite with ForumSite {
 	}
 
   @override
-  Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) {
-    throw UnimplementedError();
+  Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) async {
+    final posts = await getStubPosts(ThreadIdentifier(board, 0), [ParentAndChildIdentifier.same(id)], priority: priority, cancelToken: cancelToken);
+		return posts.firstWhere((p) => p.id == id);
   }
 
 	static final _absoluteSrcPattern = RegExp(r' src="//');
 	static final _relativeSrcPattern = RegExp(r' src="/');
-	String _fixRelativeUrls(String html) {
+	/// This changes every refresh. just strip it, we don't use it
+	static final _dataResultTokenPattern = RegExp(r' data-result-token="[^"]+"');
+	String _fixTextHtml(String html) {
 		return html.replaceAllMapped(_absoluteSrcPattern, (match) {
 			return ' src="https://';
 		}).replaceAllMapped(_relativeSrcPattern, (match) {
 			return ' src="https://$baseUrl/';
-		});
+		}).replaceAll(_dataResultTokenPattern, '');
 	}
 
 	String _fixRelativeUrl(String url) {
@@ -693,26 +696,12 @@ class SiteXenforo extends ImageboardSite with ForumSite {
 		final currentPageNumber = pageNavPages.tryFirstWhere((e) => e.classes.contains('pageNav-page--current'))?.text.tryParseInt ?? 1;
 		final lastPageNumber = pageNavPages.tryLast?.text.tryParseInt ?? 1;
 		final opName = _parseUsernameFromLink(document.querySelector('.p-description .username'));
-		Post generateStub(int pageNumber) => Post(
-			board: board,
-			threadId: threadId,
-			text: '',
-			// To avoid wasted memory, we only need thread.posts.first to have correct OP name
-			name: pageNumber == 1 ? opName : '',
-			time: DateTime.now(), // arbitrary
-			id: -pageNumber,
-			spanFormat: PostSpanFormat.pageStub,
-			attachments_: const [],
-			hasOmittedReplies: pageNumber != currentPageNumber || pageNumber == lastPageNumber
-		);
-		final pagesBefore = Iterable.generate(currentPageNumber, (i) => generateStub(i + 1));
-		final pagesAfter = Iterable.generate(lastPageNumber - currentPageNumber, (i) => generateStub(i + 1 + currentPageNumber));
 		final realPosts = document.querySelectorAll('article.message--post').map((e) {
 			return Post(
 				board: board,
 				threadId: threadId,
 				id: int.parse(e.id.split('-')[2]),
-				text: _fixRelativeUrls(e.querySelector('.message-body .bbWrapper')!.innerHtml),
+				text: _fixTextHtml(e.querySelector('.message-body .bbWrapper')!.innerHtml),
 				parentId: -currentPageNumber,
 				name: _parseUsernameFromLink(e.querySelector('.message-name a') ?? e.querySelector('.message-name .username')),
 				time: _parseTime(e.querySelector('.message-attribution-main time')!),
@@ -739,7 +728,21 @@ class SiteXenforo extends ImageboardSite with ForumSite {
 					);
 				}).toList(growable: false)
 			);
-		});
+		}).toList();
+		Post generateStub(int pageNumber) => Post(
+			board: board,
+			threadId: threadId,
+			text: '',
+			// To avoid wasted memory, we only need thread.posts.first to have correct OP name
+			name: pageNumber == 1 ? opName : ((pageNumber == currentPageNumber ? realPosts.tryLast?.name : null) ?? ''),
+			time: (pageNumber == currentPageNumber ? realPosts.tryLast?.time : null) ?? DateTime(2000), // arbitrary
+			id: -pageNumber,
+			spanFormat: PostSpanFormat.pageStub,
+			attachments_: const [],
+			hasOmittedReplies: pageNumber != currentPageNumber || realPosts.length < postsPerPage
+		);
+		final pagesBefore = Iterable.generate(currentPageNumber, (i) => generateStub(i + 1));
+		final pagesAfter = Iterable.generate(lastPageNumber - currentPageNumber, (i) => generateStub(i + 1 + currentPageNumber));
 		return pagesBefore.followedBy(realPosts).followedBy(pagesAfter).toList();
 	}
 
@@ -749,7 +752,7 @@ class SiteXenforo extends ImageboardSite with ForumSite {
   @override
   Future<Thread> getThreadImpl(ThreadIdentifier thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
 		// Little trick to always start loading on last page
-    final response = await client.getThreadUri(Uri.https(baseUrl, '$basePath/threads/${thread.id}/page-9999999'), priority: priority, responseType: ResponseType.plain, cancelToken: cancelToken);
+    final response = await getThreadUri(thread, Uri.https(baseUrl, '$basePath/threads/${thread.id}/page-9999999'), priority: priority, responseType: ResponseType.plain, cancelToken: cancelToken);
 		final document = parse(response.data);
 		final lastPostNumber = int.parse(_postNumberPattern.firstMatch(document.querySelectorAll('article.message--post').last.querySelectorAll('header.message-attribution li').last.text)!.group(1)!.replaceAll(',', ''));
 		final label = document.querySelector('.p-title-value .label')?.text;
@@ -971,7 +974,7 @@ class SiteXenforo extends ImageboardSite with ForumSite {
 								board: board,
 								threadId: threadId,
 								id: threadId,
-								text: _fixRelativeUrls(e.querySelector('.contentRow-snippet')!.text.trim()),
+								text: _fixTextHtml(e.querySelector('.contentRow-snippet')!.text.trim()),
 								name: name,
 								time: time,
 								spanFormat: PostSpanFormat.xenforo,
@@ -995,7 +998,7 @@ class SiteXenforo extends ImageboardSite with ForumSite {
 					board: board,
 					threadId: threadId,
 					id: int.parse(linkMatch.group(2)!),
-					text: _fixRelativeUrls(e.querySelector('.contentRow-snippet')!.text.trim()),
+					text: _fixTextHtml(e.querySelector('.contentRow-snippet')!.text.trim()),
 					name: name,
 					time: time,
 					spanFormat: PostSpanFormat.xenforo,

@@ -73,6 +73,12 @@ class ThreadDownloadService {
   final Map<String, CancelToken> _cancelTokens = {};
   // Keys where a cancel was requested before the CancelToken was registered
   final Set<String> _pendingCancels = {};
+  // Downloads inside _runDownload. Pending rows not in this set are stuck
+  // in the queue and can be opened, cancelled, or retried.
+  final Set<String> _activeDownloads = {};
+  // Updates that were interrupted by the last process death. They are stored
+  // as complete so they stay openable, then resumed after the pending queue.
+  final List<DownloadedThread> _interruptedUpdates = [];
 
   StreamSubscription<PersistentThreadState>? _threadStateSubscription;
   static Timer? _autoSyncTimer;
@@ -98,12 +104,18 @@ class ThreadDownloadService {
     final box = Hive.box<DownloadedThread>(_boxName);
     final downloadsDir = Persistence.downloadsDirectory;
     instance = ThreadDownloadService._(box, downloadsDir);
-    // Reset any interrupted downloads to pending so resumePending() can restart them
+    // Reset interrupted work so resumePending() can restart it.
+    // An in-progress update already has a complete local copy — putting it
+    // back on "Queued..." blocks opening and refreshing. Keep it complete and
+    // resume the update after first-time downloads.
     for (final record in box.values) {
-      if (record.status == DownloadStatus.downloading ||
-          record.status == DownloadStatus.updating) {
+      if (record.status == DownloadStatus.downloading) {
         record.status = DownloadStatus.pending;
         if (record.isInBox) await record.save();
+      } else if (record.status == DownloadStatus.updating) {
+        record.status = DownloadStatus.complete;
+        if (record.isInBox) await record.save();
+        instance._interruptedUpdates.add(record);
       }
       // Migration: reset threads that failed due to the null-int hot-reload bug
       // (downloadInterFileDelayMs was null in memory after a hot-reload).
@@ -140,8 +152,24 @@ class ThreadDownloadService {
       }
       final imageboard =
           ImageboardRegistry.instance.getImageboard(record.imageboardKey);
-      if (imageboard == null) continue;
+      if (imageboard == null) {
+        // Leaving these pending forever is what stuck rows on "Queued..."
+        // with no way to open or refresh them.
+        record.status = DownloadStatus.failed;
+        record.errorMessage = 'Site not available';
+        if (record.isInBox) await record.save();
+        continue;
+      }
       await _runDownload(record, imageboard.site);
+    }
+    final interrupted = List<DownloadedThread>.of(_interruptedUpdates);
+    _interruptedUpdates.clear();
+    for (final record in interrupted) {
+      if (!record.isInBox || record.status != DownloadStatus.complete) continue;
+      final imageboard =
+          ImageboardRegistry.instance.getImageboard(record.imageboardKey);
+      if (imageboard == null) continue;
+      await updateThread(record.identifier, imageboard.site, record.imageboardKey);
     }
     // Backfill isLockedOnServer for records that pre-date field 19.
     // Runs fire-and-forget so it never delays the launch critical path.
@@ -331,7 +359,13 @@ class ThreadDownloadService {
       if (record.pendingDeletionAt != null) return;
       if (record.status == DownloadStatus.downloading ||
           record.status == DownloadStatus.updating ||
-          record.status == DownloadStatus.pending) {
+          _activeDownloads.contains(key)) {
+        return;
+      }
+      if (record.status == DownloadStatus.pending) {
+        // Queued but nothing is running (startup skip, or a hung earlier
+        // item). Start it instead of ignoring the refresh.
+        shouldRun = true;
         return;
       }
       record.status = DownloadStatus.updating;
@@ -349,7 +383,23 @@ class ThreadDownloadService {
     final key = _key(imageboardKey, id);
     // Mark pending cancel so _runDownload sees it before CancelToken is created
     _pendingCancels.add(key);
-    _cancelTokens[key]?.cancel('User cancelled');
+    final token = _cancelTokens[key];
+    if (token != null) {
+      token.cancel('User cancelled');
+      return;
+    }
+    // Nothing is running. A pending row would otherwise stay on "Queued..."
+    // because the cancel flag is only consumed inside _runDownload.
+    final record = _box.get(key);
+    if (record != null &&
+        record.isInBox &&
+        (record.status == DownloadStatus.pending ||
+            record.status == DownloadStatus.downloading ||
+            record.status == DownloadStatus.updating)) {
+      record.status = DownloadStatus.cancelled;
+      record.errorMessage = null;
+      unawaited(record.save());
+    }
   }
 
   /// Delete all local files and the DB record for a thread.
@@ -1472,17 +1522,28 @@ class ThreadDownloadService {
       }
 
       // Guard: another operation may have completed before we got the lock
-      if (!record.isInBox || record.status == DownloadStatus.complete) return;
+      if (!record.isInBox ||
+          record.status == DownloadStatus.complete ||
+          record.status == DownloadStatus.cancelled) {
+        return;
+      }
 
       // Track whether this is a re-download of a previously complete thread
       // (status = updating) vs. an initial download. Used later to decide
       // whether a transient network error should reset back to complete.
       final wasUpdating = record.status == DownloadStatus.updating;
+      _activeDownloads.add(key);
+      final cancelToken = CancelToken();
+      _cancelTokens[key] = cancelToken;
+      // Leave "Queued..." as soon as this row is actually running, including
+      // while the thread JSON is still loading.
+      if (record.status == DownloadStatus.pending && record.isInBox) {
+        record.status = DownloadStatus.downloading;
+        await record.save();
+      }
 
       print(
           '[ThreadDownloader] START: ${record.boxKey} status=${record.status}');
-      final cancelToken = CancelToken();
-      _cancelTokens[key] = cancelToken;
 
       try {
         final runStart = DateTime.now();
@@ -2196,6 +2257,7 @@ class ThreadDownloadService {
         }
         if (record.isInBox) await record.save();
       } finally {
+        _activeDownloads.remove(key);
         _cancelTokens.remove(key);
         _pendingCancels.remove(key);
         // Mutex is NOT removed here: removing it while a second waiter

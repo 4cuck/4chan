@@ -72,14 +72,18 @@ class Imageboard extends ChangeNotifier {
 		try {
 			final newSite = makeSite(siteData);
 			if (newSite != _site) {
+				bool shouldRefreshBoards = false;
 				if (_site != null) {
-					newSite.migrateFromPrevious(_site!);
+					shouldRefreshBoards = newSite.migrateFromPrevious(_site!);
 					_site!.dispose();
 				}
 				_site = newSite;
 				site.imageboard = this;
 				site.initState();
 				notifyListeners();
+				if (shouldRefreshBoards) {
+					refreshBoards();
+				}
 			}
 		}
 		catch (e, st) {
@@ -422,8 +426,11 @@ class Imageboard extends ChangeNotifier {
 									),
 									AdaptiveDialogAction(
 										child: const Text('Clear cookies'),
-										onPressed: () {
-											Persistence.clearCookies(fromWifi: null);
+										onPressed: () async {
+											final sure = await confirm(context, 'Really clear?', actionName: 'Clear', content: 'Be careful, this may do more harm than good...');
+											if (sure) {
+												await Persistence.clearCookies(fromWifi: null);
+											}
 										}
 									),
 									AdaptiveDialogAction(

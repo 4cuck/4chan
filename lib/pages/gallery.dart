@@ -17,6 +17,7 @@ import 'package:chan/services/persistence.dart';
 import 'package:chan/services/reverse_image_search.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/share.dart';
+import 'package:chan/services/soundposts.dart';
 import 'package:chan/services/status_bar.dart';
 import 'package:chan/services/storage.dart';
 import 'package:chan/services/theme.dart';
@@ -77,6 +78,7 @@ class GalleryPage extends StatefulWidget {
   final List<TaggedAttachment> attachments;
   final Map<Attachment, Uri> initialGoodSources;
   final Map<Attachment, Uri> overrideSources;
+	final Map<Attachment, String> overrideFilenames;
   final PostSpanZoneData? zone;
   final Map<Attachment, ImageboardScoped<Thread>> threads;
   final Map<Attachment, ImageboardScoped<Post>> posts;
@@ -101,6 +103,7 @@ class GalleryPage extends StatefulWidget {
   const GalleryPage({
     required this.attachments,
     this.overrideSources = const {},
+		this.overrideFilenames = const {},
     this.initialGoodSources = const {},
     this.zone,
     this.threads = const {},
@@ -440,6 +443,7 @@ class _GalleryPageState extends State<GalleryPage> {
         imageboard: attachment.imageboard,
         isPrimary: attachment == currentAttachment,
         overrideSource: widget.overrideSources[attachment.attachment],
+				overrideFilename: widget.overrideFilenames[attachment.attachment],
         initialGoodSource: widget.initialGoodSources[attachment.attachment],
         isDownloaded: _isAttachmentAlreadyDownloaded(attachment.attachment),
         onDownloaded: () => _onAttachmentDownload(attachment.attachment),
@@ -503,6 +507,9 @@ class _GalleryPageState extends State<GalleryPage> {
         ),
       );
     }
+		if (pageController.activityIsIdle) {
+			_onPageSettled();
+		}
   }
 
   Future<void> _animateToPage(
@@ -589,6 +596,14 @@ class _GalleryPageState extends State<GalleryPage> {
       _shouldShowPosition.value = false;
     }
   }
+
+	void _onPageSettled() {
+		for (final c in _controllers.entries) {
+			if (c.key != currentAttachment) {
+				c.value.softReset();
+			}
+		}
+	}
 
   Future<void> _downloadAll({bool saveAs = false}) async {
     final List<TaggedAttachment> toDownload;
@@ -691,7 +706,7 @@ class _GalleryPageState extends State<GalleryPage> {
             MediaQuery.sizeOf(context).height,
       );
     }
-    if (currentController.attachment.type.usesVideoPlayer) {
+    if (currentController.attachment.usesVideoPlayer) {
       return (72 + MediaQuery.paddingOf(context).bottom) /
           MediaQuery.sizeOf(context).height;
     }
@@ -741,7 +756,7 @@ class _GalleryPageState extends State<GalleryPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (currentController.attachment.type.usesVideoPlayer)
+              if (currentController.attachment.usesVideoPlayer)
                 SafeArea(
                   top: false,
                   bottom: false,
@@ -1060,7 +1075,7 @@ class _GalleryPageState extends State<GalleryPage> {
           ),
         );
         return Padding(
-          padding: !currentController.attachment.type.usesVideoPlayer
+          padding: !currentController.attachment.usesVideoPlayer
               ? const EdgeInsets.only(top: 44)
               : EdgeInsets.zero,
           child: SingleChildScrollView(
@@ -1139,18 +1154,23 @@ class _GalleryPageState extends State<GalleryPage> {
                             currentAttachment.attachment.sizeInBytes!,
                           ),
                       ];
+								final overrideEllipsized = currentController.overrideFilename?.ellipsizeIfLonger(50, ellipsis: '...');
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),
                         child: GestureDetector(
                           onTap:
-                              currentAttachment.attachment.ellipsizedFilename ==
+                              (overrideEllipsized ??
+                                      currentAttachment
+                                          .attachment
+                                          .ellipsizedFilename) ==
                                   null
                               ? null
                               : () {
                                   alert(
                                     context,
                                     'Full filename',
-                                    currentAttachment.attachment.filename,
+                                    currentController.overrideFilename ??
+                                        currentAttachment.attachment.filename,
                                     selectable: true,
                                   );
                                 },
@@ -1158,7 +1178,7 @@ class _GalleryPageState extends State<GalleryPage> {
                             currentAttachment.attachment.type ==
                                     AttachmentType.url
                                 ? currentAttachment.attachment.url.toString()
-                                : "${currentAttachment.attachment.ellipsizedFilename ?? currentAttachment.attachment.filename}${metadataParts.isEmpty ? '' : ' (${metadataParts.join(', ')})'}",
+                                : "${overrideEllipsized ?? currentController.overrideFilename ?? currentAttachment.attachment.ellipsizedFilename ?? currentAttachment.attachment.filename}${metadataParts.isEmpty ? '' : ' (${metadataParts.join(', ')})'}",
                             minFontSize: 8,
                             maxLines: 3,
                           ),
@@ -1540,7 +1560,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                                   ).bottom)) -
                                         (currentController
                                                 .attachment
-                                                .type
                                                 .usesVideoPlayer
                                             ? 0
                                             : 44) -
@@ -1556,7 +1575,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                       (!widget.showScrollSheet &&
                                           currentController
                                               .attachment
-                                              .type
                                               .usesVideoPlayer)
                                       ? 72.0
                                       : layoutInsets.bottom,
@@ -2034,7 +2052,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                                     ).bottom)) -
                                           (currentController
                                                   .attachment
-                                                  .type
                                                   .usesVideoPlayer
                                               ? 0
                                               : 44),
@@ -2044,7 +2061,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                       height:
                                           (currentController
                                                   .attachment
-                                                  .type
                                                   .usesVideoPlayer
                                               ? 72.0
                                               : layoutInsets.bottom) +
@@ -2064,7 +2080,7 @@ class _GalleryPageState extends State<GalleryPage> {
                         builder: (context, _) => Visibility(
                           visible:
                               showChrome &&
-                              currentController.attachment.type.usesVideoPlayer,
+                              currentController.attachment.usesVideoPlayer,
                           child: Align(
                             alignment: Alignment.bottomCenter,
                             child: Container(

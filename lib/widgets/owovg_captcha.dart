@@ -166,7 +166,7 @@ Future<bool> showOwoVgCaptchaDialog({
 		builder: (dialogContext) => OverscrollModalPage(
 			increasePopDifficulty: true,
 			disableOverscrollPop: true,
-			child: Captcha4ChanCustom(
+			child: Captcha4ChanCustomPage(
 				site: site,
 				request: request,
 				initialChallenge: challenge,

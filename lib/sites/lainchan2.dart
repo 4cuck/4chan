@@ -153,7 +153,7 @@ class SiteLainchan2 extends SiteLainchanOrg {
 		if (imageThumbnailExtension != '' && !boardsWithHtmlOnlyFlags.contains(thread.board)) {
 			return broken;
 		}
-		final response2 = await client.getThreadUri(Uri.https(baseUrl, '$basePath/${thread.board}/$res/${thread.id}.html'), priority: priority, responseType: ResponseType.plain, cancelToken: cancelToken);
+		final response2 = await getThreadUri(thread, Uri.https(baseUrl, '$basePath/${thread.board}/$res/${thread.id}.html'), priority: priority, responseType: ResponseType.plain, cancelToken: cancelToken);
 		final document = parse(response2.data);
 		final thumbnailUrls = document.querySelectorAll('img.post-image').map((e) => e.attributes['src']).toList();
 		for (final attachment in broken.posts_.expand((p) => p.attachments)) {
@@ -244,9 +244,9 @@ class SiteLainchan2 extends SiteLainchanOrg {
 	}
 
 	@override
-	void migrateFromPrevious(SiteLainchan2 oldSite) {
-		super.migrateFromPrevious(oldSite);
+	bool migrateFromPrevious(SiteLainchan2 oldSite) {
 		_boardFlags.addAll(oldSite._boardFlags);
+		return super.migrateFromPrevious(oldSite);
 	}
 
 	@override

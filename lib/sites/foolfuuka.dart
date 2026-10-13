@@ -291,11 +291,11 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 	}
 	Future<Map> _getPostJson(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) async {
 		if (!(await getBoards(priority: priority, cancelToken: cancelToken)).any((b) => b.name == board)) {
-			throw BoardNotFoundException(board);
+			throw BoardNotFoundException(this, board);
 		}
 		if (id == 0) {
 			// FoolFuuka engine doesn't handle this properly
-			throw PostNotFoundException(board, id);
+			throw PostNotFoundException(this, board, id);
 		}
 		final response = await client.getUri(
 			Uri.https(baseUrl, '/_/api/chan/post', {
@@ -312,13 +312,13 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 		);
 		if (response.statusCode != 200) {
 			if (response.statusCode == 404) {
-				throw PostNotFoundException(board, id);
+				throw PostNotFoundException(this, board, id);
 			}
 			throw HTTPStatusException.fromResponse(response);
 		}
 		if (response.data case {'error': String error}) {
 			if (error == 'Post not found.') {
-				throw PostNotFoundException(board, id);
+				throw PostNotFoundException(this, board, id);
 			}
 			throw FoolFuukaException(error);
 		}
@@ -346,9 +346,6 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 	@override
 	Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) async {		
 		return await _makePost(await _getPostJson(board, id, priority: priority, cancelToken: cancelToken), priority: priority, cancelToken: cancelToken);
-	}
-	Future<Thread> getThreadContainingPost(String board, int id) async {
-		throw Exception('Unimplemented');
 	}
 	Future<Thread> _makeThread(ThreadIdentifier thread, Map data, {int? currentPage, required RequestPriority priority, CancelToken? cancelToken}) async {
 		final threadData = data[thread.id.toString()] as Map;
@@ -381,9 +378,10 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 	@override
 	Future<Thread> getThread(ThreadIdentifier thread, {ThreadVariant? variant, required RequestPriority priority, CancelToken? cancelToken}) async {
 		if (!(await getBoards(priority: priority, cancelToken: cancelToken)).any((b) => b.name == thread.board)) {
-			throw BoardNotFoundException(thread.board);
+			throw BoardNotFoundException(this, thread.board);
 		}
-		final response = await client.getThreadUri(
+		final response = await getThreadUri(
+			thread,
 			Uri.https(baseUrl, '/_/api/chan/thread', {
 				'board': thread.board,
 				'num': thread.id.toString()
@@ -464,7 +462,7 @@ class FoolFuukaArchive extends ImageboardSiteArchive {
 		final knownBoards = await getBoards(priority: RequestPriority.interactive);
 		final unknownBoards = query.boards.where((b) => !knownBoards.any((kb) => kb.name == b));
 		if (unknownBoards.isNotEmpty) {
-			throw BoardNotFoundException(unknownBoards.first);
+			throw BoardNotFoundException(this, unknownBoards.first);
 		}
 		// Don't put <Map> here. We will fail in DioMixin.assureResponse if the page gives us HTML error
 		final response = await client.getUri(

@@ -649,7 +649,7 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 		), cancelToken: cancelToken);
 		if (response.statusCode != 200) {
 			if (response.statusCode == 404) {
-				return Future.error(BoardNotFoundException(board));
+				return Future.error(BoardNotFoundException(this, board));
 			}
 			else {
 				return Future.error(HTTPStatusException.fromResponse(response));
@@ -1597,9 +1597,9 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	}
 
 	@override
-	void migrateFromPrevious(Site4Chan oldSite) {
-		super.migrateFromPrevious(oldSite);
+	bool migrateFromPrevious(Site4Chan oldSite) {
 		_boardFlags.addAll(oldSite._boardFlags);
+		return super.migrateFromPrevious(oldSite);
 	}
 }
 

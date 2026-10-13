@@ -273,13 +273,19 @@ class ReplyBoxState extends State<ReplyBox> {
         _updateNeededPosts();
       });
 
-  Future<void> _addAttachment(File file) => _attachmentsLock.protect(() async {
+	Future<void> _addAttachment(File file, {
+		String? overrideFilenameWithoutExtension
+	}) => _attachmentsLock.protect(() async {
         bool retry;
         do {
           retry = false;
           try {
-            final attachment =
-                await _makeAttachment(null, file, checkForDuplicateFile: true);
+            final attachment = await _makeAttachment(
+              null,
+              file,
+              checkForDuplicateFile: true,
+              filenameWithoutExtension: overrideFilenameWithoutExtension,
+            );
             if (!mounted || attachment == null) {
               return;
             }
@@ -428,7 +434,7 @@ class ReplyBoxState extends State<ReplyBox> {
       }
       return null;
     });
-    if (rawUrl != _lastFoundUrl && rawUrl != null) {
+		if (rawUrl != null && _lastFoundUrl?.startsWith(rawUrl) != true) {
       try {
         _lastFoundUrl = rawUrl; // Avoid race
         final response =
@@ -451,7 +457,7 @@ class ReplyBoxState extends State<ReplyBox> {
       }
     } else {
       final possibleEmbed = findEmbedUrl(_textFieldController.text);
-      if (possibleEmbed != _lastFoundUrl && possibleEmbed != null) {
+			if (possibleEmbed != null && _lastFoundUrl?.startsWith(possibleEmbed) != true) {
         final embedData = await loadEmbedData(possibleEmbed, highQuality: true, priority: RequestPriority.interactive);
         if (_textFieldController.text != original) {
           // Text changed
@@ -633,9 +639,15 @@ class ReplyBoxState extends State<ReplyBox> {
             message: 'Cross-thread reply!',
             icon: CupertinoIcons.exclamationmark_triangle);
       }
+			final wasOpen = _show;
       showReplyBox();
       _postInBackground();
-      _insertText('>>$id');
+			final quotelink = '>>$id';
+			if (wasOpen || !_textFieldController.text.contains(quotelink)) {
+				// Don't insert more quotelinks, some people use "Reply" action to open
+				// the reply box
+				_insertText(quotelink);	
+			}
     }
   }
 
@@ -871,6 +883,7 @@ class ReplyBoxState extends State<ReplyBox> {
             // No extension
             final scan = await MediaScan.scan(file.uri);
             // Rename it with extension
+            await Persistence.shareCacheDirectory.create(recursive: true);
             file = await file.copy(Persistence.shareCacheDirectory
                 .child('${file.uri.pathSegments.last}.${scan.guessExtension}'));
           }
@@ -939,6 +952,7 @@ class ReplyBoxState extends State<ReplyBox> {
           if (scan.forceFormat == 'mjpeg') {
             // TODO: Just check codec. so it applies to all renames?
             // Wrong file extension, rename it
+            await Persistence.shareCacheDirectory.create(recursive: true);
             file = await file.copy(Persistence.shareCacheDirectory
                 .child('${file.uri.pathSegments.last}.jpeg'));
             ext = 'jpg';
@@ -2866,8 +2880,9 @@ class ReplyBoxState extends State<ReplyBox> {
                                           return;
                                         }
                                         String filename = Uri.parse(content.uri)
-                                            .pathSegments
-                                            .last;
+                                                .pathSegments
+                                                .tryLast ??
+                                            'Pasted file';
                                         if (!filename.contains('.')) {
                                           filename +=
                                               '.${content.mimeType.afterLast('/')}';
@@ -3394,20 +3409,17 @@ class ReplyBoxState extends State<ReplyBox> {
                                                               setState(() {});
                                                               // Local [context] is not safe. It will die when we go to 'Picking'
                                                               try {
-                                                                final paths = await picker.pick(
-                                                                    this
-                                                                        .context,
-                                                                    board.filesPerPost >
-                                                                            1 ||
-                                                                        _attachments
-                                                                            .isNotEmpty);
-                                                                if (paths
-                                                                    .isNotEmpty) {
-                                                                  for (final path
-                                                                      in paths) {
+                                                                final files = await picker.pick(
+                                                                    this.context,
+                                                                    board.filesPerPost > 1 ||
+                                                                        _attachments.isNotEmpty);
+                                                                if (files.isNotEmpty) {
+                                                                  for (final file in files) {
                                                                     await _addAttachment(
-                                                                        File(
-                                                                            path));
+                                                                      File(file.path),
+                                                                      overrideFilenameWithoutExtension:
+                                                                          file.overrideFilenameWithoutExtension,
+                                                                    );
                                                                   }
                                                                 } else {
                                                                   _attachmentProgress =
