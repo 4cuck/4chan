@@ -2897,6 +2897,27 @@ class ThreadPageState extends State<ThreadPage> {
                                     if (_listController.state?.originalList !=
                                         null) {
                                       if (options.source.manual) {
+                                        if (downloadStatus != null) {
+                                          final saved =
+                                              await ThreadDownloadService
+                                                  .instance
+                                                  .saveThreadFile(
+                                            downloadStatus,
+                                            thread: persistentState.thread,
+                                          );
+                                          if (mounted) {
+                                            showToast(
+                                              context: context,
+                                              message: saved
+                                                  ? 'Saved thread file'
+                                                  : 'Could not save thread file',
+                                              icon: saved
+                                                  ? CupertinoIcons.doc_text
+                                                  : CupertinoIcons
+                                                      .exclamationmark_triangle,
+                                            );
+                                          }
+                                        }
                                         await Future.delayed(
                                           const Duration(milliseconds: 650),
                                         );

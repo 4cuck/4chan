@@ -992,6 +992,7 @@ class AttachmentViewerController extends ChangeNotifier {
             url,
             headers: getHeaders(url),
             extraCookie: site.getExtraCookie(url),
+            deduplicateCookie: site.requiresCookieDeduplication,
           );
           if (_isDisposed) {
             return;
@@ -1055,6 +1056,7 @@ class AttachmentViewerController extends ChangeNotifier {
             url,
             headers: getHeaders(url),
             extraCookie: site.getExtraCookie(url),
+            deduplicateCookie: site.requiresCookieDeduplication,
             soundSource: soundSource,
           );
           final result = await _ongoingConversion!.start(force: force);

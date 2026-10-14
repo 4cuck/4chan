@@ -369,6 +369,18 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
   Future<void> _update(DownloadedThread d) async {
     final imageboard =
         ImageboardRegistry.instance.getImageboard(d.imageboardKey);
+    if (d.isArchivedOnServer) {
+      final saved = await ThreadDownloadService.instance.saveThreadFile(d);
+      if (mounted) {
+        showToast(
+          context: context,
+          message: saved ? 'Saved thread file' : 'Could not save thread file',
+          icon: saved
+              ? CupertinoIcons.doc_text
+              : CupertinoIcons.exclamationmark_triangle,
+        );
+      }
+    }
     if (imageboard == null) return;
     await ThreadDownloadService.instance
         .updateThread(d.identifier, imageboard.site, d.imageboardKey);
@@ -396,6 +408,17 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                 : d.status == DownloadStatus.failed ||
                     d.status == DownloadStatus.pending))
         .toList();
+    // Dead threads are not refetched. Rewrite thread_data.html from the
+    // comments the app already has, which may be ahead of the last download.
+    final archived = _downloads
+        .where((d) =>
+            d.isArchivedOnServer &&
+            d.pendingDeletionAt == null &&
+            d.status == DownloadStatus.complete)
+        .toList();
+    for (final d in archived) {
+      await ThreadDownloadService.instance.saveThreadFile(d);
+    }
     for (final d in toUpdate) {
       final imageboard =
           ImageboardRegistry.instance.getImageboard(d.imageboardKey);
@@ -1653,7 +1676,7 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
               d.status == DownloadStatus.cancelled ||
               d.status == DownloadStatus.pending)
             AdaptiveActionSheetAction(
-              child: const Text('Update'),
+              child: Text(d.isArchivedOnServer ? 'Save thread file' : 'Update'),
               onPressed: () {
                 Navigator.pop(popupContext);
                 widget.onUpdate();

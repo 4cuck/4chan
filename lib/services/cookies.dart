@@ -71,7 +71,7 @@ Future<List<StoredCookie>> loadAllCookies(CookieJar jar) async {
 					continue;
 				}
 				try {
-					jar.hostCookies[host] = _decodeStoredCookiePaths(stored);
+					jar.hostCookies[host] = _decodeStoredCookiePaths(stored, cookieParser: jar.cookieParser);
 				}
 				on Object {
 					if (jar.deleteHostCookiesWhenLoadFailed) {
@@ -107,7 +107,7 @@ Future<List<StoredCookie>> loadAllCookies(CookieJar jar) async {
 	];
 }
 
-Map<String, Map<String, SerializableCookie>> _decodeStoredCookiePaths(String stored) {
+Map<String, Map<String, SerializableCookie>> _decodeStoredCookiePaths(String stored, {Cookie Function(String)? cookieParser}) {
 	final decoded = json.decode(stored);
 	if (decoded is! Map) {
 		throw const FormatException('Invalid persisted cookie host');
@@ -122,7 +122,7 @@ Map<String, Map<String, SerializableCookie>> _decodeStoredCookiePaths(String sto
 			if (cookieEntry.key is! String || cookieEntry.value is! String) {
 				throw const FormatException('Invalid persisted cookie');
 			}
-			cookies[cookieEntry.key as String] = SerializableCookie.fromJson(cookieEntry.value as String);
+			cookies[cookieEntry.key as String] = SerializableCookie.fromJson(cookieEntry.value as String, cookieParser: cookieParser);
 		}
 		paths[pathEntry.key as String] = cookies;
 	}
@@ -215,6 +215,11 @@ Future<void> _persistAllCookies(PersistCookieJar jar) async {
 }
 
 class SeparatedCookieManager extends InterceptorBase {
+	final bool deduplicate;
+
+	SeparatedCookieManager({
+		required this.deduplicate
+	});
 
   CookieJar get cookieJar => Persistence.currentCookies;
 
@@ -226,7 +231,7 @@ class SeparatedCookieManager extends InterceptorBase {
     }, toRemove: switch (options.extra[kExcludeCookies]) {
       List<String> exclude => exclude,
       _ => []
-    });
+    }, deduplicate: deduplicate);
     if (cookie.isNotEmpty) {
       options.headers[HttpHeaders.cookieHeader] = cookie;
     }
@@ -258,12 +263,14 @@ class SeparatedCookieManager extends InterceptorBase {
     }
   }
 
-  static Future<String> getCookies(Uri uri, String extraCookie, {List<String> toRemove = const []}) async {
+  static Future<String> getCookies(Uri uri, String extraCookie, {required bool deduplicate, List<String> toRemove = const []}) async {
     final cookies = await Persistence.currentCookies.loadForRequest(uri);
     cookies.removeWhere((c) => toRemove.contains(c.name));
-    // Only keep first cookie (host specific) if there is a second (domain wide)
-    final dedupe = <String, Cookie>{};
-    cookies.removeWhere((c) => (dedupe[c.name] ??= c) != c);
+		if (deduplicate) {
+			// Only keep first cookie (host specific) if there is a second (domain wide)
+			final dedupe = <String, Cookie>{};
+			cookies.removeWhere((c) => (dedupe[c.name] ??= c) != c);
+		}
     final cookie = cookies.map((cookie) => '${cookie.name}=${cookie.value}').join('; ');
     return [
       if (extraCookie.isNotEmpty) extraCookie,
@@ -482,28 +489,11 @@ class MyCookie implements Cookie {
   }
 
   static String _validateValue(String newValue) {
-    // Per RFC 6265, consider surrounding "" as part of the value, but otherwise
-    // double quotes are not allowed.
-    int start = 0;
-    int end = newValue.length;
-    if (2 <= newValue.length &&
-        newValue.codeUnits[start] == 0x22 &&
-        newValue.codeUnits[end - 1] == 0x22) {
-      start++;
-      end--;
-    }
-
-    for (int i = start; i < end; i++) {
-      int codeUnit = newValue.codeUnits[i];
-      if (!(codeUnit == 0x21 ||
-          (codeUnit >= 0x23 && codeUnit <= 0x2B) ||
-          (codeUnit >= 0x2D && codeUnit <= 0x3A) ||
-          (codeUnit >= 0x3C && codeUnit <= 0x5B) ||
-          (codeUnit >= 0x5D && codeUnit <= 0x7E))) {
-				if (codeUnit == 32 || codeUnit == 44) {
-					// Allow " ", "," for lynxchan captcha.js
-					continue;
-				}
+    // Preserve browser values, including raw JSON quotes and backslashes.
+    // Semicolons delimit cookies; controls cannot enter HTTP headers.
+    for (int i = 0; i < newValue.length; i++) {
+      final codeUnit = newValue.codeUnitAt(i);
+      if (codeUnit < 0x20 || codeUnit >= 0x7F || codeUnit == 0x3B) {
         throw FormatException(
             "Invalid character in cookie value, code unit: '$codeUnit'",
             newValue,

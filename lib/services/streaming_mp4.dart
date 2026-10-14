@@ -813,6 +813,7 @@ class StreamingMP4Conversion {
 	final Uri inputFile;
 	final Map<String, String> headers;
 	final String extraCookie;
+	final bool deduplicateCookie;
 	final (Uri, Map<String, String>, String)? soundSource;
 
 	MediaConversion? _streamingConversion;
@@ -824,6 +825,7 @@ class StreamingMP4Conversion {
 	StreamingMP4Conversion(this.client, this.inputFile, {
 		required this.headers,
 		required this.extraCookie,
+		required this.deduplicateCookie,
 		this.soundSource
 	});
 
@@ -882,15 +884,15 @@ class StreamingMP4Conversion {
 			);
 		}
 		else if (['jpg', 'jpeg', 'png', 'webm'].contains(inputExtension) && (soundSource != null || Platform.isAndroid)) {
-			final scan = await MediaScan.scan(inputFile, headers: headers, extraCookie: extraCookie);
-			final conversion = _directConversion = MediaConversion.toWebm(inputFile, headers: headers, extraCookie: extraCookie, soundSource: soundSource, stripAudio: false, copyStreams: soundSource != null && inputExtension == 'webm');
+			final scan = await MediaScan.scan(inputFile, headers: headers, extraCookie: extraCookie, deduplicateCookie: deduplicateCookie);
+			final conversion = _directConversion = MediaConversion.toWebm(inputFile, headers: headers, extraCookie: extraCookie, deduplicateCookie: deduplicateCookie, soundSource: soundSource, stripAudio: false, copyStreams: soundSource != null && inputExtension == 'webm');
 			return StreamingMP4ConvertingFile(
 				mp4File: conversion.start().then((r) => r.file),
 				hasAudio: scan.hasAudio || soundSource != null,
 				progress: conversion.progress
 			);
 		}
-		final mp4Conversion = MediaConversion.toMp4(inputFile, headers: headers, extraCookie: extraCookie, soundSource: soundSource);
+		final mp4Conversion = MediaConversion.toMp4(inputFile, headers: headers, extraCookie: extraCookie, deduplicateCookie: deduplicateCookie, soundSource: soundSource);
 		final existingResult = await mp4Conversion.getDestinationIfSatisfiesConstraints();
 		if (existingResult != null) {
 			return StreamingMP4ConvertedFile(existingResult.file, existingResult.hasAudio);
@@ -917,6 +919,7 @@ class StreamingMP4Conversion {
 			inputFile,
 			headers: headers,
 			extraCookie: extraCookie,
+			deduplicateCookie: deduplicateCookie,
 			soundSource: soundSource,
 			copyStreams: inputExtension == 'm3u8' || (soundSource != null && inputExtension == 'mp4')
 		);

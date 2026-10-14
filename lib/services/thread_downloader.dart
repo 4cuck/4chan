@@ -1558,6 +1558,13 @@ class ThreadDownloadService {
               '[ThreadDownloader][TIMING] getThread: ${DateTime.now().difference(runStart).inMilliseconds}ms for ${record.boxKey}');
         }
 
+        // Keep comments the app already has. A last-N refetch must not
+        // replace a longer local thread, or thread_data.html loses posts.
+        final cachedBeforeFetch = await Persistence.getCachedThread(
+            record.imageboardKey, record.board, record.threadId);
+        if (cachedBeforeFetch != null) {
+          _keepPostsMissingFrom(thread, cachedBeforeFetch);
+        }
         // 1b. Persist thread data so offline viewer can display it without network
         await Persistence.setCachedThread(
             record.imageboardKey, record.board, record.threadId, thread);
@@ -2205,6 +2212,13 @@ class ThreadDownloadService {
       } on ThreadNotFoundException {
         if (record.status == DownloadStatus.updating) {
           // Thread was deleted/archived server-side during an update run.
+          // The app may already be showing comments that never made it into
+          // thread_data.html while the download was stuck. Write those now.
+          try {
+            await saveThreadFile(record);
+          } catch (e) {
+            print('[ThreadDownloader] saveThreadFile after 404 failed: $e');
+          }
           // Keep the data intact - just mark archived so the UI can open it offline.
           record.isArchivedOnServer = true;
           record.status = DownloadStatus.complete;
@@ -2411,6 +2425,76 @@ class ThreadDownloadService {
         .toList();
     for (final record in toDelete) {
       await permanentDelete(record.identifier, record.imageboardKey);
+    }
+  }
+
+  /// Write [thread_data.html] from the thread the app already has.
+  ///
+  /// Dead threads cannot be refetched, but the on-screen comments often got
+  /// further than the last successful download. This stores that copy.
+  Future<bool> saveThreadFile(DownloadedThread record, {Thread? thread}) async {
+    final cached = await Persistence.getCachedThread(
+      record.imageboardKey,
+      record.board,
+      record.threadId,
+    );
+    final source = thread ?? cached;
+    if (source == null || source.posts_.isEmpty) return false;
+    if (thread != null && cached != null && !identical(thread, cached)) {
+      _keepPostsMissingFrom(source, cached);
+      _keepPostsMissingFrom(source, thread);
+    }
+    final threadDir = _threadDirFor(record);
+    await threadDir.create(recursive: true);
+    final htmlFile = File('${threadDir.path}/thread_data.html');
+    await htmlFile.writeAsString(generateThreadHtml(source));
+    if (cached == null || source.posts_.length > cached.posts_.length) {
+      await Persistence.setCachedThread(
+        record.imageboardKey,
+        record.board,
+        record.threadId,
+        source,
+      );
+    }
+    await _uploadThreadHtmlIfNeeded(record, htmlFile);
+    record.lastUpdatedAt = DateTime.now();
+    if (record.isInBox) await record.save();
+    return true;
+  }
+
+  void _keepPostsMissingFrom(Thread into, Thread from) {
+    if (identical(into, from)) return;
+    final have = {for (final post in into.posts_) post.id};
+    final missing = [
+      for (final post in from.posts_)
+        if (!have.contains(post.id)) post,
+    ];
+    if (missing.isEmpty) return;
+    into.posts_.addAll(missing);
+    into.posts_.sort((a, b) => a.id.compareTo(b.id));
+  }
+
+  Future<void> _uploadThreadHtmlIfNeeded(DownloadedThread record, File htmlFile) async {
+    if (!Persistence.settings.copypartyEnabled) return;
+    if (!htmlFile.existsSync()) return;
+    final serverUrl = Persistence.settings.copypartyServerUrl;
+    if (serverUrl.isEmpty) return;
+    final destRoot = Persistence.settings.copypartyDestRoot;
+    final baseDestRoot = destRoot.endsWith('/')
+        ? destRoot.substring(0, destRoot.length - 1)
+        : destRoot;
+    final password = await storage.read(key: 'copypartyPassword') ?? '';
+    final remotePath =
+        '$baseDestRoot/${record.imageboardKey}/${record.board}/${record.threadId}/thread_data.html';
+    try {
+      await CopyPartySyncService.instance.putFile(
+        file: htmlFile,
+        remoteRelativePath: remotePath,
+        serverUrl: serverUrl,
+        password: password,
+      );
+    } catch (e) {
+      print('[ThreadDownloader] thread_data.html upload error: $e');
     }
   }
 

@@ -15,6 +15,7 @@ import 'package:chan/services/cloudflare.dart';
 import 'package:chan/services/cookies.dart';
 import 'package:chan/services/extendable_timeout_exception.dart';
 import 'package:chan/services/http_429_backoff.dart';
+import 'package:chan/services/http_rate_limit.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/interceptor.dart';
 import 'package:chan/services/network_logging.dart';
@@ -1877,6 +1878,7 @@ class _TemporaryThread extends Cacheable {
 bool isExceptionReAttemptable(RequestPriority priority, dynamic e) => switch (e) {
 	CloudflareHandlerNotAllowedException() => priority.index > RequestPriority.cosmetic.index,
 	Http429Exception() => priority.index > RequestPriority.lowest.index,
+	HttpRateLimitException() => priority.index > RequestPriority.lowest.index,
 	DioError dioError => isExceptionReAttemptable(priority, dioError.error),
 	_ => false
 };
@@ -1896,12 +1898,14 @@ abstract class ImageboardSiteArchive {
 	final String? overrideUserAgent;
 	final bool addIntrospectedHeaders;
 	final bool? preferHttp3WithoutAltSvc;
+	bool get requiresCookieDeduplication => false;
 	ImageboardSiteArchive({
 		required this.overrideUserAgent,
 		required this.addIntrospectedHeaders,
 		required this.preferHttp3WithoutAltSvc
 	}) {
 		client.interceptors.add(CloudflareBlockingInterceptor());
+		client.interceptors.add(XRateLimitInterceptor());
 		client.interceptors.add(HTTP429BackoffInterceptor(client: client));
 		client.interceptors.add(InterceptorWrapperBase(
 			onRequest: (options, handler) async {
@@ -1930,7 +1934,7 @@ abstract class ImageboardSiteArchive {
 					handler.next(options);
 				}
 		));
-		client.interceptors.add(SeparatedCookieManager());
+		client.interceptors.add(SeparatedCookieManager(deduplicate: requiresCookieDeduplication));
 		client.interceptors.add(FixupInterceptor());
 		client.interceptors.add(BasedFlareInterceptor(client));
 		client.interceptors.add(CloudflareInterceptor(this));
