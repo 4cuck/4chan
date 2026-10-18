@@ -1565,9 +1565,20 @@ class ThreadDownloadService {
         if (cachedBeforeFetch != null) {
           _keepPostsMissingFrom(thread, cachedBeforeFetch);
         }
+        final memory = await _bestLocalThread(record);
+        if (memory != null) {
+          _keepPostsMissingFrom(thread, memory);
+        }
         // 1b. Persist thread data so offline viewer can display it without network
         await Persistence.setCachedThread(
             record.imageboardKey, record.board, record.threadId, thread);
+        // Write the HTML before media downloads. A later file error used to
+        // skip this, so the folder kept the old comments.
+        try {
+          await saveThreadFile(record, thread: thread);
+        } catch (e) {
+          print('[ThreadDownloader] early thread_data.html write failed: $e');
+        }
 
         // Sync locked + archived status from the live API response in one save.
         // isLockedOnServer: used for badge filtering - cached from previous session,
@@ -2114,6 +2125,11 @@ class ThreadDownloadService {
           }
         }
       } on DioError catch (e) {
+        try {
+          await saveThreadFile(record);
+        } catch (saveError) {
+          print('[ThreadDownloader] saveThreadFile after error failed: $saveError');
+        }
         if (e.type == DioErrorType.cancel) {
           record.status = DownloadStatus.cancelled;
           record.errorMessage = null;
@@ -2210,26 +2226,19 @@ class ThreadDownloadService {
         }
         if (record.isInBox) await record.save();
       } on ThreadNotFoundException {
-        if (record.status == DownloadStatus.updating) {
-          // Thread was deleted/archived server-side during an update run.
-          // The app may already be showing comments that never made it into
-          // thread_data.html while the download was stuck. Write those now.
-          try {
-            await saveThreadFile(record);
-          } catch (e) {
-            print('[ThreadDownloader] saveThreadFile after 404 failed: $e');
-          }
-          // Keep the data intact - just mark archived so the UI can open it offline.
-          record.isArchivedOnServer = true;
+        var saved = false;
+        try {
+          saved = await saveThreadFile(record);
+        } catch (e) {
+          print('[ThreadDownloader] saveThreadFile after 404 failed: $e');
+        }
+        record.isArchivedOnServer = true;
+        if (saved || record.status == DownloadStatus.updating) {
+          // Local comments are stored. A dead thread has nothing further to fetch.
           record.status = DownloadStatus.complete;
-          // Clear any stale error message (e.g. a previous SocketException from
-          // an earlier failed update run - the data is intact and the 404 is
-          // expected now, so the error is no longer meaningful).
           record.errorMessage = null;
           record.lastUpdatedAt = DateTime.now();
-          print('[ThreadDownloader] ARCHIVED: ${record.boxKey}');
-          // If the user explicitly switched to localOnly (download-first path),
-          // honour the deletion intent even though we couldn't download new files.
+          print('[ThreadDownloader] ARCHIVED: ${record.boxKey} saved=$saved');
           if (record.storagePreference == ThreadStoragePreference.localOnly &&
               (record.effectiveStorageLocation != ThreadStorageLocation.local ||
                   record.syncedFiles > 0)) {
@@ -2240,13 +2249,17 @@ class ThreadDownloadService {
             record.storageLocation = ThreadStorageLocation.local;
           }
         } else {
-          // Thread not found on first download attempt
           record.status = DownloadStatus.failed;
           record.errorMessage = 'Thread not found (404)';
           print('[ThreadDownloader] NOT FOUND: ${record.boxKey}');
         }
         if (record.isInBox) await record.save();
       } catch (e, st) {
+        try {
+          await saveThreadFile(record);
+        } catch (saveError) {
+          print('[ThreadDownloader] saveThreadFile after error failed: $saveError');
+        }
         // A raw SocketException or HttpException that escaped Dio wrapping
         // (e.g. from non-Dio code paths inside site.getThread() on some
         // imageboard implementations) must get the same transient-error
@@ -2428,38 +2441,78 @@ class ThreadDownloadService {
     }
   }
 
-  /// Write [thread_data.html] from the thread the app already has.
+  /// Write thread_data.html from every local copy of the thread we still have.
   ///
-  /// Dead threads cannot be refetched, but the on-screen comments often got
-  /// further than the last successful download. This stores that copy.
+  /// Span-cache files are only layout data. The comment text lives on the
+  /// thread object (open thread, or the saved thread database). Dead threads
+  /// often are not flagged archived, so this must run even then.
   Future<bool> saveThreadFile(DownloadedThread record, {Thread? thread}) async {
+    final source = await _bestLocalThread(record, extra: thread);
+    if (source == null || source.posts_.isEmpty) return false;
+    final threadDir = _threadDirFor(record);
+    await threadDir.create(recursive: true);
+    final htmlFile = File('${threadDir.path}/thread_data.html');
+    await htmlFile.writeAsString(generateThreadHtml(source));
+    await Persistence.setCachedThread(
+      record.imageboardKey,
+      record.board,
+      record.threadId,
+      source,
+    );
+    await _copyCachedAttachments(record, source);
+    await _uploadThreadHtmlIfNeeded(record, htmlFile);
+    record.lastUpdatedAt = DateTime.now();
+    if (record.isInBox) await record.save();
+    return true;
+  }
+
+  Future<Thread?> _bestLocalThread(DownloadedThread record, {Thread? extra}) async {
+    final found = <Thread>[];
+    if (extra != null && extra.posts_.isNotEmpty) found.add(extra);
+    final imageboard =
+        ImageboardRegistry.instance.getImageboard(record.imageboardKey);
+    final state = imageboard?.persistence.getThreadStateIfExists(record.identifier);
+    if (state != null) {
+      final loaded = state.thread ?? await state.ensureThreadLoaded();
+      if (loaded != null && loaded.posts_.isNotEmpty) found.add(loaded);
+    }
     final cached = await Persistence.getCachedThread(
       record.imageboardKey,
       record.board,
       record.threadId,
     );
-    final source = thread ?? cached;
-    if (source == null || source.posts_.isEmpty) return false;
-    if (thread != null && cached != null && !identical(thread, cached)) {
-      _keepPostsMissingFrom(source, cached);
-      _keepPostsMissingFrom(source, thread);
+    if (cached != null && cached.posts_.isNotEmpty) found.add(cached);
+    if (found.isEmpty) return null;
+    final base = found.reduce(
+      (a, b) => a.posts_.length >= b.posts_.length ? a : b,
+    );
+    for (final other in found) {
+      _keepPostsMissingFrom(base, other);
     }
-    final threadDir = _threadDirFor(record);
-    await threadDir.create(recursive: true);
-    final htmlFile = File('${threadDir.path}/thread_data.html');
-    await htmlFile.writeAsString(generateThreadHtml(source));
-    if (cached == null || source.posts_.length > cached.posts_.length) {
-      await Persistence.setCachedThread(
-        record.imageboardKey,
-        record.board,
-        record.threadId,
-        source,
-      );
+    return base;
+  }
+
+  Future<void> _copyCachedAttachments(DownloadedThread record, Thread thread) async {
+    for (final post in thread.posts_) {
+      for (final attachment in post.attachments_) {
+        if (attachment.type.isNonMedia) continue;
+        final mainName = Uri.tryParse(attachment.url)?.pathSegments.lastOrNull;
+        if (mainName != null) {
+          final dest = _fileForName(record, mainName);
+          if (!dest.existsSync()) {
+            await _tryCopyFromCache(attachment.url, dest);
+          }
+        }
+        final thumbName =
+            Uri.tryParse(attachment.thumbnailUrl)?.pathSegments.lastOrNull;
+        if (thumbName != null) {
+          final dest = _fileForName(record, thumbName);
+          if (!dest.existsSync()) {
+            await _tryCopyFromCache(attachment.thumbnailUrl, dest);
+          }
+        }
+      }
     }
-    await _uploadThreadHtmlIfNeeded(record, htmlFile);
-    record.lastUpdatedAt = DateTime.now();
-    if (record.isInBox) await record.save();
-    return true;
   }
 
   void _keepPostsMissingFrom(Thread into, Thread from) {

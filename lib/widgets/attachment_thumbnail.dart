@@ -191,6 +191,35 @@ class AttachmentThumbnail extends StatefulWidget {
     Key? key,
   }) : super(key: key);
 
+  static CreateRectTween makeCreateRectTween(
+    BuildContext context,
+    Attachment attachment,
+    BoxFit fit,
+  ) => (startRect, endRect) {
+    if (startRect != null && endRect != null) {
+      if (attachment.type == AttachmentType.image || attachment.type.isVideo) {
+        final rootPadding =
+            MediaQueryData.fromView(View.of(context)).padding -
+            sumAdditionalSafeAreaInsets();
+        startRect = rootPadding.deflateRect(startRect);
+      }
+      if (fit == BoxFit.cover &&
+          attachment.width != null &&
+          attachment.height != null) {
+        final fittedStartSize = applyBoxFit(
+          BoxFit.contain,
+          Size(
+            attachment.width!.toDouble(),
+            attachment.height!.toDouble(),
+          ),
+          startRect.size,
+        ).destination;
+        startRect = Alignment.center.inscribe(fittedStartSize, startRect);
+      }
+    }
+    return CurvedRectTween(curve: Curves.ease, begin: startRect, end: endRect);
+  };
+
   @override
   State<AttachmentThumbnail> createState() => _AttachmentThumbnailState();
 }
@@ -252,42 +281,11 @@ class _AttachmentThumbnailState extends State<AttachmentThumbnail> {
                           : toContext.widget as Hero)
                       .child;
                 },
-            createRectTween: (startRect, endRect) {
-              if (startRect != null && endRect != null) {
-                if (widget.attachment.type == AttachmentType.image ||
-                    widget.attachment.type.isVideo) {
-                  // Need to deflate the original startRect because it has inbuilt layoutInsets
-                  // This AttachmentThumbnail will always fill its size
-                  final rootPadding =
-                      MediaQueryData.fromView(View.of(context)).padding -
-                      sumAdditionalSafeAreaInsets();
-                  startRect = rootPadding.deflateRect(startRect);
-                }
-                if (widget.fit == BoxFit.cover &&
-                    widget.attachment.width != null &&
-                    widget.attachment.height != null) {
-                  // This is AttachmentViewer -> AttachmentThumbnail (cover)
-                  // Need to shrink the startRect, so it only contains the image
-                  final fittedStartSize = applyBoxFit(
-                    BoxFit.contain,
-                    Size(
-                      widget.attachment.width!.toDouble(),
-                      widget.attachment.height!.toDouble(),
-                    ),
-                    startRect.size,
-                  ).destination;
-                  startRect = Alignment.center.inscribe(
-                    fittedStartSize,
-                    startRect,
-                  );
-                }
-              }
-              return CurvedRectTween(
-                curve: Curves.ease,
-                begin: startRect,
-                end: endRect,
-              );
-            },
+            createRectTween: AttachmentThumbnail.makeCreateRectTween(
+              context,
+              widget.attachment,
+              widget.fit,
+            ),
           )
         : child;
   }

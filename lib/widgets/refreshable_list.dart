@@ -1312,11 +1312,11 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 	}
 
 	Future<void> _lockSliverForNextRebuild({bool bottomOnly = false, bool lockAtMiddle = false}) async {
-		// RenderSliverList.lockKey / kLockKeyLockToEnd landed after the Flutter
-		// this build uses. Keep the rebuild the callers expect; scroll-locking
-		// stays a no-op until the SDK has that API.
+		// RenderSliverList.lockKey is not available on this Flutter version.
+		// Callers still need the list to rebuild.
 		if (!mounted) return;
 		setState(() {});
+		await SchedulerBinding.instance.endOfFrame;
 	}
 
 	/// To be used when we have a whole updated list, it will check for any stub upgrades

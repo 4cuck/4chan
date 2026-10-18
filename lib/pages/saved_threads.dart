@@ -12,6 +12,7 @@ import 'package:chan/widgets/attachment_thumbnail.dart';
 import 'package:chan/services/persistence.dart';
 import 'package:chan/services/thread_downloader.dart';
 import 'package:chan/services/settings.dart';
+import 'package:chan/services/storage.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
@@ -366,20 +367,37 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     }
   }
 
+  Future<void> _saveFile(DownloadedThread d) async {
+    final saved = await ThreadDownloadService.instance.saveThreadFile(
+      d,
+      thread: _threadCache[d.boxKey],
+    );
+    if (!mounted) return;
+    showToast(
+      context: context,
+      message: saved ? 'Saved thread file' : 'Could not save thread file',
+      icon: saved
+          ? CupertinoIcons.doc_text
+          : CupertinoIcons.exclamationmark_triangle,
+    );
+    setState(_reload);
+  }
+
   Future<void> _update(DownloadedThread d) async {
     final imageboard =
         ImageboardRegistry.instance.getImageboard(d.imageboardKey);
-    if (d.isArchivedOnServer) {
-      final saved = await ThreadDownloadService.instance.saveThreadFile(d);
-      if (mounted) {
-        showToast(
-          context: context,
-          message: saved ? 'Saved thread file' : 'Could not save thread file',
-          icon: saved
-              ? CupertinoIcons.doc_text
-              : CupertinoIcons.exclamationmark_triangle,
-        );
-      }
+    final saved = await ThreadDownloadService.instance.saveThreadFile(
+      d,
+      thread: _threadCache[d.boxKey],
+    );
+    if (mounted) {
+      showToast(
+        context: context,
+        message: saved ? 'Saved thread file' : 'Could not save thread file',
+        icon: saved
+            ? CupertinoIcons.doc_text
+            : CupertinoIcons.exclamationmark_triangle,
+      );
     }
     if (imageboard == null) return;
     await ThreadDownloadService.instance
@@ -412,9 +430,9 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     // comments the app already has, which may be ahead of the last download.
     final archived = _downloads
         .where((d) =>
-            d.isArchivedOnServer &&
             d.pendingDeletionAt == null &&
-            d.status == DownloadStatus.complete)
+            (d.status == DownloadStatus.complete ||
+                d.status == DownloadStatus.failed))
         .toList();
     for (final d in archived) {
       await ThreadDownloadService.instance.saveThreadFile(d);
@@ -803,31 +821,30 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         }
         return;
       }
-      final destDir = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Choose folder to save ZIP',
+      final destName = zipFile.uri.pathSegments.last;
+      final savedName = await saveFileAs(
+        context: context,
+        type: SaveAsFileType.other,
+        sourcePath: zipFile.path,
+        destinationName: destName,
       );
-      if (destDir == null) return; // user cancelled
-      final destFile = File('$destDir/${zipFile.uri.pathSegments.last}');
-      await zipFile.copy(destFile.path);
-      if (mounted) {
-        // If the thread's files are remote-only, the ZIP contains only metadata.
-        final remoteNote =
-            d.effectiveStorageLocation == ThreadStorageLocation.remote
-                ? '\n\nNote: media files are stored on CopyParty and were '
-                    'not included in the ZIP.'
-                : '';
-        showAdaptiveDialog(
-          context: context,
-          builder: (ctx) => AdaptiveAlertDialog(
-            title: const Text('Exported'),
-            content: Text('Saved to ${destFile.path}$remoteNote'),
-            actions: [
-              AdaptiveDialogAction(
-                  child: const Text('OK'), onPressed: () => Navigator.pop(ctx))
-            ],
-          ),
-        );
-      }
+      if (savedName == null || !mounted) return;
+      final remoteNote =
+          d.effectiveStorageLocation == ThreadStorageLocation.remote
+              ? '\n\nNote: media files are stored on CopyParty and were '
+                  'not included in the ZIP.'
+              : '';
+      showAdaptiveDialog(
+        context: context,
+        builder: (ctx) => AdaptiveAlertDialog(
+          title: const Text('Exported'),
+          content: Text('Saved $savedName$remoteNote'),
+          actions: [
+            AdaptiveDialogAction(
+                child: const Text('OK'), onPressed: () => Navigator.pop(ctx))
+          ],
+        ),
+      );
     } catch (e) {
       if (mounted) {
         showAdaptiveDialog(
@@ -874,32 +891,32 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       }
       return;
     }
-    final destDir = await FilePicker.platform.getDirectoryPath(
-      dialogTitle:
-          'Choose folder to save ${zipFiles.length} ZIP${zipFiles.length == 1 ? '' : 's'}',
-    );
-    if (destDir == null) return; // user cancelled
-    int saved = 0;
+    if (!mounted) return;
+    var saved = 0;
     for (final zip in zipFiles) {
-      try {
-        await zip.copy('$destDir/${zip.uri.pathSegments.last}');
-        saved++;
-      } catch (_) {}
-    }
-    if (mounted) {
-      showAdaptiveDialog(
+      final name = await saveFileAs(
         context: context,
-        builder: (ctx) => AdaptiveAlertDialog(
-          title: const Text('Exported'),
-          content: Text(
-              'Saved $saved/${zipFiles.length} ZIP${zipFiles.length == 1 ? '' : 's'} to $destDir'),
-          actions: [
-            AdaptiveDialogAction(
-                child: const Text('OK'), onPressed: () => Navigator.pop(ctx))
-          ],
-        ),
+        type: SaveAsFileType.other,
+        sourcePath: zip.path,
+        destinationName: zip.uri.pathSegments.last,
       );
+      if (!mounted) return;
+      if (name == null) break;
+      saved++;
     }
+    if (!mounted || saved == 0) return;
+    showAdaptiveDialog(
+      context: context,
+      builder: (ctx) => AdaptiveAlertDialog(
+        title: const Text('Exported'),
+        content: Text(
+            'Saved $saved/${zipFiles.length} ZIP${zipFiles.length == 1 ? '' : 's'}'),
+        actions: [
+          AdaptiveDialogAction(
+              child: const Text('OK'), onPressed: () => Navigator.pop(ctx))
+        ],
+      ),
+    );
   }
 
   Future<void> _softDeleteSingle(DownloadedThread d) async {
@@ -1164,6 +1181,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
                               : () => _openThread(d),
                           onDelete: () => _delete(d),
                           onUpdate: () => _update(d),
+                          onSaveFile: () => _saveFile(d),
                           onExport: () => _exportSingle(d),
                           onSoftDelete: () => _softDeleteSingle(d),
                           onPermanentDelete: () => _permanentDeleteSingle(d),
@@ -1201,6 +1219,7 @@ class _DownloadedThreadRow extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onDelete;
   final VoidCallback onUpdate;
+  final VoidCallback onSaveFile;
   final VoidCallback onExport;
   final VoidCallback onSoftDelete;
   final VoidCallback onPermanentDelete;
@@ -1217,6 +1236,7 @@ class _DownloadedThreadRow extends StatefulWidget {
     required this.onTap,
     required this.onDelete,
     required this.onUpdate,
+    required this.onSaveFile,
     required this.onExport,
     required this.onSoftDelete,
     required this.onPermanentDelete,
@@ -1671,12 +1691,19 @@ class _DownloadedThreadRowState extends State<_DownloadedThreadRow> {
       context: context,
       builder: (popupContext) => AdaptiveActionSheet(
         actions: [
+          AdaptiveActionSheetAction(
+            child: const Text('Save thread file'),
+            onPressed: () {
+              Navigator.pop(popupContext);
+              widget.onSaveFile();
+            },
+          ),
           if (d.status == DownloadStatus.complete ||
               d.status == DownloadStatus.failed ||
               d.status == DownloadStatus.cancelled ||
               d.status == DownloadStatus.pending)
             AdaptiveActionSheetAction(
-              child: Text(d.isArchivedOnServer ? 'Save thread file' : 'Update'),
+              child: const Text('Update'),
               onPressed: () {
                 Navigator.pop(popupContext);
                 widget.onUpdate();
