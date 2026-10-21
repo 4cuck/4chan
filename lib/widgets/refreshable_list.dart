@@ -1320,7 +1320,12 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 	}
 
 	/// To be used when we have a whole updated list, it will check for any stub upgrades
-	void _updateList(List<T>? newList) {
+	void _updateList(List<T>? newList, {bool preserveScrollPosition = false}) {
+		// At the top, let new content appear instead of anchoring an old row.
+		if (preserveScrollPosition && newList != null && controller.itemsLength > 0 &&
+				(controller.scrollController?.tryPosition?.extentBefore ?? 0) > 0) {
+			_lockSliverForNextRebuild(lockAtMiddle: true);
+		}
 		final oldStubs = <int>{};
 		if (widget.treeAdapter case final treeAdapter?) {
 			for (final item in originalList ?? <T>[]) {
@@ -1342,7 +1347,6 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 				}
 			}
 		}
-		_lockSliverForNextRebuild();
 	}
 
 	@override
@@ -1410,7 +1414,11 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 			// Not in the middle of an update
 			(updatingNow.value?.id != widget.id)
 		) {
-			_updateList(widget.initialList);
+			_updateList(widget.initialList, preserveScrollPosition:
+				widget.useTree == oldWidget.useTree &&
+				widget.reverseSort == oldWidget.reverseSort &&
+				listEquals(widget.sortMethods, oldWidget.sortMethods)
+			);
 		}
 		if ((!listEquals(widget.sortMethods, oldWidget.sortMethods) ||
 		     widget.reverseSort != oldWidget.reverseSort ||
@@ -1432,7 +1440,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 				item.cachedHeight = null;
 			}
 		}
-		if (widget.useTree != oldWidget.useTree) {
+		if (widget.id == oldWidget.id && widget.useTree != oldWidget.useTree) {
 			_lockSliverForNextRebuild(bottomOnly: true);
 		}
 	}
@@ -1821,7 +1829,9 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 					mediumHapticFeedback();
 				}
 				setState(() {
-					_updateList(newList ?? originalList);
+					_updateList(newList ?? originalList, preserveScrollPosition:
+						newList != null && source != RefreshableListUpdateSource.top
+					);
 				});
 			}
 			else if (mounted && newList == null && originalList != null && mergeTrees) {
@@ -1844,7 +1854,8 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 
 	Future<void> acceptNewList(List<T> list) async {
 		await controller.waitUntilDoneAutoScrolling();
-		_updateList(list);
+		if (!mounted) return;
+		_updateList(list, preserveScrollPosition: true);
 		setState(() {});
 	}
 

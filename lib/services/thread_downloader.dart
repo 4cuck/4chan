@@ -1562,6 +1562,7 @@ class ThreadDownloadService {
         // replace a longer local thread, or thread_data.html loses posts.
         final cachedBeforeFetch = await Persistence.getCachedThread(
             record.imageboardKey, record.board, record.threadId);
+        final postsBefore = cachedBeforeFetch?.posts_.length ?? 0;
         if (cachedBeforeFetch != null) {
           _keepPostsMissingFrom(thread, cachedBeforeFetch);
         }
@@ -1985,7 +1986,11 @@ class ThreadDownloadService {
 
         if (!cancelToken.isCancelled) {
           record.status = DownloadStatus.complete;
-          record.lastUpdatedAt = DateTime.now();
+          final gainedPosts = thread.posts_.length > postsBefore;
+          final gainedFiles = record.downloadedFiles > alreadyDone;
+          if (gainedPosts || gainedFiles || record.lastUpdatedAt == null) {
+            record.lastUpdatedAt = DateTime.now();
+          }
           print(
               '[ThreadDownloader] COMPLETE: ${record.boxKey} downloaded=${record.downloadedFiles}/${record.totalFiles}');
           // Re-read pref: user may have changed preference mid-run (F1).
@@ -2447,6 +2452,14 @@ class ThreadDownloadService {
   /// thread object (open thread, or the saved thread database). Dead threads
   /// often are not flagged archived, so this must run even then.
   Future<bool> saveThreadFile(DownloadedThread record, {Thread? thread}) async {
+    final cachedCount = (await Persistence.getCachedThread(
+          record.imageboardKey,
+          record.board,
+          record.threadId,
+        ))
+            ?.posts_
+            .length ??
+        0;
     final source = await _bestLocalThread(record, extra: thread);
     if (source == null || source.posts_.isEmpty) return false;
     final threadDir = _threadDirFor(record);
@@ -2461,7 +2474,9 @@ class ThreadDownloadService {
     );
     await _copyCachedAttachments(record, source);
     await _uploadThreadHtmlIfNeeded(record, htmlFile);
-    record.lastUpdatedAt = DateTime.now();
+    if (source.posts_.length > cachedCount || record.lastUpdatedAt == null) {
+      record.lastUpdatedAt = DateTime.now();
+    }
     if (record.isInBox) await record.save();
     return true;
   }

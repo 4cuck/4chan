@@ -222,20 +222,24 @@ class ThreadPageState extends State<ThreadPage> {
   static const _kHighlightPartial = 0.35;
   static const _kHighlightFull = 1.0;
 
-  /// Return whether any were removed
+	/// Return whether any highlights were removed or promoted
   bool _updateHighlightedPosts({required bool restoring}) {
     final value = restoring ? _kHighlightPartial : _kHighlightFull;
     final lastSeenId = persistentState.lastSeenPostId ?? 0;
-    bool anyRemoved = false;
+		bool anyChanged = false;
     _highlightPosts.removeWhere((id, v) {
       final remove = !persistentState.unseenPostIds.data.contains(id);
-      anyRemoved |= remove;
+			anyChanged |= remove;
       return remove;
     });
     for (final newId in persistentState.unseenPostIds.data) {
       _highlightPosts[newId] ??= (newId > lastSeenId) ? _kHighlightFull : value;
+			if (_highlightPosts[newId] == _kHighlightZero && zone.findPost(newId)?.edited != null) {
+				_highlightPosts[newId] = _kHighlightFull;
+				anyChanged = true;
     }
-    return anyRemoved;
+		}
+		return anyChanged;
   }
 
   void _updateHotPostIds() {
@@ -287,6 +291,9 @@ class ThreadPageState extends State<ThreadPage> {
         final currentSnapshot = _PersistentThreadStateSnapshot.of(
           persistentState,
         );
+        if (persistentState.thread != null) {
+          zone.addThread(persistentState.thread!);
+        }
         bool forcePostUpdateCallbacks = false;
         if (currentSnapshot != _lastPersistentThreadStateSnapshot ||
             savedPostsLength != lastSavedPostsLength ||
@@ -334,9 +341,6 @@ class ThreadPageState extends State<ThreadPage> {
         lastSavedPostsLength = savedPostsLength;
         lastHiddenMD5sLength = hiddenMD5sLength;
         _lastPersistentThreadStateSnapshot = currentSnapshot;
-        if (persistentState.thread != null) {
-          zone.addThread(persistentState.thread!);
-        }
         if (forcePostUpdateCallbacks || _postUpdateCallbacks.isNotEmpty) {
           Future.microtask(_runPostUpdateCallbacks);
         }

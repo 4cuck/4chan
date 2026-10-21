@@ -23,6 +23,19 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+String _exportFileName(DownloadedThread d) {
+  final board = d.board.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+  var title = (d.title ?? '')
+      .replaceAll(RegExp(r'[/\\?%*:|"<>\n\r]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (title.length > 40) {
+    title = title.substring(0, 40).trim();
+  }
+  final base = title.isEmpty ? '${board}_${d.threadId}' : '${board}_${d.threadId}_$title';
+  return '$base.zip';
+}
+
 enum _DownloadSortMethod {
   downloadedAt,
   lastUpdatedAt,
@@ -32,7 +45,7 @@ enum _DownloadSortMethod {
 
 const _kDownloadSortMethodLabels = {
   _DownloadSortMethod.downloadedAt: 'Order added',
-  _DownloadSortMethod.lastUpdatedAt: 'Last updated',
+  _DownloadSortMethod.lastUpdatedAt: 'New comments or files',
   _DownloadSortMethod.threadDate: 'Thread date',
   _DownloadSortMethod.title: 'Alphabetically',
 };
@@ -173,7 +186,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
             .compareTo((b.title ?? '').toLowerCase()));
     }
     _cachedSortedDownloads = _sortReversed ? list.reversed.toList() : list;
-    if (Settings.instance.showActiveDownloadsAboveArchivedDownloads) {
+    if (Settings.instance.showActiveDownloadsAboveArchivedDownloads &&
+        _sortMethod != _DownloadSortMethod.lastUpdatedAt) {
       final active = _cachedSortedDownloads
           .where((t) =>
               t.status == DownloadStatus.downloading ||
@@ -821,12 +835,11 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         }
         return;
       }
-      final destName = zipFile.uri.pathSegments.last;
       final savedName = await saveFileAs(
         context: context,
         type: SaveAsFileType.other,
         sourcePath: zipFile.path,
-        destinationName: destName,
+        destinationName: _exportFileName(d),
       );
       if (savedName == null || !mounted) return;
       final remoteNote =
@@ -867,11 +880,11 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     final selected = _sortedDownloads
         .where((d) => _selectedBoxKeys.contains(d.boxKey))
         .toList();
-    final zipFiles = <File>[];
+    final zipFiles = <(File, String)>[];
     for (final d in selected) {
       try {
         final f = await ThreadDownloadService.instance.exportToZip(d);
-        if (f != null) zipFiles.add(f);
+        if (f != null) zipFiles.add((f, _exportFileName(d)));
       } catch (_) {}
     }
     if (zipFiles.isEmpty) {
@@ -897,8 +910,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
       final name = await saveFileAs(
         context: context,
         type: SaveAsFileType.other,
-        sourcePath: zip.path,
-        destinationName: zip.uri.pathSegments.last,
+        sourcePath: zip.$1.path,
+        destinationName: zip.$2,
       );
       if (!mounted) return;
       if (name == null) break;

@@ -107,7 +107,7 @@ enum PostSpanFormat {
 		lainchan => 4,
 		fuuka => 1,
 		futaba => 1,
-		reddit => 7,
+		reddit => 8,
 		hackerNews => 1,
 		stub => 1,
 		lynxchan => 1,
@@ -479,7 +479,7 @@ class Post implements Filterable {
 		other.email == email &&
 		other.capcode == capcode &&
 		mapEquals(other.extraMetadata, extraMetadata) &&
-		edited == edited;
+		other.edited == edited;
 	
 	bool isIdenticalForFilteringPurposes(Post other) {
 		return 

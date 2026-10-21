@@ -25,6 +25,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.view.WindowManager;
 import android.webkit.MimeTypeMap;
@@ -145,6 +146,28 @@ public class MainActivity extends FlutterFragmentActivity {
     }
 
     @SuppressLint("WrongConstant")
+    private String queryDisplayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                return cursor.getString(0);
+            }
+        }
+        catch (Exception ignored) {}
+        return null;
+    }
+
+    // Android appends " (1)" after the whole name, so "t_123.zip" becomes
+    // "t_123.zip (1)". Move the suffix in front of the extension.
+    private String fixDuplicateSuffix(String name) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("^(.*)\\.([A-Za-z0-9]+) \\((\\d+)\\)$")
+                .matcher(name);
+        if (matcher.matches()) {
+            return matcher.group(1) + " (" + matcher.group(3) + ")." + matcher.group(2);
+        }
+        return name;
+    }
+
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
         ActivityResultLauncher<Uri> getFolder = registerForActivityResult(new OpenDocumentTree() {
@@ -198,6 +221,9 @@ public class MainActivity extends FlutterFragmentActivity {
                 else if (input.endsWith(".mp3")) {
                     intent.setType("audio/mp3");
                 }
+                else if (input.endsWith(".zip")) {
+                    intent.setType("application/zip");
+                }
                 return intent;
             }
         }, uri -> {
@@ -222,7 +248,21 @@ public class MainActivity extends FlutterFragmentActivity {
                 destinationWriteStream.close();
                 destinationFileDescriptor.close();
                 sourceReadStream.close();
-                saveFileAsResult.success(uri.toString());
+                String displayName = queryDisplayName(uri);
+                if (displayName != null && android.os.Build.VERSION.SDK_INT >= 24) {
+                    String fixed = fixDuplicateSuffix(displayName);
+                    if (!fixed.equals(displayName)) {
+                        try {
+                            Uri renamed = DocumentsContract.renameDocument(getContentResolver(), uri, fixed);
+                            if (renamed != null) {
+                                uri = renamed;
+                                displayName = fixed;
+                            }
+                        }
+                        catch (Exception ignored) {}
+                    }
+                }
+                saveFileAsResult.success(displayName != null ? displayName : uri.toString());
             }
             catch (IOException e) {
                 saveFileAsResult.error("FileNotFound", e.getMessage(), null);
