@@ -21,6 +21,20 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive/hive.dart';
 import 'package:mutex/mutex.dart';
 
+String downloadExportFileName(DownloadedThread d) {
+  final board = d.board.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+  var title = (d.title ?? '')
+      .replaceAll(RegExp(r'[/\\?%*:|"<>\n\r]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (title.length > 40) {
+    title = title.substring(0, 40).trim();
+  }
+  final base =
+      title.isEmpty ? '${board}_${d.threadId}' : '${board}_${d.threadId}_$title';
+  return '$base.zip';
+}
+
 class ImportScanResult {
   final int found;
   final int skipped;

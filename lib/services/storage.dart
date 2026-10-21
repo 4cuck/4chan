@@ -175,11 +175,66 @@ enum SaveAsFileType {
 	other
 }
 
+enum SaveIfExists { skip, overwrite, rename }
+
+String copyExportName(String fileName) {
+	final dot = fileName.lastIndexOf('.');
+	if (dot <= 0) return '$fileName (1)';
+	return '${fileName.substring(0, dot)} (1)${fileName.substring(dot)}';
+}
+
+Future<SaveIfExists?> askSaveIfExists(BuildContext context, String fileName) {
+	return showAdaptiveDialog<SaveIfExists>(
+		context: context,
+		builder: (context) => AdaptiveAlertDialog(
+			title: const Text('File may already exist'),
+			content: Text(
+				'The export will be named $fileName so the thread number is in the file name.\n\nIf that file is already in the folder you pick:',
+			),
+			actions: [
+				AdaptiveDialogAction(
+					onPressed: () => Navigator.pop(context, SaveIfExists.skip),
+					child: const Text('Skip'),
+				),
+				AdaptiveDialogAction(
+					onPressed: () => Navigator.pop(context, SaveIfExists.overwrite),
+					child: const Text('Overwrite'),
+				),
+				AdaptiveDialogAction(
+					onPressed: () => Navigator.pop(context, SaveIfExists.rename),
+					child: Text('Save as ${copyExportName(fileName)}'),
+				),
+				AdaptiveDialogAction(
+					onPressed: () => Navigator.pop(context),
+					child: const Text('Cancel'),
+				),
+			],
+		),
+	);
+}
+
+Future<String?> saveZipExport(
+	BuildContext context, {
+	required String sourcePath,
+	required String destinationName,
+}) async {
+	final choice = await askSaveIfExists(context, destinationName);
+	if (choice == null || !context.mounted) return null;
+	return saveFileAs(
+		context: context,
+		type: SaveAsFileType.other,
+		sourcePath: sourcePath,
+		destinationName: destinationName,
+		ifExists: choice,
+	);
+}
+
 Future<String?> saveFileAs({
 	required BuildContext context,
 	required SaveAsFileType type,
 	required String sourcePath,
-	required String destinationName
+	required String destinationName,
+	SaveIfExists? ifExists,
 }) async {
 	if (Platform.isIOS && (type == SaveAsFileType.image || type == SaveAsFileType.video)) {
 		Future<void> saveToGallery(AssetPathEntity? album) async {
@@ -314,7 +369,8 @@ Future<String?> saveFileAs({
 	}
 	return await _platform.invokeMethod<String>('saveFileAs', {
 		'sourcePath': sourcePath,
-		'destinationName': destinationName
+		'destinationName': destinationName,
+		if (ifExists != null) 'ifExists': ifExists.name,
 	});
 }
 

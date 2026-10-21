@@ -73,6 +73,8 @@ public class MainActivity extends FlutterFragmentActivity {
 
     private MethodChannel.Result saveFileAsResult;
     private String newDocumentSourcePath;
+    private String newDocumentRequestedName;
+    private String newDocumentIfExists;
     private FlutterFragment lastFragment;
     private static int LEGACY_STATUS_BAR_FLAGS =
             WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
@@ -168,6 +170,22 @@ public class MainActivity extends FlutterFragmentActivity {
         return name;
     }
 
+    private boolean replaceExisting(Uri newFile, String requestedName) {
+        try {
+            String docId = DocumentsContract.getDocumentId(newFile);
+            int slash = docId.lastIndexOf('/');
+            if (slash < 0) return false;
+            String originalId = docId.substring(0, slash + 1) + requestedName;
+            Uri original = DocumentsContract.buildDocumentUri(newFile.getAuthority(), originalId);
+            DocumentsContract.deleteDocument(getContentResolver(), original);
+            Uri renamed = DocumentsContract.renameDocument(getContentResolver(), newFile, requestedName);
+            return renamed != null;
+        }
+        catch (Exception ignored) {
+            return false;
+        }
+    }
+
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
         ActivityResultLauncher<Uri> getFolder = registerForActivityResult(new OpenDocumentTree() {
@@ -249,13 +267,27 @@ public class MainActivity extends FlutterFragmentActivity {
                 destinationFileDescriptor.close();
                 sourceReadStream.close();
                 String displayName = queryDisplayName(uri);
-                if (displayName != null && android.os.Build.VERSION.SDK_INT >= 24) {
+                String requested = newDocumentRequestedName;
+                String mode = newDocumentIfExists == null ? "rename" : newDocumentIfExists;
+                boolean collision = displayName != null && requested != null && !displayName.equals(requested);
+                if (collision && android.os.Build.VERSION.SDK_INT >= 24) {
+                    if ("skip".equals(mode)) {
+                        try {
+                            DocumentsContract.deleteDocument(getContentResolver(), uri);
+                        }
+                        catch (Exception ignored) {}
+                        saveFileAsResult.success(null);
+                        return;
+                    }
+                    if ("overwrite".equals(mode) && replaceExisting(uri, requested)) {
+                        saveFileAsResult.success(requested);
+                        return;
+                    }
                     String fixed = fixDuplicateSuffix(displayName);
                     if (!fixed.equals(displayName)) {
                         try {
                             Uri renamed = DocumentsContract.renameDocument(getContentResolver(), uri, fixed);
                             if (renamed != null) {
-                                uri = renamed;
                                 displayName = fixed;
                             }
                         }
@@ -347,8 +379,9 @@ public class MainActivity extends FlutterFragmentActivity {
                     else if (call.method.equals("saveFileAs")) {
                         this.saveFileAsResult = result;
                         this.newDocumentSourcePath = call.argument("sourcePath");
-                        String destinationName = call.argument("destinationName");
-                        newDocument.launch(destinationName);
+                        this.newDocumentRequestedName = call.argument("destinationName");
+                        this.newDocumentIfExists = call.argument("ifExists");
+                        newDocument.launch(newDocumentRequestedName);
                     }
                     else if (call.method.equals("getPickerList")) {
                         PackageManager pm = getApplicationContext().getPackageManager();

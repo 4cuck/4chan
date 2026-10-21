@@ -23,19 +23,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-String _exportFileName(DownloadedThread d) {
-  final board = d.board.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
-  var title = (d.title ?? '')
-      .replaceAll(RegExp(r'[/\\?%*:|"<>\n\r]'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (title.length > 40) {
-    title = title.substring(0, 40).trim();
-  }
-  final base = title.isEmpty ? '${board}_${d.threadId}' : '${board}_${d.threadId}_$title';
-  return '$base.zip';
-}
-
 enum _DownloadSortMethod {
   downloadedAt,
   lastUpdatedAt,
@@ -835,11 +822,10 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
         }
         return;
       }
-      final savedName = await saveFileAs(
-        context: context,
-        type: SaveAsFileType.other,
+      final savedName = await saveZipExport(
+        context,
         sourcePath: zipFile.path,
-        destinationName: _exportFileName(d),
+        destinationName: downloadExportFileName(d),
       );
       if (savedName == null || !mounted) return;
       final remoteNote =
@@ -884,7 +870,7 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     for (final d in selected) {
       try {
         final f = await ThreadDownloadService.instance.exportToZip(d);
-        if (f != null) zipFiles.add((f, _exportFileName(d)));
+        if (f != null) zipFiles.add((f, downloadExportFileName(d)));
       } catch (_) {}
     }
     if (zipFiles.isEmpty) {
@@ -907,9 +893,8 @@ class _DownloadedThreadsPageState extends State<DownloadedThreadsPage> {
     if (!mounted) return;
     var saved = 0;
     for (final zip in zipFiles) {
-      final name = await saveFileAs(
-        context: context,
-        type: SaveAsFileType.other,
+      final name = await saveZipExport(
+        context,
         sourcePath: zip.$1.path,
         destinationName: zip.$2,
       );

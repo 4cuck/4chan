@@ -28,6 +28,7 @@ import 'package:chan/services/theme.dart';
 import 'package:chan/models/downloaded_thread.dart';
 import 'package:chan/services/kuroba_import.dart';
 import 'package:chan/services/thread_downloader.dart';
+import 'package:chan/services/storage.dart';
 import 'package:chan/services/thread_watcher.dart';
 import 'package:chan/services/translation.dart';
 import 'package:chan/services/util.dart';
@@ -2146,9 +2147,10 @@ class ThreadPageState extends State<ThreadPage> {
                           );
                         };
                       } else {
-                        // complete
+                        // complete — the down arrow is the button people look
+                        // for. Tap it to save the thread file, update, or export.
                         icon = CupertinoIcons.arrow_down_circle_fill;
-                        onPressed = null;
+                        onPressed = () => _showDownloadedThreadActions(dl!);
                       }
                       return AdaptiveIconButton(
                         padding: EdgeInsets.zero,
@@ -3464,6 +3466,71 @@ class ThreadPageState extends State<ThreadPage> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showDownloadedThreadActions(DownloadedThread download) {
+    final imageboard = context.read<Imageboard>();
+    showAdaptiveModalPopup(
+      context: context,
+      builder: (popupContext) => AdaptiveActionSheet(
+        actions: [
+          AdaptiveActionSheetAction(
+            child: const Text('Save thread file'),
+            onPressed: () async {
+              Navigator.pop(popupContext);
+              final saved = await ThreadDownloadService.instance.saveThreadFile(
+                download,
+                thread: persistentState.thread,
+              );
+              if (!mounted) return;
+              showToast(
+                context: context,
+                message:
+                    saved ? 'Saved thread file' : 'Could not save thread file',
+                icon: saved
+                    ? CupertinoIcons.doc_text
+                    : CupertinoIcons.exclamationmark_triangle,
+              );
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: const Text('Update'),
+            onPressed: () {
+              Navigator.pop(popupContext);
+              ThreadDownloadService.instance.updateThread(
+                widget.thread,
+                imageboard.site,
+                imageboard.key,
+              );
+            },
+          ),
+          AdaptiveActionSheetAction(
+            child: const Text('Export'),
+            onPressed: () async {
+              Navigator.pop(popupContext);
+              final zip =
+                  await ThreadDownloadService.instance.exportToZip(download);
+              if (zip == null || !mounted) return;
+              final savedName = await saveZipExport(
+                context,
+                sourcePath: zip.path,
+                destinationName: downloadExportFileName(download),
+              );
+              if (savedName == null || !mounted) return;
+              showToast(
+                context: context,
+                message: 'Saved $savedName',
+                icon: CupertinoIcons.checkmark_circle,
+              );
+            },
+          ),
+        ],
+        cancelButton: AdaptiveActionSheetAction(
+          child: const Text('Cancel'),
+          onPressed: () => Navigator.pop(popupContext),
         ),
       ),
     );
