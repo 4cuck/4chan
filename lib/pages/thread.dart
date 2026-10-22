@@ -235,7 +235,8 @@ class ThreadPageState extends State<ThreadPage> {
     });
     for (final newId in persistentState.unseenPostIds.data) {
       _highlightPosts[newId] ??= (newId > lastSeenId) ? _kHighlightFull : value;
-			if (_highlightPosts[newId] == _kHighlightZero && zone.findPost(newId)?.edited != null) {
+			if (_highlightPosts[newId] == _kHighlightZero &&
+					(zone.findPost(newId)?.edited?.isAfter(persistentState.lastOpenedTime) ?? false)) {
 				_highlightPosts[newId] = _kHighlightFull;
 				anyChanged = true;
     }
@@ -1663,14 +1664,21 @@ class ThreadPageState extends State<ThreadPage> {
     } else if (firstLoad && tmpPersistentState == persistentState) {
       shouldScroll = true;
     }
-    if (firstLoad) {
+    final highlightsChanged = _updateHighlightedPosts(restoring: false);
+    if (firstLoad &&
+        widget.initialPostId == null &&
+        !(mounted &&
+            (context
+                    .read<PersistentBrowserTab?>()
+                    ?.initialPostId
+                    .containsKey(widget.thread) ??
+                false))) {
       // Don't highlight the first-loaded posts, it looks bad to have everything highlighted
       for (final id in persistentState.unseenPostIds.data) {
         _highlightPosts[id] = _kHighlightZero;
       }
     }
-    final anyPostsMarkedSeen = _updateHighlightedPosts(restoring: false);
-    if (loadedReferencedThreads || anyPostsMarkedSeen) {
+    if (loadedReferencedThreads || highlightsChanged) {
       _listController
           .state
           ?.forceRebuildId++; // To force widgets to re-build and re-compute [highlight]
