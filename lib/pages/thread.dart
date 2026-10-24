@@ -444,6 +444,8 @@ class ThreadPageState extends State<ThreadPage> {
       // too early to try to scroll
       return;
     }
+		// Consume the pending jump even when an explicit target takes precedence.
+		final initialPostId = context.read<PersistentBrowserTab?>()?.initialPostId.remove(widget.thread);
     final int postId;
     double? targetAlignment;
     bool glow = false;
@@ -454,17 +456,9 @@ class ThreadPageState extends State<ThreadPage> {
     } else if (widget.initialPostId != null) {
       postId = widget.initialPostId!;
       glow = true;
-    } else if (context
-            .read<PersistentBrowserTab?>()
-            ?.initialPostId[widget.thread] !=
-        null) {
-      postId = context
-          .read<PersistentBrowserTab>()
-          .initialPostId[widget.thread]!;
+    } else if (initialPostId != null) {
+      postId = initialPostId;
       glow = true;
-      context.read<PersistentBrowserTab?>()?.initialPostId.remove(
-        widget.thread,
-      );
     } else if (persistentState.firstVisiblePostId != null) {
       postId = persistentState.firstVisiblePostId!;
       targetAlignment = persistentState.firstVisiblePostAlignment;
@@ -1087,6 +1081,7 @@ class ThreadPageState extends State<ThreadPage> {
       await _blockAndScrollToPostIfNeeded(delayBeforeScroll: delayBeforeScroll);
     } else {
       if (explicitScrollToId == widget.thread.id) {
+				context.read<PersistentBrowserTab?>()?.initialPostId.remove(widget.thread);
         _glowPost(widget.thread.id);
       }
       if (_useAllDummies) {
@@ -3050,6 +3045,8 @@ class ThreadPageState extends State<ThreadPage> {
                                         );
                                       },
                                       hideThumbnails: options.hideThumbnails,
+                                      knownTreeChildCount:
+                                          options.knownTreeChildCount,
                                       highlightReplyCount:
                                           settings.showHotPostsInScrollbar &&
                                               !site.supportsPostUpvotes

@@ -1100,12 +1100,23 @@ class RefreshableListItemOptions {
 	final bool hideThumbnails;
 	final RegExp? queryPattern;
 	final bool inFilterFooter;
+	/// Number of direct, loaded children in this occurrence of the assembled tree.
+	/// Null outside tree mode; zero when this occurrence has no children.
+	final int? knownTreeChildCount;
 
 	const RefreshableListItemOptions({
 		this.hideThumbnails = false,
 		this.queryPattern,
-		this.inFilterFooter = false
+		this.inFilterFooter = false,
+		this.knownTreeChildCount
 	});
+
+	RefreshableListItemOptions copyWith({int? knownTreeChildCount}) => RefreshableListItemOptions(
+		hideThumbnails: hideThumbnails,
+		queryPattern: queryPattern,
+		inFilterFooter: inFilterFooter,
+		knownTreeChildCount: knownTreeChildCount ?? this.knownTreeChildCount
+	);
 
 	@override
 	bool operator == (Object other) =>
@@ -1113,13 +1124,14 @@ class RefreshableListItemOptions {
 		other is RefreshableListItemOptions &&
 		other.hideThumbnails == hideThumbnails &&
 		other.queryPattern == queryPattern &&
-		other.inFilterFooter == inFilterFooter;
+		other.inFilterFooter == inFilterFooter &&
+		other.knownTreeChildCount == knownTreeChildCount;
 	
 	@override
-	int get hashCode => Object.hash(hideThumbnails, queryPattern, inFilterFooter);
+	int get hashCode => Object.hash(hideThumbnails, queryPattern, inFilterFooter, knownTreeChildCount);
 
 	@override
-	String toString() => 'RefreshableListItemOptions(hideThumbnails: $hideThumbnails, queryPattern: $queryPattern, inFilterFooter: $inFilterFooter)';
+	String toString() => 'RefreshableListItemOptions(hideThumbnails: $hideThumbnails, queryPattern: $queryPattern, inFilterFooter: $inFilterFooter, knownTreeChildCount: $knownTreeChildCount)';
 }
 
 class RefreshableList<T extends Object> extends StatefulWidget {
@@ -1479,6 +1491,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 
 	Future<void> _onTreeCollapseOrExpand(RefreshableListItem<T> item, bool looseEquality) async {
 		Duration total = Duration.zero;
+		lightHapticFeedback();
 		while (total < _treeAnimationDuration) {
 			const incremental = Duration(milliseconds: 50);
 			await Future.delayed(incremental);
@@ -1686,11 +1699,6 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 								: lastItem.representsKnownStubChildren,
 							cancelToken
 						);
-					}
-					catch (e, st) {
-						if (mounted && !cancelToken.isCancelled) {
-							alertError(context, e, st);
-						}
 					}
 					finally {
 						_refreshableTreeItems.itemLoadingOmittedItemsEnded(lastItem);
@@ -2385,7 +2393,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 					patchedAnyItems = true;
 					for (final item in lastTree.tree.tree) {
 						if (item.id == linear[i].id) {
-							item.options = linear[i].options;
+							item.options = linear[i].options.copyWith(knownTreeChildCount: item.options.knownTreeChildCount);
 						}
 					}
 					lastTree.linear[i].options = linear[i].options;
@@ -2650,6 +2658,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 				throw const _TreeTooDeepException();
 			}
 			final item = node.item.copyWith(parentIds: parentIds);
+			item.options = item.options.copyWith(knownTreeChildCount: node.children.length);
 			out.add(item);
 			final ids = [
 				...parentIds,
@@ -2952,16 +2961,27 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 			}
 			else if (widget.treeAdapter != null) {
 				final adapter = widget.treeAdapter!;
-				RefreshableListItem<T>? stubItem;
+				(RefreshableListItem<T>, List<ParentAndChildIdentifier>)? stub;
+				void maybeAddStubItem() {
+					final item = stub;
+					if (item == null) return;
+					values.add(RefreshableListItem(
+						item: item.$1.item,
+						options: const RefreshableListItemOptions(),
+						id: item.$1.id,
+						representsKnownStubChildren: item.$2,
+						state: this
+					));
+					stub = null;
+				}
 				final unloadedPages = <RefreshableListItem<T>>[];
 				RefreshableListItem<T>? deferredUnloadedPage;
 				final items = values;
 				values = [];
 				for (final item in items) {
 					final isUnloadedPage = adapter.getHasOmittedReplies(item.item) && adapter.getIsPageStub(item.item);
-					if (stubItem != null && !adapter.getIsStub(item.item)) {
-						values.add(stubItem);
-						stubItem = null;
+					if (!adapter.getIsStub(item.item)) {
+						maybeAddStubItem();
 					}
 					if (unloadedPages.isNotEmpty && !isUnloadedPage) {
 						if (adapter.getParentIds(item.item).contains(unloadedPages.last.id)) {
@@ -2994,14 +3014,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 						}
 					}
 					if (adapter.getIsStub(item.item)) {
-						stubItem ??= RefreshableListItem(
-							item: item.item, // Arbitrary
-							options: const RefreshableListItemOptions(), // Arbitrary
-							id: item.id, // Arbitrary
-							representsKnownStubChildren: [],
-							state: this
-						);
-						stubItem.representsKnownStubChildren.add(ParentAndChildIdentifier(
+						(stub ??= (item, [])).$2.add(ParentAndChildIdentifier(
 							parentId: adapter.getParentIds(item.item).tryFirst ?? adapter.opId,
 							childId: adapter.getId(item.item)
 						));
@@ -3012,14 +3025,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 					else {
 						values.add(item);
 						if (adapter.getHasOmittedReplies(item.item)) {
-							stubItem ??= RefreshableListItem(
-								item: item.item, // Arbitrary
-								options: const RefreshableListItemOptions(), // Arbitrary
-								id: item.id, // Arbitrary
-								representsKnownStubChildren: [],
-								state: this
-							);
-							stubItem.representsKnownStubChildren.add(ParentAndChildIdentifier(
+							(stub ??= (item, [])).$2.add(ParentAndChildIdentifier(
 								parentId: adapter.getId(item.item),
 								childId: adapter.getId(item.item)
 							));
@@ -3031,9 +3037,7 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 				}
 				// Intentionally not adding deferred final page. It confuses reloading.
 				// If you just pull to refresh you will get latest page.
-				if (stubItem != null) {
-					values.add(stubItem);
-				}
+				maybeAddStubItem();
 			}
 			controller.setItems(values);
 			final addedItemsFromExtension = _addedItemsFromExtension;
@@ -4608,7 +4612,7 @@ class RefreshableListController<T extends Object> extends ChangeNotifier {
 		state?._lastTreeOrder = null;
 		state?._rebuild(); // Force [block]
 		setItems([]);
-		await state?.update();
+		await state?.update(hapticFeedback: true);
 		slowScrolls.didUpdate(now: true);
 	}
 	Future<void> update() async {

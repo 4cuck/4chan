@@ -655,6 +655,7 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 		'.gif'
 	].any(url.path.endsWith);
 	if (Persistence.settings.hostsToOpenExternally.any((s) => url.host.endsWith(s))) {
+		lightHapticFeedback();
 		if (!await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication)) {
 			await launchUrlExternally(url);
 		}
@@ -673,6 +674,7 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 		}
 	}
 	else if ((isOnMac && !useCooperativeBrowser && imageboardTarget == null && !isMediaLink) || settings.useInternalBrowser == false || (url.scheme != 'http' && url.scheme != 'https')) {
+		lightHapticFeedback();
 		await launchUrlExternally(url);
 	}
 	else if (imageboardTarget != null && !fromShareOne) {
@@ -741,6 +743,7 @@ Future<void> openBrowser(BuildContext context, Uri url, {bool fromShareOne = fal
 			await launchUrlExternally(url);
 		}
 		else {
+			lightHapticFeedback();
 			try {
 				final theme = context.read<SavedTheme>();
 				await ChromeSafariBrowser().open(url: WebUri.uri(url), settings: ChromeSafariBrowserSettings(
@@ -2981,4 +2984,9 @@ class VeryFastSnappingPageScrollPhysics extends ScrollPhysics {
 		duration: const Duration(milliseconds: 150),
 		bounce: 0,
 	);
+}
+
+/// Dummy thing to signal the route handles its own haptics
+mixin HapticRouteMixin<T> on PopupRoute<T> {
+
 }
