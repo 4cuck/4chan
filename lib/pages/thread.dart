@@ -189,7 +189,29 @@ class ThreadPageState extends State<ThreadPage> {
   bool _useAllDummies = false;
   late final RefreshableListController<Post> _listController;
   late PostSpanRootZoneData zone;
-  bool blocked = false;
+	bool _blocked = false;
+	bool _pendingUpdateHapticFeedback = false;
+	bool get blocked => _blocked;
+	set blocked(bool value) {
+		_blocked = value;
+		if (!value && _pendingUpdateHapticFeedback) {
+			WidgetsBinding.instance.addPostFrameCallback((_) {
+				if (mounted && !blocked && _pendingUpdateHapticFeedback) {
+					_pendingUpdateHapticFeedback = false;
+					mediumHapticFeedback();
+				}
+			});
+		}
+	}
+
+	void _onUpdateHapticFeedback() {
+		if (blocked) {
+			_pendingUpdateHapticFeedback = true;
+		}
+		else {
+			mediumHapticFeedback();
+		}
+	}
   Listenable? _threadStateListenable;
   int lastSavedPostsLength = 0;
   int lastHiddenMD5sLength = 0;
@@ -956,6 +978,7 @@ class ThreadPageState extends State<ThreadPage> {
   void didUpdateWidget(ThreadPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.thread != oldWidget.thread) {
+			_pendingUpdateHapticFeedback = false;
       _cached.clear();
       _cachingQueue.clear();
       _passedFirstLoad = false;
@@ -1236,14 +1259,18 @@ class ThreadPageState extends State<ThreadPage> {
     if (persistentState.identifier == asArchived.threadIdentifier &&
         thread != null) {
       final newInsert = zone.findPost(asArchived.id) == null;
+			final oldPost = thread.posts_.tryFirstWhere((post) => post.id == asArchived.id);
+			bool needToSave = !asArchived.isStub && oldPost?.isStub != false &&
+				persistentState.recordTreeStubUpgrade(asArchived.id);
       thread.mergePosts(null, [asArchived], context.read<ImageboardSite>());
       if (newInsert) {
         _highlightPosts[asArchived.id] = _kHighlightFull;
-        persistentState.unseenPostIds.data.add(asArchived.id);
+				needToSave |= persistentState.unseenPostIds.data.add(asArchived.id);
       }
       zone.addThread(thread);
       _updateHotPostIds();
       await persistentState.didMutateThread();
+			if (needToSave) await persistentState.save();
       await _listController.state?.acceptNewList(thread.postsToShow.toList());
       setState(() {});
     }
@@ -1622,6 +1649,12 @@ class ThreadPageState extends State<ThreadPage> {
     _checkForNewGeneral();
     if (newThread != tmpPersistentState.thread) {
       await newThread.preinit();
+			// The watcher or a stub load may have updated the shared thread
+			// while references and spans were being loaded above.
+			final latestThread = tmpPersistentState.thread;
+			if (latestThread != null && !identical(latestThread, newThread)) {
+				newThread.mergePosts(latestThread, latestThread.posts_, site);
+			}
       tmpPersistentState.thread = newThread;
       if (persistentState == tmpPersistentState) {
         zone.addThread(newThread);
@@ -1724,7 +1757,10 @@ class ThreadPageState extends State<ThreadPage> {
       priority: RequestPriority.interactive,
       cancelToken: cancelToken,
     );
-    if (widget.thread != thread.identifier) {
+    final currentThread = persistentState.thread;
+    if (currentThread == null ||
+        widget.thread != thread.identifier ||
+        currentThread.identifier != thread.identifier) {
       throw Exception('Thread changed');
     }
     final oldPosts = {for (final post in thread.posts_) post.id: post};
@@ -1742,15 +1778,13 @@ class ThreadPageState extends State<ThreadPage> {
       }
       return false;
     });
-    final treeSplitId = persistentState.treeSplitId;
     for (final p in newChildren) {
-      if (oldPosts[p.id]?.isStub != p.isStub &&
-          !persistentState.youIds.contains(p.id)) {
-        if (treeSplitId != null && p.id <= treeSplitId) {
-          needToSave |= persistentState.upgradedStubPostIds.data.add(p.id);
+      if (!p.isStub && oldPosts[p.id]?.isStub != false) {
+        needToSave |= persistentState.recordTreeStubUpgrade(p.id);
+        if (!persistentState.youIds.contains(p.id)) {
+          needToSave |= persistentState.unseenPostIds.data.add(p.id);
+          _highlightPosts[p.id] = _kHighlightFull;
         }
-        needToSave |= persistentState.unseenPostIds.data.add(p.id);
-        _highlightPosts[p.id] = _kHighlightFull;
       } else if (oldPosts[p.id]?.edited != p.edited) {
         needToSave |= persistentState.unseenPostIds.data.add(p.id);
         _highlightPosts[p.id] = _kHighlightFull;
@@ -2431,6 +2465,7 @@ class ThreadPageState extends State<ThreadPage> {
                             Visibility.maintain(
                               visible: !blocked,
                               child: RefreshableList<Post>(
+                                onUpdateHapticFeedback: _onUpdateHapticFeedback,
                                 filterableAdapter: (p) => p.isThread
                                     ? switch (persistentState.thread) {
                                         Thread t => (imageboard.key, t),
@@ -2448,16 +2483,19 @@ class ThreadPageState extends State<ThreadPage> {
                                 disableUpdates:
                                     persistentState.disableUpdates &&
                                     !(_highlightPosts.isNotEmpty ||
-                                        persistentState
-                                            .upgradedStubPostIds
-                                            .data
-                                            .isNotEmpty ||
+                                        persistentState.upgradedStubPostIds.any(
+                                          (batch) => batch.data.isNotEmpty,
+                                        ) ||
                                         switch ((
-                                          persistentState.treeSplitId,
+                                          persistentState.treeSplitIds,
                                           persistentState.thread?.posts_,
                                         )) {
-                                          (int treeSplitId, List<Post> posts) =>
-                                            treeSplitId <
+                                          (
+                                            List<int> splits,
+                                            List<Post> posts,
+                                          )
+                                              when splits.isNotEmpty =>
+                                            splits.first <
                                                 posts.fold(
                                                   0,
                                                   (m, p) => max(m, p.id),
@@ -2679,22 +2717,40 @@ class ThreadPageState extends State<ThreadPage> {
                                       treeModeRepliesToOPAreTopLevel,
                                   newRepliesAreLinear:
                                       treeModeNewRepliesAreLinear,
-                                  initialTreeSplitId:
-                                      persistentState.treeSplitId,
-                                  initialUpgradedStubPostIds:
-                                      persistentState.upgradedStubPostIds.data,
-                                  onTreeSplitIdChanged:
-                                      (newId, upgradedStubPostIds) {
-                                        persistentState.treeSplitId = newId;
-                                        persistentState.upgradedStubPostIds.data
-                                            .clear();
-                                        persistentState.upgradedStubPostIds.data
-                                            .addAll(upgradedStubPostIds);
-                                        runWhenIdle(
-                                          const Duration(milliseconds: 500),
-                                          persistentState.save,
-                                        );
-                                      },
+                                  initialTreeSplitIds: persistentState.treeSplitIds,
+                                  getUpgradedStubIds: () => persistentState
+                                      .upgradedStubPostIds
+                                      .map((batch) => batch.data),
+                                  onTreeSplitIdsChanged: (newIds, upgradedStubPostIds) {
+                                    persistentState.treeSplitIds = newIds;
+                                    persistentState.upgradedStubPostIds = [
+                                      for (final ids in upgradedStubPostIds)
+                                        EfficientlyStoredIntSet(ids),
+                                    ];
+                                    final acceptedPosts =
+                                        _listController.state?.originalList;
+                                    if (treeModeNewRepliesAreLinear &&
+                                        acceptedPosts != null) {
+                                      final oldPosts = {
+                                        for (final post in acceptedPosts)
+                                          post.id: post,
+                                      };
+                                      for (final post
+                                          in persistentState.thread?.postsToShow ??
+                                              const <Post>[]) {
+                                        if (!post.isStub &&
+                                            oldPosts[post.id]?.isStub != false) {
+                                          persistentState.recordTreeStubUpgrade(
+                                            post.id,
+                                          );
+                                        }
+                                      }
+                                    }
+                                    runWhenIdle(
+                                      const Duration(milliseconds: 500),
+                                      persistentState.save,
+                                    );
+                                  },
                                   initialCollapsedItems:
                                       persistentState.collapsedItems,
                                   initialPrimarySubtreeParents:
