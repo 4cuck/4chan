@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:chan/models/board.dart';
-import 'package:chan/models/parent_and_child.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/notifications.dart';
@@ -319,8 +318,8 @@ class ThreadWatcher extends ChangeNotifier {
 					final lastIncompletePageParentId = oldThread.posts_.tryLast?.parentId;
 					if (lastIncompletePageParentId != null && lastIncompletePageParentId.isNegative) {
 						final newChildren = await site.getStubPosts(
-							oldThread.identifier,
-							[ParentAndChildIdentifier.same(lastIncompletePageParentId)],
+							oldThread,
+							[lastIncompletePageParentId],
 							priority: priority,
 							cancelToken: cancelToken
 						);
@@ -331,7 +330,7 @@ class ThreadWatcher extends ChangeNotifier {
 						bool needToSave = false;
 						for (final p in newChildren) {
 							if (!p.isStub && oldPosts[p.id]?.isStub != false) {
-								needToSave |= threadState.recordTreeStubUpgrade(p.id);
+								needToSave |= threadState.recordTreeLateArrival(p.id);
 								if (!threadState.youIds.contains(p.id)) {
 								needToSave |= threadState.unseenPostIds.data.add(p.id);
 							}

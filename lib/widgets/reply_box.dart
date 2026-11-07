@@ -2650,15 +2650,17 @@ class ReplyBoxState extends State<ReplyBox> {
                         ? const SizedBox(
                             // Image is large, don't eagerly show it
                             width: 100,
-                            child: Icon(CupertinoIcons.exclamationmark_shield))
-                        : ClipRRect(
-                            borderRadius:
-                                const BorderRadius.all(Radius.circular(8)),
-                            child: Image.network(
-                                _proposedAttachmentUrl!.imageUrl,
-                                width: 100))),
-              Flexible(
-                  child: AdaptiveFilledButton(
+						child: Icon(CupertinoIcons.exclamationmark_shield)
+					) : ClipRRect(
+						borderRadius: const BorderRadius.all(Radius.circular(8)),
+						child: CNetworkImage(
+							client: context.read<ImageboardSite>().client,
+							url: _proposedAttachmentUrl!.imageUrl,
+							width: 100
+						)
+					)
+				),
+				Flexible(child: AdaptiveFilledButton(
                       padding: const EdgeInsets.all(4),
                       child: Text.rich(
                           TextSpan(children: [

@@ -7,7 +7,6 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:chan/main.dart';
 import 'package:chan/models/attachment.dart';
 import 'package:chan/models/board.dart';
-import 'package:chan/models/parent_and_child.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/pages/master_detail.dart';
 import 'package:chan/pages/overscroll_modal.dart';
@@ -391,15 +390,8 @@ class ThreadPageState extends State<ThreadPage> {
         persistentState.thread?.posts_.any((p) => p.isStub) ?? false;
     if (usesStubs) {
       if (post?.isStub ?? true) {
-        post = (await _updateWithStubItems([
-          ParentAndChildIdentifier(
-            parentId: -1, // Should be ignored
-            childId: postId,
-          ),
-        ])).tryFirstWhere((p) => p.id == postId);
-        await _listController.state?.acceptNewList(
-          zone.findThread(persistentState.id)!.postsToShow.toList(),
-        );
+				post = (await _updateWithStubItems([postId])).tryFirstWhere((p) => p.id == postId);
+				await _listController.state?.acceptNewList(zone.findThread(persistentState.id)!.postsToShow.toList());
         loadedSomething = true;
       }
       if (post == null) {
@@ -424,13 +416,10 @@ class ThreadPageState extends State<ThreadPage> {
       loadedSomething = true;
       if (context.read<ImageboardSite>().isPaged) {
         // This will find the page and load the post
-        await _updateWithStubItems([
-          ParentAndChildIdentifier(parentId: widget.thread.id, childId: postId),
-        ]);
-        await _listController.state?.acceptNewList(
-          zone.findThread(persistentState.id)!.postsToShow.toList(),
-        );
-      } else {
+				await _updateWithStubItems([postId]);
+				await _listController.state?.acceptNewList(zone.findThread(persistentState.id)!.postsToShow.toList());
+			}
+			else {
         // Maybe not loaded yet?
         await _listController.update();
       }
@@ -491,17 +480,7 @@ class ThreadPageState extends State<ThreadPage> {
       return;
     }
     if (persistentState.thread != null) {
-      double? alignment = _listController
-          .findItem((p) => p.id == postId)
-          ?.alignment;
-      bool alignmentMatches() => switch ((alignment, targetAlignment)) {
-        // Alignment is close enough
-        (double a, double ta) => (ta - a).abs() < 0.05,
-        // Just ensure it's onscreen
-        (double a, null) => a >= 0 && a <= 1.0,
-        // Item not built yet
-        (null, _) => false,
-      };
+			bool alignmentMatches() => _listController.isAtAlignment((p) => p.id == postId, alignment: targetAlignment);
       if (alignmentMatches()) {
         if (_useAllDummies) {
           setState(() {
@@ -524,7 +503,6 @@ class ThreadPageState extends State<ThreadPage> {
           await WidgetsBinding.instance.endOfFrame;
         }
         if (!mounted) return;
-        alignment = _listController.findItem((p) => p.id == postId)?.alignment;
         if (alignmentMatches()) {
           if (_useAllDummies) {
             //await Future.delayed(const Duration(milliseconds: 500));
@@ -674,19 +652,9 @@ class ThreadPageState extends State<ThreadPage> {
       if (i0 != null && i1 != null && i0 <= i1) {
         final items = _listController.items.toList();
         final i0Clamped = i0.clamp(0, items.length - 1);
-        final seenIds = items
-            .sublist(i0Clamped, i1.clamp(i0Clamped, items.length - 1) + 1)
-            .where(
-              (p) =>
-                  !_listController.isItemHidden(p).isHidden &&
-                  p.representsUnloadedPages.isEmpty,
-            )
-            .expand(
-              (p) => [
-                p.item.id,
-                ...p.representsKnownStubChildren.map((s) => s.childId),
-              ],
-            );
+				final seenIds = items.sublist(i0Clamped, i1.clamp(i0Clamped, items.length - 1) + 1)
+														 .where((p) => !_listController.isItemHidden(p).isHidden && p.representsUnloadedPages.isEmpty)
+														 .expand((p) => [p.item.id, ...p.representsKnownStubChildren]);
         final lengthBefore = persistentState.unseenPostIds.data.length;
         persistentState.unseenPostIds.data.removeAll(seenIds);
         if (lengthBefore != persistentState.unseenPostIds.data.length) {
@@ -1261,7 +1229,7 @@ class ThreadPageState extends State<ThreadPage> {
       final newInsert = zone.findPost(asArchived.id) == null;
 			final oldPost = thread.posts_.tryFirstWhere((post) => post.id == asArchived.id);
 			bool needToSave = !asArchived.isStub && oldPost?.isStub != false &&
-				persistentState.recordTreeStubUpgrade(asArchived.id);
+				persistentState.recordTreeLateArrival(asArchived.id);
       thread.mergePosts(null, [asArchived], context.read<ImageboardSite>());
       if (newInsert) {
         _highlightPosts[asArchived.id] = _kHighlightFull;
@@ -1546,6 +1514,10 @@ class ThreadPageState extends State<ThreadPage> {
   }
 
   Future<Thread> _getUpdatedThread(CancelToken? cancelToken) async {
+		if (_updateHighlightedPosts(restoring: false)) {
+			_listController.state?.forceRebuildId++;
+			setState(() {});
+		}
     final tmpPersistentState = persistentState;
     final site = context.read<ImageboardSite>();
     final settings = Settings.instance;
@@ -1742,25 +1714,15 @@ class ThreadPageState extends State<ThreadPage> {
     Future.microtask(_onSlowScroll);
   }
 
-  Future<List<Post>> _updateWithStubItems(
-    List<ParentAndChildIdentifier> ids, {
-    CancelToken? cancelToken,
-  }) async {
-    final thread = persistentState.thread;
-    if (thread == null) {
-      throw Exception('Thread not loaded');
-    }
-    final site = context.read<ImageboardSite>();
-    final newChildren = await site.getStubPosts(
-      thread.identifier,
-      ids,
-      priority: RequestPriority.interactive,
-      cancelToken: cancelToken,
-    );
-    final currentThread = persistentState.thread;
-    if (currentThread == null ||
-        widget.thread != thread.identifier ||
-        currentThread.identifier != thread.identifier) {
+	Future<List<Post>> _updateWithStubItems(List<int> ids, {CancelToken? cancelToken}) async {
+		final requestedThread = persistentState.thread;
+		if (requestedThread == null) {
+			throw Exception('Thread not loaded');
+		}
+		final site = context.read<ImageboardSite>();
+		final newChildren = await site.getStubPosts(requestedThread, ids, priority: RequestPriority.interactive, cancelToken: cancelToken);
+		final thread = persistentState.thread;
+		if (thread == null || widget.thread != requestedThread.identifier || thread.identifier != requestedThread.identifier) {
       throw Exception('Thread changed');
     }
     final oldPosts = {for (final post in thread.posts_) post.id: post};
@@ -1780,7 +1742,7 @@ class ThreadPageState extends State<ThreadPage> {
     });
     for (final p in newChildren) {
       if (!p.isStub && oldPosts[p.id]?.isStub != false) {
-        needToSave |= persistentState.recordTreeStubUpgrade(p.id);
+				needToSave |= persistentState.recordTreeLateArrival(p.id);
         if (!persistentState.youIds.contains(p.id)) {
           needToSave |= persistentState.unseenPostIds.data.add(p.id);
           _highlightPosts[p.id] = _kHighlightFull;
@@ -1791,12 +1753,9 @@ class ThreadPageState extends State<ThreadPage> {
       }
     }
     final anyNew = thread.mergePosts(null, newChildren, site);
-		if (ids.length == 1 && ids.single.childId == ids.single.parentId && !site.isPaged) {
+		if (ids.length == 1 && !site.isPaged) {
       // Clear hasOmittedReplies in case it has only omitted shadowbanned replies
-      thread.posts_
-              .tryFirstWhere((p) => p.id == ids.single.childId)
-              ?.hasOmittedReplies =
-          false;
+			thread.posts_.tryFirstWhere((p) => p.id == ids.single)?.hasOmittedReplies = false;
     }
     zone.addThread(thread);
     if (anyNew) {
@@ -2480,28 +2439,10 @@ class ThreadPageState extends State<ThreadPage> {
                                 key: _listKey,
                                 sortMethods: zone.postSortingMethods,
                                 id: '/${widget.thread.board}/${widget.thread.id}${persistentState.variant?.dataId ?? ''}',
-                                disableUpdates:
-                                    persistentState.disableUpdates &&
-                                    !(_highlightPosts.isNotEmpty ||
-                                        persistentState.upgradedStubPostIds.any(
-                                          (batch) => batch.data.isNotEmpty,
-                                        ) ||
-                                        switch ((
-                                          persistentState.treeSplitIds,
-                                          persistentState.thread?.posts_,
-                                        )) {
-                                          (
-                                            List<int> splits,
-                                            List<Post> posts,
-                                          )
-                                              when splits.isNotEmpty =>
-                                            splits.first <
-                                                posts.fold(
-                                                  0,
-                                                  (m, p) => max(m, p.id),
-                                                ),
-                                          _ => false,
-                                        }),
+																disableUpdates: persistentState.disableUpdates && !(_highlightPosts.isNotEmpty || persistentState.treeBatchOverrides.any((batch) => batch.data.isNotEmpty) || switch ((persistentState.treeBatchBoundaries, persistentState.thread?.posts_)) {
+																	(List<int> boundaries, List<Post> posts) when boundaries.isNotEmpty => boundaries.first < posts.fold(0, (m, p) => max(m, p.id)),
+																	_ => false
+																}),
                                 autoUpdateDuration:
                                     persistentState.disableUpdates
                                     ? null
@@ -2709,40 +2650,25 @@ class ThreadPageState extends State<ThreadPage> {
                                               largeImageHeight,
                                         );
                                       },
-                                  initiallyCollapseSecondLevelReplies:
-                                      treeModeInitiallyCollapseSecondLevelReplies,
-                                  collapsedItemsShowBody:
-                                      treeModeCollapsedPostsShowBody,
-                                  repliesToOPAreTopLevel:
-                                      treeModeRepliesToOPAreTopLevel,
-                                  newRepliesAreLinear:
-                                      treeModeNewRepliesAreLinear,
-                                  initialTreeSplitIds: persistentState.treeSplitIds,
-                                  getUpgradedStubIds: () => persistentState
-                                      .upgradedStubPostIds
-                                      .map((batch) => batch.data),
-                                  onTreeSplitIdsChanged: (newIds, upgradedStubPostIds) {
-                                    persistentState.treeSplitIds = newIds;
-                                    persistentState.upgradedStubPostIds = [
-                                      for (final ids in upgradedStubPostIds)
-                                        EfficientlyStoredIntSet(ids),
-                                    ];
-                                    final acceptedPosts =
-                                        _listController.state?.originalList;
-                                    if (treeModeNewRepliesAreLinear &&
-                                        acceptedPosts != null) {
-                                      final oldPosts = {
-                                        for (final post in acceptedPosts)
-                                          post.id: post,
-                                      };
-                                      for (final post
-                                          in persistentState.thread?.postsToShow ??
-                                              const <Post>[]) {
-                                        if (!post.isStub &&
-                                            oldPosts[post.id]?.isStub != false) {
-                                          persistentState.recordTreeStubUpgrade(
-                                            post.id,
-                                          );
+																	initiallyCollapseSecondLevelReplies: treeModeInitiallyCollapseSecondLevelReplies,
+																	collapsedItemsShowBody: treeModeCollapsedPostsShowBody,
+																	repliesToOPAreTopLevel: treeModeRepliesToOPAreTopLevel,
+																	newRepliesAreLinear: treeModeNewRepliesAreLinear,
+																	initialTreeBatchBoundaries: persistentState.treeBatchBoundaries,
+																	getTreeBatchOverrides: () => persistentState.treeBatchOverrides.map((batch) => batch.data),
+																	onTreeBatchBoundariesChanged: (newBoundaries, treeBatchOverrides) {
+																		persistentState.treeBatchBoundaries = newBoundaries;
+																		persistentState.treeBatchOverrides = [
+																			for (final ids in treeBatchOverrides) EfficientlyStoredIntSet(ids)
+																		];
+																		final acceptedPosts = _listController.state?.originalList;
+																		if (treeModeNewRepliesAreLinear && acceptedPosts != null) {
+																			// A boundary can advance before watcher arrivals reach the
+																			// list. Keep those missing/stub -> body arrivals in the open batch.
+																			final oldPosts = {for (final post in acceptedPosts) post.id: post};
+																			for (final post in persistentState.thread?.postsToShow ?? const <Post>[]) {
+																				if (!post.isStub && oldPosts[post.id]?.isStub != false) {
+																					persistentState.recordTreeLateArrival(post.id);
                                         }
                                       }
                                     }
@@ -2983,15 +2909,14 @@ class ThreadPageState extends State<ThreadPage> {
                                     if (_listController.state?.originalList !=
                                         null) {
                                       if (options.source.manual) {
-                                        await Future.delayed(
-                                          const Duration(milliseconds: 650),
-                                        );
                                         // This is just to clear highlighted posts / resort tree on archived threads
                                         _highlightPosts.clear();
                                         _listController
                                             .state
                                             ?.forceRebuildId++; // To force widgets to re-build and re-compute [highlight]
                                         Future.microtask(() => setState(() {}));
+																			// Keep the refresh indicator visible on archived threads.
+																			await Future.delayed(const Duration(milliseconds: 650));
                                       }
                                       return null;
                                     }
@@ -3137,9 +3062,8 @@ class ThreadPageState extends State<ThreadPage> {
                                       required Set<int> collapsedChildIds,
                                       required bool loading,
                                       required double? peekContentHeight,
-                                      required List<ParentAndChildIdentifier>?
-                                      stubChildIds,
-                                      required bool alreadyDim,
+																	required List<int>? stubChildIds,
+																	required bool alreadyDim
                                     }) {
                                       if ((value?.id ?? 0).isNegative) {
                                         return Row(
@@ -3257,18 +3181,11 @@ class ThreadPageState extends State<ThreadPage> {
                                         child: Container(
                                           width: double.infinity,
                                           padding: const EdgeInsets.all(8),
-                                          // TODO: The below?
-                                          color: switch (([
-                                            value?.id ?? -1,
-                                            ...(stubChildIds?.map(
-                                                  (x) => x.childId,
-                                                ) ??
-                                                <int>[]),
-                                          ]).fold(
-                                            0.0,
-                                            (t, i) =>
-                                                max(t, _shouldHighlightPost(i)),
-                                          )) {
+																			// A loading row can briefly outlive the stubs it represents.
+																			color: switch (([
+																				if (value != null) value.id,
+																				...(stubChildIds ?? <int>[]).where((id) => zone.findPost(id)?.isStub != false)
+																			]).fold(0.0, (t, i) => max(t, _shouldHighlightPost(i)))) {
                                             0.0 => null,
                                             double x =>
                                               theme.primaryColorWithBrightness(
@@ -3313,8 +3230,8 @@ class ThreadPageState extends State<ThreadPage> {
                                                   '${collapsedChildIds.length}${collapsedChildIds.contains(-1) ? '+' : ''} ',
                                                   style: style,
                                                 ),
-                                              if (unseenCount > 0)
-                                                Text(
+																					if (value != null)
+																						if (unseenCount > 0) Text(
                                                   '($unseenCount unseen) ',
                                                   style: style,
                                                 )
@@ -3344,15 +3261,12 @@ class ThreadPageState extends State<ThreadPage> {
                                           child: _ThreadScrollbar(
                                             persistentState: persistentState,
                                             listController: _listController,
-                                            hotPostIds:
-                                                settings.showHotPostsInScrollbar
-                                                ? _hotPostIds
-                                                : const {},
-                                            highlightedPostIds: _listController
-                                                .items
-                                                .where((i) => i.highlighted)
-                                                .map((i) => i.id)
-                                                .toSet(),
+																			hotPostIds: settings.showHotPostsInScrollbar ? _hotPostIds : const {},
+																			highlightedPostIds: {
+																				for (final i in _listController.items)
+																					if (i.highlighted case final highlighted?)
+																						i.id: highlighted
+																			}
                                           ),
                                         ),
                                       )
@@ -3789,12 +3703,11 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
       if (i > lastVisibleIndex) {
         if (items[i].representsKnownStubChildren.isNotEmpty) {
           for (final stubChild in items[i].representsKnownStubChildren) {
-            if (widget.persistentState.unseenPostIds.data.contains(
-              stubChild.childId,
-            )) {
-              whiteBelow.add(stubChild.childId);
-            } else {
-              greyBelow.add(stubChild.childId);
+						if (widget.persistentState.unseenPostIds.data.contains(stubChild)) {
+							whiteBelow.add(stubChild);
+						}
+						else {
+							greyBelow.add(stubChild);
             }
           }
         } else if (widget.persistentState.unseenPostIds.data.contains(
@@ -3816,10 +3729,8 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
       } else if (i < firstVisibleIndex) {
         if (items[i].representsKnownStubChildren.isNotEmpty) {
           for (final stubChild in items[i].representsKnownStubChildren) {
-            if (widget.persistentState.unseenPostIds.data.contains(
-              stubChild.childId,
-            )) {
-              whiteAbove.add(stubChild.childId);
+						if (widget.persistentState.unseenPostIds.data.contains(stubChild)) {
+							whiteAbove.add(stubChild);
             }
           }
         } else if (widget.persistentState.unseenPostIds.data.contains(
@@ -3839,19 +3750,18 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
       } else if (i > lastVisibleIndex) {
         greyBelow.add(items[i].item.id);
         for (final stubChild in items[i].representsKnownStubChildren) {
-          greyBelow.add(stubChild.childId);
+					greyBelow.add(stubChild);
         }
       }
     }
     if (!items.last.filterCollapsed) {
       if (items.last.representsKnownStubChildren.isNotEmpty) {
         for (final stubChild in items.last.representsKnownStubChildren) {
-          if (widget.persistentState.unseenPostIds.data.contains(
-            stubChild.childId,
-          )) {
-            whiteBelow.add(stubChild.childId);
-          } else {
-            greyBelow.add(stubChild.childId);
+					if (widget.persistentState.unseenPostIds.data.contains(stubChild)) {
+						whiteBelow.add(stubChild);
+					}
+					else {
+						greyBelow.add(stubChild);
           }
         }
       } else if ((items.length - 1) > lastVisibleIndex) {
@@ -4090,17 +4000,8 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
       if (lastVisibleIndex != -1) {
         final markAsRead = widget.listController.items
             .skip(lastVisibleIndex + 1)
-            .where(
-              (p) =>
-                  !widget.listController.isItemHidden(p).isHidden &&
-                  p.representsUnloadedPages.isEmpty,
-            )
-            .expand(
-              (p) => [
-                p.item.id,
-                ...p.representsKnownStubChildren.map((s) => s.childId),
-              ],
-            )
+														.where((p) => !widget.listController.isItemHidden(p).isHidden && p.representsUnloadedPages.isEmpty)
+														.expand((p) => [p.item.id, ...p.representsKnownStubChildren])
             .toSet();
         widget.persistentState.unseenPostIds.data.removeAll(markAsRead);
         widget.persistentState.lastSeenPostId = markAsRead.fold<int>(0, max);
@@ -4884,33 +4785,9 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                     if (lastVisibleIndex == -1) {
                                       return;
                                     }
-                                    int targetIndex =
-                                        widget.listController.items
-                                            .toList()
-                                            .asMap()
-                                            .entries
-                                            .tryFirstWhere((entry) {
-                                              return entry.key >
-                                                      lastVisibleIndex &&
-                                                  (widget
-                                                          .persistentState
-                                                          .unseenPostIds
-                                                          .data
-                                                          .contains(
-                                                            entry.value.item.id,
-                                                          ) ||
-                                                      entry
-                                                          .value
-                                                          .representsKnownStubChildren
-                                                          .any(
-                                                            (id) => widget
-                                                                .persistentState
-                                                                .unseenPostIds
-                                                                .data
-                                                                .contains(
-                                                                  id.childId,
-                                                                ),
-                                                          )) &&
+														int targetIndex = widget.listController.items.toList().asMap().entries.tryFirstWhere((entry) {
+															return entry.key > lastVisibleIndex &&
+																(widget.persistentState.unseenPostIds.data.contains(entry.value.item.id) || entry.value.representsKnownStubChildren.any(widget.persistentState.unseenPostIds.data.contains)) &&
                                                   !entry.value.filterCollapsed;
                                             })
                                             ?.key ??
@@ -5330,11 +5207,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                               firstCurve: Curves.ease,
                                               secondCurve: Curves.ease,
                                             ),
-                                        child: Padding(
-                                          padding: const EdgeInsets.only(
-                                            left: 4,
-                                          ),
-                                          child: ConstrainedBox(
+                                        child: ConstrainedBox(
                                             constraints: const BoxConstraints(
                                               maxWidth: 200,
                                             ),
@@ -5342,7 +5215,8 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                               switch (error.$1) {
                                                 ThreadNotFoundException() =>
                                                   '404',
-                                                Object obj => obj.toStringDio(),
+                                                Object obj =>
+                                                  obj.toStringDioShort(),
                                               },
                                               style: TextStyle(
                                                 color: theme.backgroundColor,
@@ -5352,7 +5226,6 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                             ),
                                           ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ),
@@ -5829,26 +5702,8 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                     .entries
                                     .tryLastWhere((entry) {
                                       return entry.key < firstVisibleIndex &&
-                                          (widget
-                                                  .persistentState
-                                                  .unseenPostIds
-                                                  .data
-                                                  .contains(
-                                                    entry.value.item.id,
-                                                  ) ||
-                                              entry
-                                                  .value
-                                                  .representsKnownStubChildren
-                                                  .any(
-                                                    (id) => widget
-                                                        .persistentState
-                                                        .unseenPostIds
-                                                        .data
-                                                        .contains(id.childId),
-                                                  )) &&
-                                          !widget.listController
-                                              .isItemHidden(entry.value)
-                                              .isDuplicate &&
+															(widget.persistentState.unseenPostIds.data.contains(entry.value.item.id) || entry.value.representsKnownStubChildren.any(widget.persistentState.unseenPostIds.data.contains)) &&
+															!widget.listController.isItemHidden(entry.value).isDuplicate &&
                                           // First try to find a non-stub
                                           !entry.value.representsStubChildren;
                                     })
@@ -5859,29 +5714,9 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                     .entries
                                     .tryLastWhere((entry) {
                                       return entry.key < firstVisibleIndex &&
-                                          (widget
-                                                  .persistentState
-                                                  .unseenPostIds
-                                                  .data
-                                                  .contains(
-                                                    entry.value.item.id,
-                                                  ) ||
-                                              entry
-                                                  .value
-                                                  .representsKnownStubChildren
-                                                  .any(
-                                                    (id) => widget
-                                                        .persistentState
-                                                        .unseenPostIds
-                                                        .data
-                                                        .contains(id.childId),
-                                                  )) &&
-                                          !widget.listController
-                                              .isItemHidden(entry.value)
-                                              .isDuplicate;
-                                    })
-                                    ?.key ??
-                                -1;
+															(widget.persistentState.unseenPostIds.data.contains(entry.value.item.id) || entry.value.representsKnownStubChildren.any(widget.persistentState.unseenPostIds.data.contains)) &&
+															!widget.listController.isItemHidden(entry.value).isDuplicate;
+													})?.key ?? -1;
                             if (targetIndex != -1) {
                               widget.resetLayoutIndexes();
                               widget.glowPost(
@@ -6074,7 +5909,7 @@ class _ThreadScrollbar extends StatefulWidget {
   final PersistentThreadState persistentState;
   final RefreshableListController<Post> listController;
   final Set<int> hotPostIds;
-  final Set<int> highlightedPostIds;
+	final Map<int, HighlightColor> highlightedPostIds;
 
   const _ThreadScrollbar({
     required this.persistentState,
@@ -6199,9 +6034,8 @@ class _ThreadScrollbarState extends State<_ThreadScrollbar> {
         painter: _ThreadScrollbarCustomPainter(
           items: widget.listController.items.toList(),
           youIds: widget.persistentState.youIds.toSet(),
-          replyIdsToYou:
-              widget.persistentState.replyIdsToYou()?.toSet() ?? const {},
-          highlightedIds: widget.highlightedPostIds,
+					replyIdsToYou: widget.persistentState.replyIdsToYou()?.toSet() ?? const {},
+					highlightedIds: widget.highlightedPostIds.map((k, v) => MapEntry(k, v.resolve(context))),
           hotIds: widget.hotPostIds,
           theme: theme,
         ),
@@ -6225,7 +6059,7 @@ class _ThreadScrollbarCustomPainter extends CustomPainter {
   final List<RefreshableListItem<Post>> items;
   final Set<int> youIds;
   final Set<int> replyIdsToYou;
-  final Set<int> highlightedIds;
+	final Map<int, Color> highlightedIds;
   final Set<int> hotIds;
   final SavedTheme theme;
 
@@ -6248,9 +6082,8 @@ class _ThreadScrollbarCustomPainter extends CustomPainter {
       return;
     }
     final youPaint = ui.Paint()..color = theme.secondaryColor;
-    final replyToYouPaint = ui.Paint()
-      ..color = theme.secondaryColor.towardsBlack(0.5);
-    final highlightedPaint = ui.Paint()..color = theme.secondaryColor;
+		final replyToYouPaint = ui.Paint()..color = theme.secondaryColor.towardsBlack(0.5);
+		final highlightedPaints = <Color, Paint>{};
     final hotPaint = ui.Paint()..color = theme.secondaryColor.shiftHue(90);
     canvas.saveLayer(
       null,
@@ -6266,8 +6099,8 @@ class _ThreadScrollbarCustomPainter extends CustomPainter {
       if (replyIdsToYou.contains(item.id)) {
         return replyToYouPaint;
       }
-      if (highlightedIds.contains(item.id)) {
-        return highlightedPaint;
+			if (highlightedIds[item.id] case final color?) {
+				return highlightedPaints[color] ??= ui.Paint()..color = color;
       }
       if (hotIds.contains(item.id)) {
         return hotPaint;
@@ -6334,7 +6167,7 @@ class _ThreadScrollbarCustomPainter extends CustomPainter {
   bool shouldRepaint(_ThreadScrollbarCustomPainter oldDelegate) {
     return !setEquals(youIds, oldDelegate.youIds) ||
         !setEquals(replyIdsToYou, oldDelegate.replyIdsToYou) ||
-        !setEquals(highlightedIds, oldDelegate.highlightedIds) ||
+			!mapEquals(highlightedIds, oldDelegate.highlightedIds) ||
         !setEquals(hotIds, oldDelegate.hotIds) ||
         !listEquals(items, oldDelegate.items) ||
         theme != oldDelegate.theme;

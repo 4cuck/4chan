@@ -1574,14 +1574,12 @@ class BoardPageState extends State<BoardPage> {
         ? const Radius.circular(4)
         : const Radius.circular(8);
     List<Thread>? initialList;
-    if (_lastCatalogUpdateTime == null &&
-        !(kDebugMode && Navigator.of(context).userGestureInProgress)) {
-      final catalog = site?.getCatalogFromCatalogCache(
-        board?.name,
-        variant: variant,
-      );
+		DateTime? initialListTime;
+		if (_lastCatalogUpdateTime == null && !(kDebugMode && Navigator.of(context).userGestureInProgress)) {
+			final catalog = site?.getCatalogFromCatalogCache(board?.name, variant: variant);
       if (catalog != null) {
         initialList = catalog.threads.values.toList();
+				initialListTime = catalog.fetchedTime;
         _lastCatalogUpdateTime = catalog.fetchedTime;
         Future.delayed(const Duration(milliseconds: 100), () {
           if (!mounted) return;
@@ -2017,6 +2015,7 @@ class BoardPageState extends State<BoardPage> {
                                         : null,
                                     controller: _listController,
                                     initialList: initialList,
+												initialListTime: initialListTime,
                                     listUpdater: (options) async {
                                       final catalog = (await site.getCatalog(
                                         board!.name,

@@ -7,7 +7,6 @@ import 'package:chan/main.dart';
 import 'package:chan/models/attachment.dart';
 import 'package:chan/models/board.dart';
 import 'package:chan/models/flag.dart';
-import 'package:chan/models/parent_and_child.dart';
 import 'package:chan/models/post.dart';
 import 'package:chan/models/search.dart';
 import 'package:chan/services/basedflare.dart';
@@ -1220,6 +1219,7 @@ class ImageboardArchiveSearchResult {
 	const ImageboardArchiveSearchResult.thread(Thread this.thread) : post = null;
 
 	ThreadIdentifier get threadIdentifier => (post?.threadIdentifier ?? thread?.identifier)!;
+	ThreadOrPostIdentifier get threadOrPostIdentifier => (post?.identifier.threadOrPostId ?? thread?.identifier.threadOrPostIdentifier)!;
 	int get id => (post?.id ?? thread?.id)!;
 
 	@override toString() => 'ImageboardArchiveSearchResult(${post ?? thread})';
@@ -2560,6 +2560,10 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 	Imageboard? imageboard;
 	Persistence? get persistence => imageboard?.persistence;
 	ImageboardSiteLoginSystem? get loginSystem => null;
+	@mustCallSuper
+	void didClearCookies(CookieJar jar) {
+		loginSystem?.didClearCookies(jar);
+	}
 	List<ImageboardEmote> getEmotes() => [];
 	Future<List<ImageboardBoardFlag>> getBoardFlags(String board) async => [];
 	bool doesBoardHaveCountryFlags(String board) => false;
@@ -2609,7 +2613,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 	bool get supportsPostUpvotes => false;
 	int? get postsPerPage => null;
 	bool get isPaged => postsPerPage != null;
-	Future<List<Post>> getStubPosts(ThreadIdentifier thread, List<ParentAndChildIdentifier> postIds, {required RequestPriority priority, CancelToken? cancelToken}) async => throw UnimplementedError();
+	Future<List<Post>> getStubPosts(Thread thread, List<int> postIds, {required RequestPriority priority, CancelToken? cancelToken}) async => throw UnimplementedError();
 	bool get supportsMultipleBoards => true;
 	bool get hasSharedIdSpace => false;
 	bool get hasWeakQuoteLinks => false;
