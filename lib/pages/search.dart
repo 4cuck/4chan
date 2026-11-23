@@ -121,7 +121,7 @@ class SearchPageState extends State<SearchPage> {
 							child: ThreadPage(
 								thread: post.result.thread,
 								initialPostId: post.result.postId,
-								initiallyUseArchive: post.fromArchive,
+								initiallyHintArchive: post.fromArchive,
 								initialSearch: post.threadSearch,
 								boardSemanticId: -1
 							)
@@ -281,6 +281,8 @@ class _SearchComposePageState extends State<SearchComposePage> {
 					final newBoard = await Navigator.of(context).push<ImageboardScoped<ImageboardBoard>>(TransparentRoute(
 						builder: (ctx) => BoardSwitcherPage(
 							initialImageboardKey: query.imageboardKey,
+							// Pass '' to highlight the whole site
+							initialBoardName: query.boards.trySingle ?? '',
 							filterImageboards: (b) => b.site.supportsSearch('').options.text,
 							allowPickingWholeSites: true
 						)
@@ -474,7 +476,10 @@ class _SearchComposePageState extends State<SearchComposePage> {
 															CupertinoButton(
 																onPressed: () async {
 																	final newBoard = await Navigator.of(context).push<ImageboardScoped<ImageboardBoard>>(TransparentRoute(
-																		builder: (ctx) => const BoardSwitcherPage()
+																		builder: (ctx) => BoardSwitcherPage(
+																			initialImageboardKey: board.imageboard.key,
+																			initialBoardName: board.item.name
+																		)
 																	));
 																	if (newBoard != null) {
 																		setInnerState(() {
@@ -679,6 +684,10 @@ List<Widget> describeQuery(ImageboardArchiveSearchQuery q) {
 			final formattedBoardName = imageboard?.site.formatBoardName(boardName);
 			return _SearchQueryFilterTag(formattedBoardName ?? '/$boardName/', null, true);
 		}),
+		if (q.archiveName case final archiveName?) _RawSearchQueryFilterTag(const Padding(
+			padding: EdgeInsets.all(2),
+			child: Icon(CupertinoIcons.archivebox, size: 16, applyTextScaling: true)
+		), Text(archiveName)),
 		if (q.query.isNotEmpty) _SearchQueryFilterTag('Text', q.query),
 		if (q.mediaFilter == MediaFilter.onlyWithMedia) const _SearchQueryFilterTag('With images'),
 		if (q.mediaFilter == MediaFilter.onlyWithNoMedia) const _SearchQueryFilterTag('Without images'),
@@ -732,6 +741,7 @@ class _RawSearchQueryFilterTag extends StatelessWidget {
 					child: field
 				),
 				if (value case final value?) SegmentedWidgetSegment(
+					flexible: true,
 					color: ChanceTheme.primaryColorOf(context).withValues(alpha: invert ? 0.15 : 0.3),
 					child: value
 				)

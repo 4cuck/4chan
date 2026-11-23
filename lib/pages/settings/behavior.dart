@@ -587,6 +587,7 @@ final behaviorSettings = [
 			final newBoard = await Navigator.of(context).push<ImageboardScoped<ImageboardBoard>>(TransparentRoute(
 				builder: (ctx) => BoardSwitcherPage(
 					initialImageboardKey: currentHome.$1,
+					initialBoardName: currentHome.$2,
 					allowPickingWholeSites: true
 				)
 			));

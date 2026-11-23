@@ -1776,6 +1776,19 @@ class ImageboardRedirectGateway {
 	String toString() => 'ImageboardRedirectGateway(name: $name, alwaysNeedsManualSolving: $alwaysNeedsManualSolving, autoClickSelector: $autoClickSelector)';
 }
 
+class PostDeletionParams {
+	final String password;
+	final int id;
+
+	PostDeletionParams({
+		required this.id,
+		required this.password
+	});
+
+	@override
+	String toString() => 'PostDeletionParams(id: $id, password: $password)';
+}
+
 class CacheConstraints {
 	final DateTime fetchedOnOrAfter;
 	final DateTime? dataOnOrAfter;
@@ -2157,6 +2170,19 @@ abstract class ImageboardSiteArchive {
 		}
 	}
 	Future<List<ImageboardBoard>> getBoards({required RequestPriority priority, CancelToken? cancelToken});
+
+	Future<void> checkBoards(Iterable<String> boards, {required RequestPriority priority, CancelToken? cancelToken}) async {
+		final requestedBoards = boards.toList();
+		if (requestedBoards.isEmpty) return;
+		final knownBoards = await getBoards(priority: priority, cancelToken: cancelToken);
+		final supportedBoards = knownBoards.map((board) => board.boardKey).toSet();
+		for (final board in requestedBoards) {
+			if (!supportedBoards.contains(ImageboardBoard.getKey(board))) {
+				throw BoardNotFoundException(this, board);
+			}
+		}
+	}
+
 	Future<ImageboardArchiveSearchResultPage> search(ImageboardArchiveSearchQuery query, {required int page, ImageboardArchiveSearchResultPage? lastResult, required RequestPriority priority, CancelToken? cancelToken});
 	@protected
 	String getWebUrlImpl(String board, [int? threadId, int? postId]);
@@ -2231,6 +2257,7 @@ abstract class ImageboardSiteArchive {
 	String formatBoardNameWithoutTrailingSlash(String name) => '/$name';
 	String formatBoardLink(String name) => '>>/$name/';
 	String formatBoardSearchLink(String name, String query) => '>>>/$name/$query';
+	String formatUsernameShort(String name) => name;
 	String formatUsername(String name) => name;
 
 	@override
@@ -2249,6 +2276,11 @@ typedef EncodedWebPost = ({Map<String, dynamic> fields, String password, String?
 
 abstract class ImageboardSite extends ImageboardSiteArchive {
 	final List<ImageboardSiteArchive> archives;
+	Iterable<ImageboardSiteArchive> get enabledArchives {
+		final disabled = persistence?.browserState.disabledArchiveNames;
+		return archives.where((archive) => disabled?.contains(archive.name) != true);
+	}
+
 	final Map<String, String> imageHeaders;
 	final Map<String, String> videoHeaders;
 	ImageboardSite({
@@ -2285,17 +2317,14 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 	bool get supportsWebPostingFallback => false;
 	Future<EncodedWebPost?> encodePostForWeb(DraftPost post) async => null;
 	Duration getActionCooldown(String board, ImageboardAction action, CookieJar cookies) => const Duration(seconds: 3);
-	Future<void> deletePost(ThreadIdentifier thread, PostReceipt receipt, CaptchaSolution captchaSolution, CancelToken cancelToken, {required bool imageOnly}) async {
+	Future<void> deletePost(ThreadIdentifier thread, PostDeletionParams params, CaptchaSolution captchaSolution, CancelToken cancelToken, {required bool imageOnly}) async {
 		throw UnimplementedError('Post deletion is not implemented on $name ($runtimeType)');
 	}
 
 	@override
 	Future<Post> getPostFromArchive(String board, int id, {required RequestPriority priority, CancelToken? cancelToken}) async {
 		final Map<ImageboardSiteArchive, Object> errors = {};
-		for (final archive in archives) {
-			if (persistence?.browserState.disabledArchiveNames.contains(archive.name) ?? false) {
-				continue;
-			}
+		for (final archive in enabledArchives) {
 			try {
 				final post = await archive.getPostFromArchive(board, id, priority: RequestPriority.lowest, cancelToken: cancelToken);
 				post.archiveName = archive.name;
@@ -2330,10 +2359,11 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 			throw BoardNotArchivedException(this, board);
 		}
 	}
-	Future<Thread> getThreadFromArchive(ThreadIdentifier thread, {Future<void> Function(Thread)? customValidator, required RequestPriority priority, CancelToken? cancelToken, String? archiveName}) async {
+	Future<Thread> getThreadFromArchive(ThreadIdentifier thread, {required bool? isArchived, Future<void> Function(Thread)? customValidator, required RequestPriority priority, CancelToken? cancelToken, String? archiveName}) async {
 		final Map<ImageboardSiteArchive, Object> errors = {};
 		Thread? fallback;
 		final isReallyArchived = () async {
+			if (isArchived != null) return isArchived;
 			try {
 				// Maybe we already know
 				final t0 = await persistence?.getThreadStateIfExists(thread)?.getThread();
@@ -2387,8 +2417,8 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 		};
 		final completer = Completer<Thread>();
 		final timeout = ExtendableTimeoutException.forKey(thread, const Duration(seconds: 15));
-		if (archiveName != null && persistence?.browserState.disabledArchiveNames.contains(archiveName) != true) {
-			final archive = archives.tryFirstWhere((a) => a.name == archiveName);
+		if (archiveName != null) {
+			final archive = enabledArchives.tryFirstWhere((a) => a.name == archiveName);
 			if (archive != null) {
 				try {
 					final cancelToken2 = CancelToken();
@@ -2421,10 +2451,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 			}
 		}
 		() async {
-			await Future.wait(archives.map((archive) async {
-				if (persistence?.browserState.disabledArchiveNames.contains(archive.name) ?? false) {
-					return null;
-				}
+			await Future.wait(enabledArchives.map((archive) async {
 				if (archiveName == archive.name) {
 					// It should have been already attempted
 					return null;
@@ -2477,6 +2504,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 						Future.delayed(timeout.duration, () => cancelToken2.cancel(timeout));
 						final thread_ = await error.key.getThread(thread, priority: priority, cancelToken: cancelToken2);
 						thread_.archiveName = error.key.name;
+						thread_.isArchived = await isReallyArchived;
 						fallback = thread_;
 						try {
 							await validator(thread_);
@@ -2518,10 +2546,7 @@ abstract class ImageboardSite extends ImageboardSiteArchive {
 
 	Future<ImageboardArchiveSearchResultPage> searchArchives(ImageboardArchiveSearchQuery query, {required int page, ImageboardArchiveSearchResultPage? lastResult, required RequestPriority priority, CancelToken? cancelToken}) async {
 		final errors = <ImageboardSiteArchive, Object>{};
-		for (final archive in archives) {
-			if (persistence?.browserState.disabledArchiveNames.contains(archive.name) ?? false) {
-				continue;
-			}
+		for (final archive in enabledArchives) {
 			try {
 				return await archive.search(query, page: page, lastResult: lastResult, priority: RequestPriority.lowest, cancelToken: cancelToken);
 			}
@@ -2811,6 +2836,7 @@ abstract class ImageboardSiteLoginSystem {
 	String get name;
 	bool get hidden;
 	Uri? get iconUrl => null;
+	bool get admin;
 	List<ImageboardSiteLoginField> getLoginFields();
 	Future<void> login(Map<ImageboardSiteLoginField, String> fields, CancelToken cancelToken);
 	Map<ImageboardSiteLoginField, String>? getSavedLoginFields() {

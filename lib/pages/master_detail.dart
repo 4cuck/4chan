@@ -6,6 +6,7 @@ import 'package:chan/services/theme.dart';
 import 'package:chan/util.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/injecting_navigator.dart';
+import 'package:chan/widgets/pop_without_animation.dart';
 import 'package:chan/widgets/scroll_tracker.dart';
 import 'package:chan/widgets/util.dart';
 
@@ -73,7 +74,11 @@ class BuiltDetailPane {
 		required this.pageRouteBuilder
 	});
 
-	PageRoute pageRoute({required bool? showAnimations, required bool? showAnimationsForward}) => pageRouteBuilder((context) => widget, showAnimations: showAnimations, showAnimationsForward: showAnimationsForward);
+	PageRoute pageRoute({Key? contentKey, required bool? showAnimations, required bool? showAnimationsForward}) => pageRouteBuilder(
+		(context) => contentKey == null ? widget : KeyedSubtree(key: contentKey, child: widget),
+		showAnimations: showAnimations,
+		showAnimationsForward: showAnimationsForward
+	);
 }
 
 class MasterDetailPage<T> extends StatelessWidget {
@@ -81,6 +86,7 @@ class MasterDetailPage<T> extends StatelessWidget {
 	final Widget Function(BuildContext context, bool Function(BuildContext, T) isSelected, ValueChanged<T?> valueSetter) masterBuilder;
 	final BuiltDetailPane Function(T? selectedValue, ValueChanged<T?> valueSetter, bool poppedOut) detailBuilder;
 	final T? initialValue;
+	final InitialNavigatorRoute? Function()? buildInitialMasterAboveRoot;
 	final ValueChanged<T?>? onValueChanged;
 	final GlobalKey<MultiMasterDetailPage1State>? multiMasterDetailPageKey;
 	const MasterDetailPage({
@@ -88,6 +94,7 @@ class MasterDetailPage<T> extends StatelessWidget {
 		required this.masterBuilder,
 		required this.detailBuilder,
 		this.initialValue,
+		this.buildInitialMasterAboveRoot,
 		this.onValueChanged,
 		this.multiMasterDetailPageKey,
 		Key? key
@@ -102,6 +109,7 @@ class MasterDetailPage<T> extends StatelessWidget {
 				masterBuilder: masterBuilder,
 				detailBuilder: detailBuilder,
 				initialValue: initialValue,
+				buildInitialMasterAboveRoot: buildInitialMasterAboveRoot,
 				onValueChanged: onValueChanged
 			)
 		);
@@ -118,6 +126,7 @@ class MultiMasterPane<T> {
 	final ValueChanged<T?>? onValueChanged;
 	int _automatedPopStack = 0;
 	final bool useRootNavigator;
+	final InitialNavigatorRoute? Function()? buildInitialMasterAboveRoot;
 
 	MultiMasterPane({
 		required this.masterBuilder,
@@ -127,6 +136,7 @@ class MultiMasterPane<T> {
 		this.icon,
 		T? initialValue,
 		this.useRootNavigator = false,
+		this.buildInitialMasterAboveRoot,
 		this.onValueChanged
 	}) : currentValue = ValueNotifier<T?>(initialValue);
 
@@ -156,23 +166,34 @@ class MultiMasterPane<T> {
 		}
 	}
 
-	Widget buildDetail(VoidCallback onNewValue) {
+	Widget buildInlineDetail(VoidCallback onNewValue, {Key? contentKey}) {
 		return ValueListenableBuilder(
 			valueListenable: currentValue,
-			builder: (context, T? v, child) => detailBuilder(v, (newValue) {
-				currentValue.value = newValue;
-				callOnValueChanged(newValue);
-				onNewValue();
-			}, false).widget
+			builder: (context, T? v, child) => KeyedSubtree(
+				key: v == null ? null : contentKey,
+				child: detailBuilder(v, (newValue) {
+					currentValue.value = newValue;
+					callOnValueChanged(newValue);
+					onNewValue();
+				}, false).widget
+			)
 		);
 	}
 
-	PageRoute buildDetailRoute(VoidCallback onNewValue, {bool? showAnimations, required bool? showAnimationsForward}) {
+	PageRoute createDetailRoute(VoidCallback onNewValue, {Key? contentKey, bool? showAnimations, required bool? showAnimationsForward}) {
 		return detailBuilder(currentValue.value, (newValue) {
 				currentValue.value = newValue;
 				callOnValueChanged(newValue);
 				onNewValue();
-			}, true).pageRoute(showAnimations: showAnimations, showAnimationsForward: showAnimationsForward);
+			}, true).pageRoute(contentKey: contentKey, showAnimations: showAnimations, showAnimationsForward: showAnimationsForward);
+	}
+
+	BuiltDetailPane buildInitialDetailContent(VoidCallback onNewValue) {
+		return detailBuilder(currentValue.value, (newValue) {
+			currentValue.value = newValue;
+			callOnValueChanged(newValue);
+			onNewValue();
+		}, true);
 	}
 
 	void dispose() {
@@ -316,16 +337,22 @@ abstract class _MultiMasterDetailPageState<S extends _MultiMasterDetailPage> ext
 		return null;
 	}
 
-	void _popMasterValueRoutes() {
+	void _popMasterValueRoutes({bool animate = true}) {
 		bool continuePopping = true;
 		while ((masterKey.currentState?.canPop() ?? false) && continuePopping) {
 			// Hack to peek at top route
 			// Need to pop with value=false so can't just use popUntil
 			masterKey.currentState?.popUntil((route) {
-				continuePopping = route.settings != dontAutoPopSettings;
+				final isInitialMaster = route.settings.name == PrimaryScrollControllerInjectingNavigatorState.kInitialAboveRoot &&
+					panes[selectedPane].buildInitialMasterAboveRoot?.call() != null;
+				continuePopping = route.settings != dontAutoPopSettings && !isInitialMaster;
 				if (continuePopping) {
 					panes[selectedPane]._automatedPopStack++;
-					masterKey.currentState?.pop();
+					if (!animate && route is PopWithoutAnimation) {
+						route.popWithoutAnimation();
+					} else {
+						masterKey.currentState?.pop();
+					}
 				}
 				return true;
 			});
@@ -344,8 +371,11 @@ abstract class _MultiMasterDetailPageState<S extends _MultiMasterDetailPage> ext
 		if (onePane) {
 			if (pane.currentValue.value != null) {
 				_popMasterValueRoutes();
-				(pane.useRootNavigator ? Navigator.of(context, rootNavigator: true) : masterKey.currentState!).push(pane.buildDetailRoute(
+				// New selections get a new page; only layout changes reuse its key.
+				if (!pane.useRootNavigator) _detailContentKey = GlobalKey(debugLabel: '${widget.id} _detailContentKey');
+				(pane.useRootNavigator ? Navigator.of(context, rootNavigator: true) : masterKey.currentState!).push(pane.createDetailRoute(
 					() => _onNewValue(pane, showAnimationsForward: false),
+					contentKey: pane.useRootNavigator ? null : _detailContentKey,
 					showAnimationsForward: showAnimationsForward
 				)).then((v) => _onPushReturn(pane, v));
 			}
@@ -368,11 +398,13 @@ abstract class _MultiMasterDetailPageState<S extends _MultiMasterDetailPage> ext
 		}
 	}
 
-	(WidgetBuilder, ValueChanged<dynamic>)? _buildMasterInitialAboveRoot() {
+	InitialNavigatorRoute? _buildMasterInitialAboveRoot() {
+		final pane = panes[_tabController.index];
+		final initialMaster = pane.buildInitialMasterAboveRoot?.call();
+		if (initialMaster != null) return initialMaster;
 		if (!onePane) {
 			return null;
 		}
-		final pane = panes[_tabController.index];
 		if (pane.useRootNavigator) {
 			return null;
 		}
@@ -380,8 +412,17 @@ abstract class _MultiMasterDetailPageState<S extends _MultiMasterDetailPage> ext
 		if (value == null) {
 			return null;
 		}
-		final built = pane.buildDetail(() => _onNewValue(pane, showAnimationsForward: false));
-		return ((context) => built, (value) => _onPushReturn(pane, value));
+		final built = pane.buildInitialDetailContent(() => _onNewValue(pane, showAnimationsForward: false));
+		final contentKey = _detailContentKey;
+		return (
+			(context) => KeyedSubtree(key: contentKey, child: built.widget),
+			(value) => _onPushReturn(pane, value),
+			(builder, settings) => adaptivePageRoute(
+				builder: builder,
+				settings: settings,
+				showAnimationsForward: false
+			)
+		);
 	}
 
 	@override
@@ -486,29 +527,29 @@ abstract class _MultiMasterDetailPageState<S extends _MultiMasterDetailPage> ext
 					],
 					buildRoot: (context) => AnimatedBuilder(
 						animation: _rebuild,
-						builder: (context, _) => KeyedSubtree(
-							key: _detailContentKey,
-							child: panes[_tabController.index].buildDetail(() => _onNewValue(panes[_tabController.index], showAnimationsForward: false))
-						)
+						builder: (context, _) => panes[_tabController.index].buildInlineDetail(() => _onNewValue(panes[_tabController.index], showAnimationsForward: false), contentKey: _detailContentKey)
 					)
 				)
 			)
 		);
 		if (lastOnePane != null && lastOnePane != onePane) {
-			final pane = panes[_tabController.index];
-			if (onePane && pane.currentValue.value != null) {
-				masterKey.currentState!.push(pane.buildDetailRoute(
-					() => _onNewValue(pane, showAnimationsForward: false),
-					showAnimationsForward: false
-				)).then((v) => _onPushReturn(pane, v));
-			}
-			else {
-				_popMasterValueRoutes();
-				while (detailKey.currentState?.canPop() ?? false) {
-					pane._automatedPopStack++;
-					detailKey.currentState?.pop();
+			ScrollTrackerNavigatorObserver.withoutHaptics(() {
+				final pane = panes[_tabController.index];
+				if (onePane && pane.currentValue.value != null) {
+					masterKey.currentState!.push(pane.createDetailRoute(
+						() => _onNewValue(pane, showAnimationsForward: false),
+						contentKey: pane.useRootNavigator ? null : _detailContentKey,
+						showAnimationsForward: false
+					)).then((v) => _onPushReturn(pane, v));
 				}
-			}
+				else {
+					_popMasterValueRoutes(animate: onePane);
+					while (detailKey.currentState?.canPop() ?? false) {
+						pane._automatedPopStack++;
+						detailKey.currentState?.pop();
+					}
+				}
+			});
 		}
 		lastOnePane = onePane;
 		context.watch<WillPopZone?>()?.maybePop = _maybePop;

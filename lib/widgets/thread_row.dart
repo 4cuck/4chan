@@ -52,8 +52,8 @@ TextSpan buildThreadCounters({
 }) {
 	final site = imageboard.site;
 	final latestThread = threadState?.thread ?? thread;
-	final int latestReplyCount = max(max(thread.replyCount, latestThread.replyCount), (site.isPaged || latestThread.isEndless) ? 0 : latestThread.posts_.length - 1);
-	final int latestImageCount = (thread.isSticky && latestReplyCount == 1000) ? latestThread.imageCount : max(thread.imageCount, latestThread.imageCount);
+	final int latestReplyCount = max(max(thread.replyCount, latestThread.replyCount), (site.isPaged || latestThread.stickyReplyCap != null) ? 0 : latestThread.posts_.length - 1);
+	final int latestImageCount = (thread.stickyReplyCap != null) ? latestThread.imageCount : max(thread.imageCount, latestThread.imageCount);
 	int unseenReplyCount = 0;
 	int unseenYouCount = 0;
 	int unseenImageCount = 0;
@@ -65,7 +65,7 @@ TextSpan buildThreadCounters({
 	Color otherMetadataColor = readable;
 	final threadSeen = threadState?.lastSeenPostId != null && (forceShowInHistory ?? (threadState?.showInHistory ?? false));
 	bool showReplyTimeInsteadOfReplyCount = false;
-	if (threadSeen && (site.isPaged || thread.isEndless)) {
+	if (threadSeen && (site.isPaged || thread.stickyReplyCap != null)) {
 		// image count stuff intentionally not covered here...
 		unseenReplyCount = threadState?.unseenReplyCount() ?? 0;
 		unseenImageCount = threadState?.unseenImageCount() ?? 0;
@@ -204,6 +204,10 @@ TextSpan buildThreadCounters({
 							TextSpan(text: ' replies', style: TextStyle(color: imageCountColor))
 					else
 						TextSpan(text: 'R', style: TextStyle(color: replyCountColor)),
+				if (thread.stickyReplyCap != null) ...[
+					space,
+					IconSpan(icon: CupertinoIcons.repeat, color: replyCountColor, size: 18)
+				]
 			]
 		),
 		if (settings.showImageCountInCatalog && site.showImageCount) TextSpan(
@@ -380,12 +384,10 @@ class ThreadRow extends StatelessWidget {
 		final imageboard = context.watch<Imageboard>();
 		final site = context.watch<ImageboardSite>();
 		final latestThread = threadState?.thread ?? thread;
-		final int latestReplyCount = max(max(thread.replyCount, latestThread.replyCount), (site.isPaged || thread.isEndless) ? 0 : (latestThread.posts_.length - 1));
+		final int latestReplyCount = max(max(thread.replyCount, latestThread.replyCount), (site.isPaged || thread.stickyReplyCap != null) ? 0 : (latestThread.posts_.length - 1));
 		final grey = theme.primaryColorWithBrightness(0.6);
 		String? threadAsUrl;
 		final firstUrl = latestThread.attachments.tryFirstWhere((a) => a.type == AttachmentType.url)?.url;
-		final backgroundColor = isSelected ? theme.primaryColorWithBrightness(0.2) : theme.backgroundColor;
-		final opacityBasedBackgroundColor = isSelected ? theme.primaryColor.withValues(alpha: 0.25) : null;
 		final borderColor = isSelected ? theme.primaryColorWithBrightness(0.8) : theme.primaryColorWithBrightness(0.2);
 		if (firstUrl != null) {
 			threadAsUrl = Uri.parse(firstUrl).host.replaceFirst(_leadingWwwPattern, '');
@@ -395,7 +397,7 @@ class ThreadRow extends StatelessWidget {
 		if ((threadState?.unseenReplyCount() ?? 0) > 0) {
 			hasUnseenReplies = true;
 		}
-		else if (site.isPaged || thread.isEndless) {
+		else if (site.isPaged || thread.stickyReplyCap != null) {
 			final catalogLastTime = thread.lastUpdatedTime ?? thread.posts_.tryLast?.time;
 			final stateLastTime = threadState?.thread?.lastUpdatedTime ?? threadState?.thread?.posts_.tryLast?.time;
 			hasUnseenReplies = catalogLastTime != null && stateLastTime != null && catalogLastTime.isAfter(stateLastTime);
@@ -458,7 +460,7 @@ class ThreadRow extends StatelessWidget {
 				!(op.name.isEmpty && (op.trip == null || !settings.showTripOnPosts))
 			) ...[
 				TextSpan(
-					text: settings.filterProfanity(site.formatUsername(op.name)),
+					text: settings.filterProfanity(site.formatUsernameShort(op.name)),
 					style: TextStyle(
 						fontWeight: FontWeight.w600,
 						fontVariations: CommonFontVariations.w600,
@@ -614,7 +616,7 @@ class ThreadRow extends StatelessWidget {
 											shrinkHeight: !settings.squareThumbnails,
 											hide: hideThumbnails,
 											cornerIcon: AttachmentThumbnailCornerIcon(
-												backgroundColor: backgroundColor,
+												backgroundColor: theme.backgroundColor,
 												borderColor: borderColor,
 												size: null
 											)
@@ -760,7 +762,7 @@ class ThreadRow extends StatelessWidget {
 										mayObscure: true,
 										hide: hideThumbnails,
 										cornerIcon: AttachmentThumbnailCornerIcon(
-											backgroundColor: backgroundColor,
+											backgroundColor: theme.backgroundColor,
 											borderColor: borderColor,
 											size: 19,
 											alignment: switch ((settings.catalogGridModeAttachmentInBackground, settings.catalogGridModeTextAboveAttachment)) {
@@ -847,7 +849,7 @@ class ThreadRow extends StatelessWidget {
 					child: BackdropFilter(
 						filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
 						child: Container(
-							color: backgroundColor.withValues(alpha: 0.8),
+							color: theme.backgroundColor.withValues(alpha: 0.8),
 							width: double.infinity,
 							child: txt
 						)
@@ -941,7 +943,7 @@ class ThreadRow extends StatelessWidget {
 						child: Container(
 							decoration: BoxDecoration(
 								borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8)),
-								color: backgroundColor,
+								color: theme.backgroundColor,
 								border: Border.all(color: borderColor)
 							),
 							padding: const EdgeInsets.only(top: 2, bottom: 2, left: 6, right: 6),
@@ -961,9 +963,19 @@ class ThreadRow extends StatelessWidget {
 		);
 		final container = Container(
 			decoration: BoxDecoration(
-				color: (settings.materialStyle && Material.maybeOf(context)?.color == theme.backgroundColor) ? opacityBasedBackgroundColor : backgroundColor,
+				color: (isSelected || (settings.materialStyle && Material.maybeOf(context)?.color == theme.backgroundColor)) ? null : theme.backgroundColor,
 				border: style.isGrid ? Border.all(color: borderColor) : null,
-				borderRadius: borderRadius
+				borderRadius: borderRadius,
+				boxShadow: isSelected ? [
+					BoxShadow(
+						color: theme.primaryColor.withValues(alpha: 0.2)
+					),
+					BoxShadow(
+						color: theme.primaryColorWithBrightness(0.05),
+						spreadRadius: 0,
+						blurRadius: 48
+					),
+				] : []
 			),
 			margin: (style.isGrid && settings.catalogGridModeCellBorderRadiusAndMargin) ? const EdgeInsets.only(
 				top: 0,

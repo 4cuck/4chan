@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:ui';
 
 import 'package:app_links/app_links.dart';
 import 'package:auto_size_text/auto_size_text.dart';
@@ -52,6 +51,7 @@ import 'package:chan/services/util.dart';
 import 'package:chan/util.dart';
 import 'package:chan/version.dart';
 import 'package:chan/widgets/adaptive.dart';
+import 'package:chan/widgets/floating_tab_controls.dart';
 import 'package:chan/widgets/drawer.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/injecting_navigator.dart';
@@ -59,6 +59,7 @@ import 'package:chan/widgets/notifications_overlay.dart';
 import 'package:chan/widgets/notifying_icon.dart';
 import 'package:chan/widgets/paginated_reorderable_list.dart';
 import 'package:chan/widgets/saved_theme_thumbnail.dart';
+import 'package:chan/widgets/sidebar_tab_label.dart';
 import 'package:chan/widgets/scroll_tracker.dart';
 import 'package:chan/widgets/tab_menu.dart';
 import 'package:chan/widgets/switching_view.dart';
@@ -98,7 +99,7 @@ Future<void> innerMain() async {
 		GlobalPointerTracker.instance.initialize();
 		final initializeIsDevelopmentBuildTask = Task('initializeIsDevelopmentBuildTask', initializeIsDevelopmentBuild);
 		final initializeIsOnMacTask = Task('initializeIsOnMac', initializeIsOnMac);
-		final initializeHandoffTask = Task('initializeHandoff', initializeHandoff);
+		final initializeAppleChannelTask = Task('initializeAppleChannel', initializeAppleChannel);
 		final initializeAndroidTask = Task('initializeAndroid', initializeAndroid);
 		final imageHttpClient = (ExtendedNetworkImageProvider.httpClient as HttpClient);
 		imageHttpClient.connectionTimeout = const Duration(seconds: 10);
@@ -116,6 +117,14 @@ Future<void> innerMain() async {
 		final hiveTask = Task('hive', Persistence.initializeHive);
 		final directoriesTask = Task('directories', Persistence.initializeDirectories);
 		final persistenceTask = Task('persistence', Persistence.initializeStatic, [hiveTask, directoriesTask, firebaseTask]);
+		final resetAdditionalSafeAreaInsetsTask = Task('resetAdditionalSafeAreaInsets', resetAdditionalSafeAreaInsets);
+		final configureDuoLayoutTask = Task('configureDuoLayout', () => configureDuoLayout(
+			barWidth: 85 * Persistence.settings.interfaceScale
+		), [
+			persistenceTask,
+			initializeAppleChannelTask,
+			if (kDebugMode) resetAdditionalSafeAreaInsetsTask
+		]);
 		final initializeDefaultUserAgentTask = Task('initializeDefaultUserAgent', initializeDefaultUserAgent, [persistenceTask]);
 		final tlsTask = Task('tls', initializeTls, [initializeDefaultUserAgentTask, persistenceTask]);
 		final networkLoggingTask = Task('networkLogging', LoggingInterceptor.instance.initialize, [directoriesTask]);
@@ -141,7 +150,8 @@ Future<void> innerMain() async {
 		await executeTaskGraph([
 			initializeIsDevelopmentBuildTask,
 			initializeIsOnMacTask,
-			initializeHandoffTask,
+			initializeAppleChannelTask,
+			configureDuoLayoutTask,
 			initializeAndroidTask,
 			initializeDefaultUserAgentTask,
 			hiveTask,
@@ -158,7 +168,7 @@ Future<void> innerMain() async {
 			tlsTask,
 			threadDownloaderTask,
 			if (kDebugMode)
-				Task('resetAdditionalSafeAreaInsets', resetAdditionalSafeAreaInsets)
+				resetAdditionalSafeAreaInsetsTask
 		]);
 		print('before runApp: ${DateTime.now().difference(start)}');
 		runApp(const ChanApp());
@@ -467,6 +477,7 @@ class _ChanAppState extends State<ChanApp> {
 			},
 			child: MultiProvider(
 				providers: [
+					ValueListenableProvider<DuoLayout?>.value(value: duoLayout),
 					ChangeNotifierProvider.value(value: ImageboardRegistry.instance),
 					ChangeNotifierProvider.value(value: Settings.instance),
 					ProxyProvider<Settings, SavedTheme>(
@@ -480,7 +491,7 @@ class _ChanAppState extends State<ChanApp> {
 					child: MediaQuery.fromView(
 						view: View.of(context),
 						child: StickyMediaQuery(
-							top: true,
+							top: duoLayout.value == null,
 							bottom: Platform.isAndroid, // Look more at it
 							child: Builder(
 								builder: (BuildContext context) {
@@ -669,7 +680,7 @@ void clearOverlayNotifications(Notifications notifications, Watch watch) {
 }
 
 class OpenInNewTabZone {
-	final void Function(String, ThreadIdentifier, {bool incognito, bool activate, int? initialPostId}) onWantOpenThreadInNewTab;
+	final void Function(String, ThreadIdentifier, {bool incognito, bool activate, int? initialPostId, String? initiallyHintArchive}) onWantOpenThreadInNewTab;
 	@override
 	final int hashCode;
 
@@ -698,6 +709,8 @@ enum _AuthenticationStatus {
 	failed
 }
 
+final tabListTapRegionGroup = Object();
+
 class ChanTabs extends ChangeNotifier {
 	final _ChanHomePageState _homePageState;
 	final _initializer = TaskStack();
@@ -707,6 +720,7 @@ class ChanTabs extends ChangeNotifier {
 	final _tabController = CupertinoTabController();
 	final _paginatedTabListController = PaginatedReorderableListController();
 	final _legacyTabListController = ScrollController();
+	bool _revealTabAfterOutsideTap = false;
 	int _lastIndex = 0;
 	final _savedMasterDetailKey = GlobalKey<SavedPageMasterDetailPanesState>();
 	final _tabButtonKeys = <int, GlobalKey>{};
@@ -730,6 +744,9 @@ class ChanTabs extends ChangeNotifier {
 	late bool _lastUsePaginatedTabBar;
 	static const _tabListPaginationDelegate = PaginatedReorderableListDelegateWithMaxMainAxisExtent(
 		maxMainAxisExtent: 120
+	);
+	static const _sidebarTabListPaginationDelegate = PaginatedReorderableListDelegateWithMaxMainAxisExtent(
+		maxMainAxisExtent: 108
 	);
 
 	ChanTabs._(this._homePageState) {
@@ -857,14 +874,23 @@ class ChanTabs extends ChangeNotifier {
 	}
 
 	int get browseTabIndex => activeBrowserTab.value;
-	set browseTabIndex(int index) {
+	set browseTabIndex(int index) => _selectBrowseTab(index);
+
+	void _selectBrowseTab(int index, {bool revealOnOutsideTap = false}) {
 		if (index < 0 || index >= Persistence.tabs.length) {
 			return;
 		}
+		_revealTabAfterOutsideTap = revealOnOutsideTap;
 		activeBrowserTab.value = index;
 		Persistence.currentTabIndex = index;
 		notifyListeners();
 		_didModifyPersistentTabData();
+		if (!revealOnOutsideTap) Future.microtask(_animateTabList);
+	}
+
+	void _onTabListTapOutside(PointerDownEvent _) {
+		if (!_revealTabAfterOutsideTap) return;
+		_revealTabAfterOutsideTap = false;
 		Future.microtask(_animateTabList);
 	}
 
@@ -955,6 +981,7 @@ class ChanTabs extends ChangeNotifier {
 	Future<PersistentBrowserTab> addNewTab({
 		String? withImageboardKey,
 		int? atPosition,
+		String? openerTabId,
 		String? withBoard,
 		ThreadIdentifier? withThread,
 		int? withThreadId,
@@ -963,7 +990,8 @@ class ChanTabs extends ChangeNotifier {
 		int? withInitialPostId,
 		String? withInitialSearch,
 		bool keepTabPopupOpen = false,
-		String? initiallyUseArchive
+		String? initiallyHintArchive,
+		String? initiallyForceArchive
 	}) async {
 		final pos = atPosition ?? Persistence.tabs.length;
 		final thread = withThread ?? (withThreadId == null ? null : ThreadIdentifier(withBoard!, withThreadId));
@@ -972,14 +1000,18 @@ class ChanTabs extends ChangeNotifier {
 			board: withImageboardKey == null || withBoard == null ? null : withBoard,
 			thread: thread,
 			incognito: incognito,
-			initialSearch: withInitialSearch
+			initialSearch: withInitialSearch,
+			openerTabId: Persistence.tabs.any((tab) => tab.id == openerTabId) ? openerTabId : null
 		);
 		await tab.initialize();
 		if (thread != null && withInitialPostId != null) {
 			tab.initialPostId[thread] = withInitialPostId;
 		}
-		if (thread != null && initiallyUseArchive != null) {
-			tab.initiallyUseArchive[thread] = initiallyUseArchive;
+		if (thread != null && initiallyForceArchive != null) {
+			tab.initiallyForceArchive[thread] = initiallyForceArchive;
+		}
+		if (thread != null && initiallyHintArchive != null) {
+			tab.initiallyHintArchive[thread] = initiallyHintArchive;
 		}
 		insertInitializedTab(pos, tab,
 			keepTabPopupOpen: keepTabPopupOpen,
@@ -990,9 +1022,13 @@ class ChanTabs extends ChangeNotifier {
 	
 	void insertInitializedTab(int pos, PersistentBrowserTab tab, {
 		bool keepTabPopupOpen = false,
-		bool activate = false
+		bool activate = false,
+		bool revealInTabList = true
 	}) {
 		tab.addListener(_onTabUpdate);
+		if (activate && tab.board == null && Persistence.tabs.isNotEmpty) {
+			tab.openerTabId = Persistence.tabs[browseTabIndex].id;
+		}
 		Persistence.tabs.insert(pos, tab);
 		if (pos <= browseTabIndex) {
 			// Keep the same current tab afterwards
@@ -1001,6 +1037,7 @@ class ChanTabs extends ChangeNotifier {
 		}
 		browseCountListenable = Listenable.merge([activeBrowserTab, ...Persistence.tabs.map((x) => x.unseen)]);
 		if (activate) {
+			_revealTabAfterOutsideTap = false;
 			_tabController.index = 0;
 			activeBrowserTab.value = pos;
 			Persistence.currentTabIndex = pos;
@@ -1008,9 +1045,12 @@ class ChanTabs extends ChangeNotifier {
 		_homePageState._onShouldShowTabPopup(keepTabPopupOpen || !activate || !Persistence.settings.closeTabSwitcherAfterUse);
 		_didModifyPersistentTabData();
 		notifyListeners();
-		Future.delayed(const Duration(milliseconds: 100), () {
-			_animateTabList(index: pos);
-		});
+		if (revealInTabList) {
+			Future.delayed(const Duration(milliseconds: 100), () {
+				final index = Persistence.tabs.indexOf(tab);
+				if (index != -1) _animateTabList(index: index);
+			});
+		}
 	}
 
 	void onReorderItem(int oldIndex, int newIndex) {
@@ -1027,25 +1067,40 @@ class ChanTabs extends ChangeNotifier {
 		notifyListeners();
 	}
 
-	void closeBrowseTab(int browseIndex) {
+	void closeBrowseTab(int browseIndex, {bool revealOnOutsideTap = false}) {
+		if (Persistence.tabs.length == 1) {
+			throw StateError('Tried to close last tab');
+		}
+		final nextTab = browseIndex == browseTabIndex
+			? _nextTabAfterClosing(browseIndex)
+			: Persistence.tabs[browseTabIndex];
 		final removed = Persistence.tabs.removeAt(browseIndex);
 		removed.removeListener(_onTabUpdate);
 		browseCountListenable = Listenable.merge([activeBrowserTab, ...Persistence.tabs.map((x) => x.unseen)]);
-		final int newActiveTabIndex;
-		if (browseIndex > browseTabIndex) {
-			// The removed tab was after our current tab, don't have to do anything
-			newActiveTabIndex = browseTabIndex;
-		}
-		else if (browseIndex == browseTabIndex) {
-			// The current tab was removed
-			newActiveTabIndex = (browseTabIndex - 1).clamp(0, Persistence.tabs.length - 1);
-		}
-		else {
-			// A tab before the current one was removed, need to fix the index
-			newActiveTabIndex = browseTabIndex - 1;
-		}
-		browseTabIndex = newActiveTabIndex;
+		_selectBrowseTab(Persistence.tabs.indexOf(nextTab), revealOnOutsideTap: revealOnOutsideTap);
 		notifyListeners();
+	}
+
+	PersistentBrowserTab _nextTabAfterClosing(int index) {
+		final tabs = Persistence.tabs;
+		final closing = tabs[index];
+		if (closing.openerTabId case final openerId?) {
+			final opener = tabs.tryFirstWhere((tab) => !identical(tab, closing) && tab.id == openerId);
+			if (opener != null) return opener;
+		}
+		if (index == 0) return tabs[1];
+		if (index == tabs.length - 1) return tabs[index - 1];
+
+		final board = closing.thread?.boardKey ?? closing.boardKey;
+		int rank(PersistentBrowserTab tab) {
+			final sameImageboard = closing.imageboardKey != null && tab.imageboardKey == closing.imageboardKey;
+			final sameBoard = sameImageboard && board != null && (tab.thread?.boardKey ?? tab.boardKey) == board;
+			return (sameBoard ? 4 : sameImageboard ? 2 : 0) +
+				(tab.incognito == closing.incognito ? 1 : 0);
+		}
+		final previous = tabs[index - 1];
+		final next = tabs[index + 1];
+		return rank(previous) >= rank(next) ? previous : next;
 	}
 
 	Future<void> showNewTabPopup({
@@ -1056,85 +1111,88 @@ class ChanTabs extends ChangeNotifier {
 		lightHapticFeedback();
 		showTabMenu(
 			context: context,
+			tapRegionGroup: tabListTapRegionGroup,
 			direction: direction,
 			titles: titles,
 			origin: context.globalSemanticBounds!,
-			actions: [
-				TabMenuAction(
-					icon: CupertinoIcons.eyeglasses,
-					title: 'Private',
-					onPressed: () {
-						lightHapticFeedback();
-						addNewTab(activate: true, incognito: true);
-					}
-				),
-				TabMenuAction(
-					icon: CupertinoIcons.xmark_square,
-					title: 'Close others',
-					isDestructiveAction: true,
-					onPressed: Persistence.tabs.length == 1 ? null : () async {
-						final shouldCloseOthers = await showAdaptiveDialog<bool>(
-							context: context,
-							barrierDismissible: true,
-							builder: (context) => AdaptiveAlertDialog(
-								title: const Text('Close all other tabs?'),
-								actions: [
-									AdaptiveDialogAction(
-										onPressed: () => Navigator.of(context).pop(true),
-										isDestructiveAction: true,
-										child: Text('Close ${Persistence.tabs.length - 1 - (Settings.instance.usingHomeBoard && Persistence.currentTabIndex != 0 ? 1 : 0)}')
-									),
-									AdaptiveDialogAction(
-										onPressed: () => Navigator.of(context).pop(false),
-										child: const Text('Cancel')
-									)
-								]
-							)
-						);
-						if (shouldCloseOthers == true) {
-							final beforeRemove = {...Persistence.tabs.asMap()};
-							final indexToPreserve = browseTabIndex;
-							PersistentBrowserTab? homeTabToPreserve;
-							if (indexToPreserve != 0 && Settings.instance.usingHomeBoard) {
-								homeTabToPreserve = Persistence.tabs.first;
-								beforeRemove.remove(0); // Nothing to undo
-							}
-							final tabToPreserve = Persistence.tabs[indexToPreserve];
-							for (final tab in Persistence.tabs) {
-								tab.removeListener(_onTabUpdate);
-							}
-							Persistence.tabs.clear();
-							if (homeTabToPreserve != null) {
-								Persistence.tabs.add(homeTabToPreserve);
-							}
-							Persistence.tabs.add(tabToPreserve);
-							tabToPreserve.addListener(_onTabUpdate);
-							homeTabToPreserve?.addListener(_onTabUpdate);
-							browseCountListenable = Listenable.merge([activeBrowserTab, ...Persistence.tabs.map((x) => x.unseen)]);
-							browseTabIndex = homeTabToPreserve == null ? 0 : 1;
-							if (Persistence.settings.closeTabSwitcherAfterUse) {
-								_homePageState._onShouldShowTabPopup(false);
-							}
-							if (context.mounted) {
-								showUndoToast(
-									context: context,
-									message: 'Closed ${describeCount(beforeRemove.length - 1, 'tab')}',
-									onUndo: () {
-										for (final pair in beforeRemove.entries) {
-											if (pair.key != indexToPreserve) {
-												insertInitializedTab(pair.key, pair.value);
-											}
-										}
-									},
-									padding: const EdgeInsets.only(bottom: 50)
-								);
-							}
-						}
-					}
-				)
-			]
+			actions: newTabActions(context)
 		);
 	}
+
+	List<TabMenuAction> newTabActions(BuildContext context) => [
+		TabMenuAction(
+			icon: CupertinoIcons.eyeglasses,
+			title: 'Private',
+			onPressed: () {
+				lightHapticFeedback();
+				addNewTab(activate: true, incognito: true);
+			}
+		),
+		TabMenuAction(
+			icon: CupertinoIcons.xmark_square,
+			title: 'Close others',
+			isDestructiveAction: true,
+			onPressed: Persistence.tabs.length == 1 ? null : () async {
+				final shouldCloseOthers = await showAdaptiveDialog<bool>(
+					context: context,
+					barrierDismissible: true,
+					builder: (context) => AdaptiveAlertDialog(
+						title: const Text('Close all other tabs?'),
+						actions: [
+							AdaptiveDialogAction(
+								onPressed: () => Navigator.of(context).pop(true),
+								isDestructiveAction: true,
+								child: Text('Close ${Persistence.tabs.length - 1 - (Settings.instance.usingHomeBoard && Persistence.currentTabIndex != 0 ? 1 : 0)}')
+							),
+							AdaptiveDialogAction(
+								onPressed: () => Navigator.of(context).pop(false),
+								child: const Text('Cancel')
+							)
+						]
+					)
+				);
+				if (shouldCloseOthers == true) {
+					final beforeRemove = {...Persistence.tabs.asMap()};
+					final indexToPreserve = browseTabIndex;
+					PersistentBrowserTab? homeTabToPreserve;
+					if (indexToPreserve != 0 && Settings.instance.usingHomeBoard) {
+						homeTabToPreserve = Persistence.tabs.first;
+						beforeRemove.remove(0); // Nothing to undo
+					}
+					final tabToPreserve = Persistence.tabs[indexToPreserve];
+					for (final tab in Persistence.tabs) {
+						tab.removeListener(_onTabUpdate);
+					}
+					Persistence.tabs.clear();
+					if (homeTabToPreserve != null) {
+						Persistence.tabs.add(homeTabToPreserve);
+					}
+					Persistence.tabs.add(tabToPreserve);
+					tabToPreserve.addListener(_onTabUpdate);
+					homeTabToPreserve?.addListener(_onTabUpdate);
+					browseCountListenable = Listenable.merge([activeBrowserTab, ...Persistence.tabs.map((x) => x.unseen)]);
+					browseTabIndex = homeTabToPreserve == null ? 0 : 1;
+					if (Persistence.settings.closeTabSwitcherAfterUse) {
+						_homePageState._onShouldShowTabPopup(false);
+					}
+					if (context.mounted) {
+						showUndoToast(
+							context: context,
+							message: 'Closed ${describeCount(beforeRemove.length - 1, 'tab')}',
+							onUndo: () {
+								for (final pair in beforeRemove.entries) {
+									if (pair.key != indexToPreserve) {
+										insertInitializedTab(pair.key, pair.value);
+									}
+								}
+							},
+							padding: const EdgeInsets.only(bottom: 50)
+						);
+					}
+				}
+			}
+		)
+	];
 
 	ImageboardScoped<ThreadIdentifier>? get currentForegroundThread {
 		switch (mainTabIndex) {
@@ -1218,7 +1276,7 @@ class ChanTabs extends ChangeNotifier {
 		required int? threadId,
 		int? postId,
 		required bool openNewTabIfNeeded,
-		String? initiallyUseArchive,
+		String? initiallyForceArchive,
 		bool showAnimationsForward = true
 	}) async {
 		if (threadId != null) {
@@ -1235,6 +1293,9 @@ class ChanTabs extends ChangeNotifier {
 				if (catalogTab != null) {
 					tab = catalogTab;
 					catalogTab.thread = ThreadIdentifier(board, threadId);
+					if (initiallyForceArchive != null) {
+						catalogTab.initiallyForceArchive[catalogTab.thread!] = initiallyForceArchive;
+					}
 					if (postId != null) {
 						catalogTab.initialPostId[ThreadIdentifier(board, threadId)] = postId;
 					}
@@ -1248,12 +1309,16 @@ class ChanTabs extends ChangeNotifier {
 				withBoard: board,
 				withThreadId: threadId,
 				withInitialPostId: postId,
-				initiallyUseArchive: initiallyUseArchive
+				initiallyForceArchive: initiallyForceArchive
 			);
 		}
 		if (tab != null) {
 			mainTabIndex = 0;
 			browseTabIndex = Persistence.tabs.indexOf(tab);
+			if (tabAlreadyExisted && threadId != null && initiallyForceArchive != null) {
+				tab.initiallyForceArchive[ThreadIdentifier(board, threadId)] = initiallyForceArchive;
+				await tab.threadPageState?.loadFromArchive(initiallyForceArchive);
+			}
 			if (tabAlreadyExisted && threadId != null && postId != null) {
 				tab.initialPostId[ThreadIdentifier(board, threadId)] = postId;
 				tab.threadPageState?.scrollToPost(postId);
@@ -1274,20 +1339,25 @@ class ChanTabs extends ChangeNotifier {
 	}
 
 	Future<void> _animateTabList({int? index, Duration duration = const Duration(milliseconds: 500)}) async {
+		if (_revealTabAfterOutsideTap) return;
 		if (!Settings.instance.usePaginatedTabBar) {
 			return _animateLegacyTabList(index: index, duration: duration);
 		}
-		final viewportDimension = _paginatedTabListController.tryPosition?.viewportDimension;
-		if (viewportDimension == null) {
-			return;
-		}
-		final itemsPerPage = _tabListPaginationDelegate.getMainAxisCount(viewportDimension);
+		if (!_paginatedTabListController.hasClients) return;
 		final usingHomeBoard = Settings.instance.usingHomeBoard;
 		final globalIndex = index ?? browseTabIndex;
 		final listIndex = usingHomeBoard ? max(0, globalIndex - 1) : globalIndex;
 		final listItemCount = max(0, Persistence.tabs.length - (usingHomeBoard ? 1 : 0));
-		final lastPage = max(0, (listItemCount - 1) ~/ itemsPerPage);
-		final targetPage = min(_paginatedTabListController.pageForItem(listIndex) ?? (listIndex ~/ itemsPerPage), lastPage);
+		if ((_homePageState._paginatedTabListKey.currentState?.widget.obscuredExtent ?? 0) > 0) {
+			// The shrinking viewport already reveals the active tab during layout.
+			if (globalIndex != browseTabIndex) {
+				await _paginatedTabListController.ensureItemVisible(listIndex, duration: duration, curve: Curves.ease);
+			}
+			return;
+		}
+		if (listItemCount == 0) return;
+		final targetPage = _paginatedTabListController.pageForItem(listIndex.clamp(0, listItemCount - 1));
+		if (targetPage == null) return;
 		if (duration > Duration.zero) {
 			await _paginatedTabListController.animateToPage(targetPage, curve: Curves.ease, duration: duration);
 		}
@@ -1396,7 +1466,7 @@ class ChanTabs extends ChangeNotifier {
 	}
 
 	void _onNotificationTapped(Imageboard imageboard, BoardThreadOrPostIdentifier notification, {
-		String? initiallyUseArchive,
+		String? initiallyForceArchive,
 		bool showAnimationsForward = true
 	}) => _initializer.holdForFunction(() async {
 		// Close any gallery or other popup
@@ -1454,7 +1524,7 @@ class ChanTabs extends ChangeNotifier {
 			threadId: notification.threadId,
 			postId: notification.postId,
 			openNewTabIfNeeded: false,
-			initiallyUseArchive: initiallyUseArchive,
+			initiallyForceArchive: initiallyForceArchive,
 			showAnimationsForward: showAnimationsForward
 		)) {
 			final thread = notification.threadIdentifier;
@@ -1466,7 +1536,7 @@ class ChanTabs extends ChangeNotifier {
 					threadId: notification.threadId,
 					postId: notification.postId,
 					openNewTabIfNeeded: true,
-					initiallyUseArchive: initiallyUseArchive,
+					initiallyForceArchive: initiallyForceArchive,
 					showAnimationsForward: showAnimationsForward
 				);
 			}
@@ -1657,7 +1727,7 @@ class ChanTabs extends ChangeNotifier {
 					}, cancellable: true);
 				}
 				if (dest != null) {
-					_onNotificationTapped(dest.$1, dest.$2, initiallyUseArchive: dest.$3, showAnimationsForward: showAnimationsForward);
+					_onNotificationTapped(dest.$1, dest.$2, initiallyForceArchive: dest.$3, showAnimationsForward: showAnimationsForward);
 					return;
 				}
 			}
@@ -1737,12 +1807,40 @@ class ChanTabs extends ChangeNotifier {
 }
 
 class _ChanHomePageState extends State<ChanHomePage> {
+	static const _sidebarButtonVerticalPadding = 10.0;
+	static const _bottomBarHeight = 50.0;
+	bool _skipSidebarTabSwipe = false;
 	late final ChanTabs _tabs;
+	late final _tabListChanges = Listenable.merge([_tabs.activeBrowserTab, _tabs._tabController]);
 	final _keys = <int, GlobalKey>{};
 	late final ValueNotifier<bool> _showTabPopup;
+	late final _visibleTabPopup = Combining2ValueListenable(
+		child1: _showTabPopup,
+		child2: ScrollTracker.instance.tabPopupHidden,
+		combine: (show, hidden) => show &&
+			!(hidden && Settings.instance.tabMenuHidesWhenScrollingDown)
+	);
 	Imageboard? get devImageboard => ImageboardRegistry.instance.dev;
 	_AuthenticationStatus _authenticationStatus = _AuthenticationStatus.ok;
 	final _drawerScaffoldKey = GlobalKey<AdaptiveScaffoldState>(debugLabel: '_ChanHomePageState._drawerScaffoldKey');
+	final _paginatedTabListKey = GlobalKey<PaginatedReorderableListState>(debugLabel: '_ChanHomePageState._paginatedTabListKey');
+	final _floatingTabControlsKey = GlobalKey<FloatingTabControlsState>(debugLabel: '_ChanHomePageState._floatingTabControlsKey');
+
+	void _swipeTab(int delta) {
+		mediumHapticFeedback();
+		final switchingPane = _tabs.mainTabIndex > 0;
+		final target = (switchingPane ? _tabs.mainTabIndex : _tabs.browseTabIndex) + delta;
+		final last = switchingPane ? 4 : Persistence.tabs.length - 1;
+		if (target < 0 || target > last) {
+			Future.delayed(const Duration(milliseconds: 100), mediumHapticFeedback);
+		}
+		else if (switchingPane) {
+			_tabs.mainTabIndex = target;
+		}
+		else {
+			_tabs.browseTabIndex = target;
+		}
+	}
 
 	void _onSlowScrollDirectionChange() async {
 		if (!Settings.instance.tabMenuHidesWhenScrollingDown) {
@@ -1771,7 +1869,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 
 	Future<void> _setAdditionalSafeAreaInsets() async {
 		await setAdditionalSafeAreaInsets('main', EdgeInsets.only(
-			bottom: 60 + 44 + (_showTabPopup.value ? 80 : 0)
+			bottom: 60 + 44 + (_visibleTabPopup.value ? 80 : 0)
 		) * Settings.instance.interfaceScale);
 	}
 
@@ -1789,7 +1887,6 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		_tabs = ChanTabs._(this);
 		_tabs.addListener(_tabsListener);
 		_showTabPopup = ValueNotifier(false)
-			..addListener(_setAdditionalSafeAreaInsets)
 			..addListener(() {
 				Persistence.settings.showTabPopup = _showTabPopup.value;
 				Persistence.settings.save();
@@ -1797,6 +1894,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 					Future.microtask(() => _tabs._animateTabList(duration: Duration.zero));
 				}
 			});
+		_visibleTabPopup.addListener(_setAdditionalSafeAreaInsets);
 		if (Persistence.settings.showTabPopup) {
 			Future.delayed(const Duration(milliseconds: 50), () {
 				SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -1894,11 +1992,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 					Provider.value(
 						value: OpenInNewTabZone(
 							hashCode: 0,
-							onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId}) => _tabs.addNewTab(
+							onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId, String? initiallyHintArchive}) => _tabs.addNewTab(
 								withImageboardKey: imageboardKey,
 								withBoard: thread.board,
 								withThreadId: thread.id,
 								withInitialPostId: initialPostId,
+								initiallyHintArchive: initiallyHintArchive,
 								activate: activate,
 								incognito: incognito
 							)
@@ -1921,11 +2020,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 			child = Provider.value(
 				value: OpenInNewTabZone(
 					hashCode: 0,
-					onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId}) => _tabs.addNewTab(
+					onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId, String? initiallyHintArchive}) => _tabs.addNewTab(
 						withImageboardKey: imageboardKey,
 						withBoard: thread.board,
 						withThreadId: thread.id,
 						withInitialPostId: initialPostId,
+						initiallyHintArchive: initiallyHintArchive,
 						activate: activate,
 						incognito: incognito
 					)
@@ -1939,11 +2039,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 			child = Provider.value(
 				value: OpenInNewTabZone(
 					hashCode: 0,
-					onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId}) => _tabs.addNewTab(
+					onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId, String? initiallyHintArchive}) => _tabs.addNewTab(
 						withImageboardKey: imageboardKey,
 						withBoard: thread.board,
 						withThreadId: thread.id,
 						withInitialPostId: initialPostId,
+						initiallyHintArchive: initiallyHintArchive,
 						activate: activate,
 						incognito: incognito
 					)
@@ -1976,11 +2077,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 					child: Provider.value(
 						value: OpenInNewTabZone(
 							hashCode: 0,
-							onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId}) => _tabs.addNewTab(
+							onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId, String? initiallyHintArchive}) => _tabs.addNewTab(
 								withImageboardKey: imageboardKey,
 								withBoard: thread.board,
 								withThreadId: thread.id,
 								withInitialPostId: initialPostId,
+								initiallyHintArchive: initiallyHintArchive,
 								activate: activate,
 								incognito: incognito
 							)
@@ -2005,13 +2107,21 @@ class _ChanHomePageState extends State<ChanHomePage> {
 														thread: thread,
 														initialPostId: _tabs._devFakeTab.initialPostId[thread],
 														boardSemanticId: -1,
-													), (_) {}),
+													), (_) {}, (builder, settings) => adaptivePageRoute(
+														builder: builder,
+														settings: settings,
+														showAnimationsForward: false
+													)),
 											(_, String board) => ((context) =>
 													BoardPage(
 														initialBoard: devImageboard!.persistence.getBoard(board),
 														allowChangingBoard: false,
 														semanticId: -1
-													), (_) {}),
+													), (_) {}, (builder, settings) => adaptivePageRoute(
+														builder: builder,
+														settings: settings,
+														showAnimationsForward: false
+													)),
 											_ => null
 										},
 									)
@@ -2044,13 +2154,45 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		return extent;
 	}
 
+	AxisDirection _tabMenuDirection(BuildContext context, Axis axis) {
+		if (axis == Axis.horizontal) return AxisDirection.up;
+		return context.watch<DuoLayout?>()?.side == AxisDirection.right ? AxisDirection.left : AxisDirection.right;
+	}
+
 	Widget _buildTabletIcon(int index, Widget icon, String? label, {
 		Axis axis = Axis.vertical,
-		Widget? preLabelInjection
+		EdgeInsets iconPadding = EdgeInsets.zero,
+		Widget? preLabelInjection,
+		VoidCallback? onPressed
 	}) {
 		final content = AnimatedBuilder(
 			animation: _tabs._tabController,
 			builder: (context, _) {
+				final labelRow = label == null ? null : Row(
+					mainAxisSize: MainAxisSize.min,
+					mainAxisAlignment: axis == Axis.vertical ? MainAxisAlignment.start : MainAxisAlignment.center,
+					children: [
+						if (preLabelInjection != null) ...[
+							preLabelInjection,
+							const SizedBox(width: 4)
+						],
+						const Text('', style: TextStyle(fontSize: 15)),
+						Flexible(
+							child: AutoSizeText(
+								label,
+								style: const TextStyle(fontSize: 15),
+								maxLines: 1,
+								stepGranularity: 0.1,
+								overflow: TextOverflow.ellipsis,
+								textAlign: axis == Axis.vertical ? TextAlign.left : TextAlign.center,
+								minFontSize: switch (axis) {
+									Axis.vertical => 11,
+									Axis.horizontal => 12
+								},
+							)
+						)
+					]
+				);
 				final selected = (index <= 0 ? (_tabs.mainTabIndex == 0 && index == -1 * _tabs.activeBrowserTab.value) : index == _tabs.mainTabIndex);
 				return Opacity(
 					opacity: selected ? 1.0 : 0.5,
@@ -2059,7 +2201,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 						mainAxisSize: MainAxisSize.min,
 						children: [
 							if (axis == Axis.horizontal) Flexible(child: icon)
-							else icon,
+							else Padding(padding: iconPadding, child: icon),
 							if (label != null) ...[
 								const SizedBox(height: 4),
 								Row(
@@ -2095,6 +2237,8 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		);
 		return Builder(
 			builder: (context) {
+				final menuDirection = _tabMenuDirection(context, axis);
+				final horizontalSwipeSign = menuDirection == AxisDirection.left ? -1.0 : 1.0;
 				final selectedItemDelta = axis == Axis.horizontal ? PaginatedReorderableListItem.selectedItemDeltaOf(context) : null;
 				final shrinkWeights = switch (selectedItemDelta) {
 					1 => const Offset(1, 0),
@@ -2117,7 +2261,8 @@ class _ChanHomePageState extends State<ChanHomePage> {
 				void showThisTabMenu() {
 					showTabMenu(
 						context: context,
-						direction: axis == Axis.horizontal ? AxisDirection.up : AxisDirection.right,
+						tapRegionGroup: tabListTapRegionGroup,
+						direction: menuDirection,
 						titles: Axis.vertical,
 						origin: context.globalSemanticBounds!,
 						actions: [
@@ -2128,14 +2273,14 @@ class _ChanHomePageState extends State<ChanHomePage> {
 								onPressed: Persistence.tabs.length == 1 ? null : () {
 									final previouslyActiveTab = _tabs.browseTabIndex;
 									final closedTab = Persistence.tabs[-1 * index];
-									_tabs.closeBrowseTab(-1 * index);
+									_tabs.closeBrowseTab(-1 * index, revealOnOutsideTap: true);
 									if (closedTab.board != null) {
 										showUndoToast(
 											context: context,
 											message: 'Closed tab',
 											onUndo: () {
-												_tabs.insertInitializedTab(-1 * index, closedTab);
-												_tabs.browseTabIndex = previouslyActiveTab;
+												_tabs.insertInitializedTab(-1 * index, closedTab, revealInTabList: false);
+												_tabs._selectBrowseTab(previouslyActiveTab, revealOnOutsideTap: true);
 											},
 											padding: const EdgeInsets.only(bottom: 50)
 										);
@@ -2150,6 +2295,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 									_tabs.addNewTab(
 										withImageboardKey: Persistence.tabs[i].imageboardKey,
 										atPosition: i + 1,
+										openerTabId: Persistence.tabs[i].id,
 										withBoard: Persistence.tabs[i].board,
 										withThread: Persistence.tabs[i].thread,
 										incognito: Persistence.tabs[i].incognito,
@@ -2177,11 +2323,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 							}
 						),
 						if (index <= 0 && axis == Axis.vertical) WeakHorizontalDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<WeakHorizontalDragGestureRecognizer>(
-							() => WeakHorizontalDragGestureRecognizer(debugOwner: this, weakness: 2, sign: 1),
+							() => WeakHorizontalDragGestureRecognizer(debugOwner: this, weakness: 2),
 							(recognizer) {
+								recognizer.sign = horizontalSwipeSign;
 								recognizer.onEnd = (details) {
-									if ((details.primaryVelocity ?? 0) <= 0) {
-										// Not a left swipe
+									if ((details.primaryVelocity ?? 0) * horizontalSwipeSign <= 0) {
+										// Not a swipe toward the content
 										return;
 									}
 									lightHapticFeedback();
@@ -2191,9 +2338,8 @@ class _ChanHomePageState extends State<ChanHomePage> {
 						)
 					},
 					child: AdaptiveButton(
-						padding: axis == Axis.vertical ? const EdgeInsets.only(top: 16, bottom: 16, left: 8, right: 8) : EdgeInsets.zero,
-						child: paddedContent,
-						onPressed: () async {
+						padding: axis == Axis.vertical ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3) : EdgeInsets.zero,
+						onPressed: onPressed ?? () async {
 							lightHapticFeedback();
 							if (index <= 0) {
 								if (_tabs.browseTabIndex == -1 * index && _tabs.mainTabIndex == 0) {
@@ -2211,7 +2357,8 @@ class _ChanHomePageState extends State<ChanHomePage> {
 								await _tabs.willActivatePane(index);
 								_tabs.mainTabIndex = index;
 							}
-						}
+						},
+						child: paddedContent
 					)
 				);
 			}
@@ -2221,60 +2368,49 @@ class _ChanHomePageState extends State<ChanHomePage> {
 	Widget _buildNewTabIcon({required Axis axis, bool hideLabel = false}) {
 		return Builder(
 			builder: (context) {
-				return GestureDetector(
-					onVerticalDragEnd: axis == Axis.vertical ? null : (details) {
-						final velocity = details.primaryVelocity ?? 0;
-						if (velocity < 0) {
-							_tabs.showNewTabPopup(
-								context: context,
-								direction: axis == Axis.horizontal ? AxisDirection.up : AxisDirection.right,
-								titles: Axis.vertical,
-							);
-						}
-					},
-					onHorizontalDragEnd: axis == Axis.horizontal ? null : (details) {
-						final velocity = details.primaryVelocity ?? 0;
-						if (velocity > 0) {
-							_tabs.showNewTabPopup(
-								context: context,
-								direction: axis == Axis.horizontal ? AxisDirection.up : AxisDirection.right,
-								titles: Axis.vertical,
-							);
-						}
-					},
-					onLongPress: () => _tabs.showNewTabPopup(
+				void showMenu() {
+					_tabs.showNewTabPopup(
 						context: context,
-						direction: axis == Axis.horizontal ? AxisDirection.up : AxisDirection.right,
-						titles: Axis.vertical,
-					),
-					child: AdaptiveButton(
-						padding: const EdgeInsets.all(16),
-						child: Opacity(
-							opacity: 0.5,
-							child: FittedBox(
-								child: Column(
-									mainAxisSize: MainAxisSize.min,
-									children: [
-										const Icon(CupertinoIcons.add),
-										if (!hideLabel) ...[
-											const SizedBox(height: 4),
-											const Text(" New ", style: TextStyle(fontSize: 15))
+						direction: AxisDirection.up,
+						titles: Axis.vertical
+					);
+				}
+				return SizedBox(
+					width: axis == Axis.vertical ? double.infinity : null,
+					child: GestureDetector(
+						onVerticalDragEnd: (details) {
+							if ((details.primaryVelocity ?? 0) < 0) showMenu();
+						},
+						onLongPress: showMenu,
+						child: AdaptiveButton(
+							padding: axis == Axis.vertical ? const EdgeInsets.symmetric(horizontal: 16, vertical: _sidebarButtonVerticalPadding) : const EdgeInsets.all(16),
+							child: Opacity(
+								opacity: 0.5,
+								child: FittedBox(
+									child: Column(
+										mainAxisSize: MainAxisSize.min,
+										children: [
+											const Icon(CupertinoIcons.add),
+											if (!hideLabel) ...[
+												const SizedBox(height: 4),
+												const Text(" New ", style: TextStyle(fontSize: 15))
+											]
 										]
-									]
+									)
 								)
-							)
-						),
-						onPressed: () {
-							lightHapticFeedback();
-							_tabs.addNewTab(activate: true);
-						}
+							),
+							onPressed: () {
+								lightHapticFeedback();
+								_tabs.addNewTab(activate: true);
+							}
+						)
 					)
 				);
 			}
 		);
 	}
 
-	Widget _buildTabList(Axis axis, ValueListenable<bool> isShowing) {
+	Widget _buildTabList(Axis axis, ValueListenable<bool> isShowing, {double topPadding = 0, double bottomPadding = 0, EdgeInsets? targetPadding, double obscuredExtent = 0, bool floatingControls = false, EdgeInsets iconPadding = EdgeInsets.zero}) {
 		final usingHomeBoard = Settings.instance.usingHomeBoard;
 		final usePaginatedTabBar = Settings.instance.usePaginatedTabBar;
 		buildTabIcon(int i) => ValueListenableBuilder(
@@ -2289,14 +2425,14 @@ class _ChanHomePageState extends State<ChanHomePage> {
 				tab: Persistence.tabs[i],
 				builder: (context, data) => DecoratedBox(
 					decoration: BoxDecoration(
-						color: _tabs.browseTabIndex == i
+						color: (_tabs.mainTabIndex == 0 && _tabs.browseTabIndex == i)
 											// Don't set color if selected, it will break boxShadow
 											? null
 											: (usingHomeBoard && i == 0
 													? ChanceTheme.primaryColorWithBrightness30Of(context)
 													: (data.isArchived ? ChanceTheme.primaryColorWithBrightness10Of(context) : null)
 											),
-						boxShadow: _tabs.browseTabIndex == i ? [
+						boxShadow: (_tabs.mainTabIndex == 0 && _tabs.browseTabIndex == i) ? [
 							BoxShadow(
 								color: ChanceTheme.primaryColorOf(context).withValues(
 									alpha: usingHomeBoard && i == 0
@@ -2322,23 +2458,32 @@ class _ChanHomePageState extends State<ChanHomePage> {
 						),
 						data.shortTitle,
 						axis: axis,
+						iconPadding: iconPadding,
 						preLabelInjection: data.secondaryIcon
 					)
 				)
 			)
 		);
-		return Flex(
+		final list = Flex(
 			direction: axis,
 			crossAxisAlignment: CrossAxisAlignment.stretch,
 			children: [
 				if (usingHomeBoard) buildTabIcon(0),
 				Expanded(
 					child: usePaginatedTabBar ? PaginatedReorderableList(
+						key: _paginatedTabListKey,
 						controller: _tabs._paginatedTabListController,
 						physics: const FasterSnappingPageScrollPhysics(),
-						paginationDelegate: ChanTabs._tabListPaginationDelegate,
-						gutterExtent: 0.5,
-						allowTrailingAlignmentOverpull: true,
+						paginationDelegate: axis == Axis.vertical ? ChanTabs._sidebarTabListPaginationDelegate : ChanTabs._tabListPaginationDelegate,
+						// Floating controls provide the bleed; other layouts retain the half-tab peek.
+						gutterExtent: floatingControls ? 0 : 0.5,
+						leadingGutterExtent: floatingControls || topPadding > 0 ? 0 : 0.5,
+						padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+						targetPadding: targetPadding,
+						obscuredExtent: obscuredExtent,
+						pageSnapping: obscuredExtent == 0,
+						pageIndicatorPadding: EdgeInsets.fromLTRB(12 + iconPadding.left, 12 + topPadding, 12 + iconPadding.right, 12 + bottomPadding),
+						allowTrailingAlignmentOverpull: obscuredExtent == 0,
 						initialPagesAlignedToEnd: Settings.tabBarPagesAlignedToEndSetting.read(context),
 						onPagesAlignedToEndChanged: (value) {
 							Settings.tabBarPagesAlignedToEndSetting.write(context, value);
@@ -2364,6 +2509,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 							);
 						}
 					) : ReorderableList(
+						padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
 						controller: _tabs._legacyTabListController,
 						scrollDirection: axis,
 						onReorderItem: _tabs.onReorderItem,
@@ -2379,6 +2525,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 					)
 				)
 			]
+		);
+		return TapRegion(
+			groupId: tabListTapRegionGroup,
+			behavior: HitTestBehavior.translucent,
+			onTapOutside: _tabs._onTabListTapOutside,
+			child: list
 		);
 	}
 
@@ -2427,6 +2579,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 	}
 
 	Future<void> _backButton() async {
+		if (_floatingTabControlsKey.currentState?.collapse() ?? false) return;
 		closeAllOpenTabMenus();
 		if (_drawerScaffoldKey.currentState?.isDrawerOpen ?? false) {
 			_drawerScaffoldKey.currentState?.closeDrawer();
@@ -2451,17 +2604,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		}
 	}
 
-	bool get androidDrawer => Settings.androidDrawerSetting.watch(context);
-
-	Rect? get hingeBounds => MediaQuery.displayFeaturesOf(context).tryFirstWhere((f) => f.type == DisplayFeatureType.hinge && f.bounds.left > 0 /* Only when hinge is vertical */)?.bounds;
-
-	bool get persistentDrawer {
-		return androidDrawer && Settings.persistentDrawerSetting.watch(context) && (hingeBounds != null || MediaQuery.sizeOf(context).width > 650);
-	}
-
-	double get persistentDrawerWidth {
-		return hingeBounds?.left ?? 304;
-	}
+	double _duoBarWidth = 85 * Settings.instance.interfaceScale;
 
 	@override
 	Widget build(BuildContext context) {
@@ -2491,8 +2634,20 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		}
 		final notificationErrors = context.watch<ImageboardRegistry>().notificationErrors;
 		final filterError = context.select<Settings, String?>((s) => s.filterError);
-		final androidDrawer = this.androidDrawer;
-		final persistentDrawer = this.persistentDrawer;
+		final androidDrawer = Settings.androidDrawerSetting.watch(context);
+		final persistentDrawerWidth = androidDrawer ? navigationSidebarWidthOf(context) : 0.0;
+		final persistentDrawer = persistentDrawerWidth > 0;
+		final layout = context.watch<DuoLayout?>();
+		final duo = androidDrawer || layout?.hasSidebar != true ? null : layout;
+		final interfaceScale = Settings.interfaceScaleSetting.watch(context);
+		final barWidth = 85 * interfaceScale;
+		if (_duoBarWidth != barWidth) {
+			_duoBarWidth = barWidth;
+			configureDuoLayout(barWidth: barWidth);
+		}
+		final sidebarPadding = (duo?.padding ?? EdgeInsets.zero) / interfaceScale;
+		final sidebarIconPadding = EdgeInsets.only(left: sidebarPadding.left, right: sidebarPadding.right);
+		final sidebarIconOffset = (sidebarPadding.left - sidebarPadding.right) / 2;
 		final wideScreen = isScreenWide(context);
 		Widget child = (androidDrawer || wideScreen) ? NotificationListener2<ScrollNotification, ScrollMetricsNotification>(
 			onNotification: ScrollTracker.instance.onNotification,
@@ -2524,19 +2679,26 @@ class _ChanHomePageState extends State<ChanHomePage> {
 						body: TransformedMediaQuery(
 							transformation: (context, mq) => wideScreen ? mq.copyWith(
 								padding: EdgeInsets.only(
-									right: max(mq.viewPadding.right, mq.viewInsets.right),
+									right: duo?.side == AxisDirection.right ? 0 : max(mq.viewPadding.right, mq.viewInsets.right),
 									top: max(mq.viewPadding.top, mq.viewInsets.top),
-									left: max(mq.viewPadding.left, mq.viewInsets.left),
+									left: duo?.side == AxisDirection.left ? 0 : max(mq.viewPadding.left, mq.viewInsets.left),
 									bottom: max(mq.viewPadding.bottom, mq.viewInsets.bottom),
 								),
-								viewPadding: mq.viewPadding + mq.viewInsets,
-								viewInsets: EdgeInsets.zero
+								viewPadding: (mq.viewPadding + mq.viewInsets).copyWith(
+									left: duo?.side == AxisDirection.left ? 0 : null,
+									right: duo?.side == AxisDirection.right ? 0 : null
+								),
+								// The sidebar uses the keyboard inset to position its controls.
+								viewInsets: androidDrawer ? EdgeInsets.zero : EdgeInsets.only(bottom: mq.viewInsets.bottom)
 							) : mq,
 							child: Builder(
 								builder: (context) => SafeArea(
+									left: duo?.side != AxisDirection.left,
+									right: duo?.side != AxisDirection.right,
 									top: false,
 									bottom: false,
 									child: Row(
+										textDirection: duo?.side == AxisDirection.right ? TextDirection.rtl : TextDirection.ltr,
 										children: [
 											if (!androidDrawer || persistentDrawer) Container(
 												color: ChanceTheme.barColorOf(context),
@@ -2545,54 +2707,135 @@ class _ChanHomePageState extends State<ChanHomePage> {
 													persistent: true
 												) : Builder(
 													builder: (context) {
-														final hideTabletLayoutLabels = (MediaQuery.sizeOf(context).height - MediaQuery.viewInsetsOf(context).vertical) < 600;
-														return Column(
-															children: [
-																SizedBox(height: MediaQuery.paddingOf(context).top),
-																Expanded(
-																	child: AnimatedBuilder(
-																		animation: Listenable.merge([_tabs.activeBrowserTab, _tabs._tabController]),
-																		builder: (context, _) => Selector<Settings, bool>(
-																			selector: (context, settings) => settings.usingHomeBoard,
-																			builder: (context, _, __) => _buildTabList(Axis.vertical, const StoppedValueListenable(true))
+														final targetTopPadding = duo == null ? MediaQuery.paddingOf(context).top : sidebarPadding.top;
+														final safeBottomPadding = duo == null ? MediaQuery.viewPaddingOf(this.context).bottom : sidebarPadding.bottom;
+														// System bar and keyboard insets should not change the controls' layout mode.
+														final screenHeight = MediaQuery.sizeOf(context).height;
+														final bleedUnderStatus = duo != null && targetTopPadding > 0 && Settings.usePaginatedTabBarSetting.watch(context) && !context.select<Settings, bool>((s) => s.usingHomeBoard);
+														final hideTabletLayoutLabels = screenHeight < 800;
+														// Icon (24), vertical padding (20), and optional label plus gap (22).
+														final estimatedButtonHeight = 24 + 2 * _sidebarButtonVerticalPadding + (hideTabletLayoutLabels ? 0 : 22);
+														Future<void> activatePane(int index) async {
+															lightHapticFeedback();
+															await _tabs.willActivatePane(index);
+															if (!mounted) return;
+															_tabs.mainTabIndex = index;
+														}
+														final sidebarActions = <int, TabMenuAction>{
+															1: TabMenuAction(
+																icon: Adaptive.icons.bookmark,
+																title: 'Saved',
+																isSelected: _tabs.mainTabIndex == 1,
+																onPressed: () => activatePane(1),
+																primaryCount: CombiningValueListenable<int>(
+																	children: ImageboardRegistry.instance.imageboards.map((x) => x.threadWatcher.unseenYouCount).toList(),
+																	combine: (list) => list.fold(0, (a, b) => a + b)
+																),
+																secondaryCount: CombiningValueListenable<int>(
+																	children: ImageboardRegistry.instance.imageboards.map((x) => x.threadWatcher.unseenCount).toList(),
+																	combine: (list) => list.fold(0, (a, b) => a + b)
+																)
+															),
+															2: TabMenuAction(
+																icon: Settings.recordThreadsInHistorySetting.watch(context) ? CupertinoIcons.archivebox : CupertinoIcons.eye_slash,
+																title: 'History',
+																isSelected: _tabs.mainTabIndex == 2,
+																onPressed: () => activatePane(2),
+																onLongPress: _toggleHistory
+															),
+															3: TabMenuAction(
+																icon: CupertinoIcons.search,
+																title: 'Search',
+																isSelected: _tabs.mainTabIndex == 3,
+																onPressed: () => activatePane(3)
+															),
+															4: TabMenuAction(
+																icon: CupertinoIcons.settings,
+																title: 'Settings',
+																isSelected: _tabs.mainTabIndex == 4,
+																onPressed: () => activatePane(4),
+																onLongPress: () => Settings.instance.runQuickAction(context),
+																color: (notificationErrors.isNotEmpty || filterError != null) ? Colors.red : null,
+																primaryCount: devImageboard?.threadWatcher.unseenYouCount ?? zeroValueNotifier,
+																secondaryCount: devImageboard?.threadWatcher.unseenCount ?? zeroValueNotifier
+															)
+														};
+														Widget buildMenuIcon(bool expanded) => NotifyingIcon(
+															constrainBadge: true,
+															showBadge: !expanded,
+															badgeAnimationDuration: const Duration(milliseconds: 250),
+															icon: Icon(expanded ? CupertinoIcons.chevron_down : (sidebarActions[_tabs.mainTabIndex]?.icon ?? CupertinoIcons.ellipsis), color: sidebarActions.values.map((action) => action.color).whereType<Color>().firstOrNull),
+															primaryCount: CombiningValueListenable<int>(
+																children: sidebarActions.values.map((action) => action.primaryCount).whereType<ValueListenable<int>>().toList(),
+																combine: (list) => list.fold(0, (a, b) => a + b)
+															),
+															secondaryCount: CombiningValueListenable<int>(
+																children: sidebarActions.values.map((action) => action.secondaryCount).whereType<ValueListenable<int>>().toList(),
+																combine: (list) => list.fold(0, (a, b) => a + b)
+															)
+														);
+														final showNavigation = screenHeight >= 700;
+														final controlsExtent = FloatingTabControls.restingExtent(estimatedButtonHeight, showNavigation ? sidebarActions.length : 1) + FloatingTabControls.inset;
+														final targetClearance = EdgeInsets.only(top: targetTopPadding, bottom: controlsExtent);
+														return TweenAnimationBuilder<EdgeInsets>(
+															key: ValueKey(duo?.side),
+															tween: EdgeInsetsTween(begin: targetClearance, end: targetClearance),
+															duration: duo == null || MediaQuery.disableAnimationsOf(context) ? Duration.zero : const Duration(milliseconds: 250),
+															curve: Curves.easeInOutCubic,
+															child: Align(
+																alignment: Alignment.bottomCenter,
+																child: AnimatedBuilder(
+																	animation: _tabs._tabController,
+																	builder: (context, _) => FloatingTabControls(
+																		key: _floatingTabControlsKey,
+																		navigationActions: sidebarActions.values.toList(),
+																		newTabActions: _tabs.newTabActions(context),
+																		menuIconBuilder: buildMenuIcon,
+																		onNewTab: () { lightHapticFeedback(); _tabs.addNewTab(activate: true); },
+																		onQuickAction: sidebarActions[4]!.onLongPress,
+																		buttonExtent: estimatedButtonHeight,
+																		horizontalOpenSwipeDirection: duo?.side == AxisDirection.right ? AxisDirection.left : AxisDirection.right,
+																		showLabels: !hideTabletLayoutLabels,
+																		showNavigation: showNavigation
+																	)
+																)
+															),
+															builder: (context, clearance, controls) {
+																final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+																final bottomPadding = max(safeBottomPadding, keyboardInset);
+																final obscuredExtent = bottomPadding - safeBottomPadding;
+																final topPadding = clearance.top;
+																return Stack(children: [
+																	Positioned.fill(
+																		bottom: bottomPadding,
+																		child: Padding(
+																			padding: EdgeInsets.only(top: bleedUnderStatus ? 0 : topPadding),
+																			child: AnimatedBuilder(
+																				animation: _tabListChanges,
+																				builder: (context, _) => _buildTabList(
+																					Axis.vertical, const StoppedValueListenable(true),
+																					topPadding: bleedUnderStatus ? topPadding : 0,
+																					bottomPadding: clearance.bottom,
+																					targetPadding: EdgeInsets.only(top: bleedUnderStatus ? targetTopPadding : 0, bottom: controlsExtent),
+																					obscuredExtent: obscuredExtent,
+																					floatingControls: true,
+																					iconPadding: sidebarIconPadding
+																				)
+																			)
+																		)
+																	),
+																	Positioned(
+																		left: FloatingTabControls.horizontalInset + sidebarIconOffset,
+																		right: FloatingTabControls.horizontalInset - sidebarIconOffset,
+																		top: topPadding + FloatingTabControls.inset,
+																		bottom: bottomPadding + FloatingTabControls.inset,
+																		child: TapRegion(
+																			groupId: tabListTapRegionGroup,
+																			child: controls!
 																		)
 																	)
-																),
-																_buildNewTabIcon(
-																	axis: Axis.vertical,
-																	hideLabel: hideTabletLayoutLabels
-																),
-																_buildTabletIcon(1, NotifyingIcon(
-																		icon: Icon(Adaptive.icons.bookmark),
-																		primaryCount: CombiningValueListenable<int>(
-																			children: ImageboardRegistry.instance.imageboards.map((x) => x.threadWatcher.unseenYouCount).toList(),
-																			combine: (list) => list.fold(0, (a, b) => a + b)
-																		),
-																		secondaryCount: CombiningValueListenable<int>(
-																			children: ImageboardRegistry.instance.imageboards.map((x) => x.threadWatcher.unseenCount).toList(),
-																			combine: (list) => list.fold(0, (a, b) => a + b)
-																		)
-																	), hideTabletLayoutLabels ? null : 'Saved',
-																),
-																GestureDetector(
-																	onLongPress: _toggleHistory,
-																	child: _buildTabletIcon(2, Settings.recordThreadsInHistorySetting.watch(context) ? const Icon(CupertinoIcons.archivebox) : const Icon(CupertinoIcons.eye_slash), hideTabletLayoutLabels ? null : 'History')
-																),
-																_buildTabletIcon(3, const Icon(CupertinoIcons.search), hideTabletLayoutLabels ? null : 'Search'),
-																GestureDetector(
-																	onLongPress: () => Settings.instance.runQuickAction(context),
-																	child: _buildTabletIcon(4, NotifyingIcon(
-																			icon: Icon(
-																				CupertinoIcons.settings,
-																				color: (notificationErrors.isNotEmpty || filterError != null) ? Colors.red : null
-																			),
-																			primaryCount: devImageboard?.threadWatcher.unseenYouCount ?? zeroValueNotifier,
-																			secondaryCount: devImageboard?.threadWatcher.unseenCount ?? zeroValueNotifier
-																		), hideTabletLayoutLabels ? null : 'Settings'
-																	)
-																),
-																SizedBox(height: MediaQuery.paddingOf(context).bottom)
-															]
+																]);
+															}
 														);
 													}
 												)
@@ -2605,11 +2848,35 @@ class _ChanHomePageState extends State<ChanHomePage> {
 											Expanded(
 												child: AnimatedBuilder(
 													animation: _tabs._tabController,
-													builder: (context, _) => SwitchingView(
-														currentIndex: _tabs.mainTabIndex,
-														items: const [0, 1, 2, 3, 4],
-														builder: (i) => _buildTab(i)
-													)
+													builder: (context, _) => Stack(children: [
+														Positioned.fill(child: TransformedMediaQuery(
+															// Wide-screen content already receives the inset as padding.
+															transformation: (context, mq) => wideScreen ? mq.copyWith(viewInsets: EdgeInsets.zero) : mq,
+															child: SwitchingView(
+																currentIndex: _tabs.mainTabIndex,
+																items: const [0, 1, 2, 3, 4],
+																builder: (i) => _buildTab(i)
+															)
+														)),
+														if (!androidDrawer && Settings.swipeGesturesOnBottomBarSetting.watch(context)) Positioned(
+															left: 0,
+															right: 0,
+															bottom: MediaQuery.paddingOf(context).bottom,
+															height: _bottomBarHeight,
+															child: GestureDetector(
+																behavior: HitTestBehavior.translucent,
+																onHorizontalDragStart: (details) {
+																	_skipSidebarTabSwipe = eventTooCloseToEdge(details.globalPosition);
+																},
+																onHorizontalDragEnd: (details) {
+																	if (_skipSidebarTabSwipe || !Settings.instance.swipeGesturesOnBottomBar) return;
+																	final velocity = details.primaryVelocity ?? 0;
+																	if (velocity != 0) _swipeTab(velocity > 0 ? -1 : 1);
+																},
+																child: const SizedBox.expand()
+															)
+														)
+													])
 												)
 											)
 										]
@@ -2644,7 +2911,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 						_backButton();
 					},
 					child: ValueListenableBuilder(
-						valueListenable: _showTabPopup,
+						valueListenable: _visibleTabPopup,
 						builder: (context, showTabPopup, child) {
 							final theme = context.watch<SavedTheme>();
 							return DecoratedBox(
@@ -2658,7 +2925,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 							controller: _tabs._tabController,
 							tabBar: ChanceCupertinoTabBar(
 								visible: !androidDrawer,
-								height: androidDrawer ? 0 : 50,
+								height: androidDrawer ? 0 : _bottomBarHeight,
 								inactiveColor: ChanceTheme.primaryColorOf(context).withValues(alpha: 0.4),
 								items: [
 									BottomNavigationBarItem(
@@ -2739,32 +3006,8 @@ class _ChanHomePageState extends State<ChanHomePage> {
 									mediumHapticFeedback();
 									_showTabPopup.value = false;
 								},
-								onLeftSwipe: () {
-									mediumHapticFeedback();
-									if (_tabs.mainTabIndex > 0) {
-										_tabs.mainTabIndex--;
-									}
-									else if (_tabs.browseTabIndex > 0) {
-										_tabs.browseTabIndex--;
-									}
-									else {
-										// Not possible, do a second haptic for feedback
-										Future.delayed(const Duration(milliseconds: 100), mediumHapticFeedback);
-									}
-								},
-								onRightSwipe: () {
-									mediumHapticFeedback();
-									if (_tabs.mainTabIndex > 0 && _tabs.mainTabIndex < 4) {
-										_tabs.mainTabIndex++;
-									}
-									else if (_tabs.mainTabIndex == 0 && _tabs.browseTabIndex < Persistence.tabs.length - 1) {
-										_tabs.browseTabIndex++;
-									}
-									else {
-										// Not possible, do a second haptic for feedback
-										Future.delayed(const Duration(milliseconds: 100), mediumHapticFeedback);
-									}
-								},
+								onLeftSwipe: () => _swipeTab(-1),
+								onRightSwipe: () => _swipeTab(1),
 								beforeCopiedOnTap: (index) async {},
 								onTap: (index) {
 									lightHapticFeedback();
@@ -2800,7 +3043,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 												)
 											),
 											if (index == 0) ValueListenableBuilder(
-												valueListenable: _showTabPopup,
+												valueListenable: _visibleTabPopup,
 												builder: (context, showTabPopup, _) => Expander(
 													bottomSafe: true,
 													expanded: showTabPopup,
@@ -2815,7 +3058,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 										mainAxisAlignment: MainAxisAlignment.end,
 										children: [
 											ValueListenableBuilder(
-												valueListenable: _showTabPopup,
+												valueListenable: _visibleTabPopup,
 												builder: (context, showTabPopup, child) => Expander(
 													bottomSafe: false,
 													keepTickersEnabledWhenCollapsed: true,
@@ -2846,14 +3089,17 @@ class _ChanHomePageState extends State<ChanHomePage> {
 															children: [
 																Expanded(
 																	child: AnimatedBuilder(
-																		animation: Listenable.merge([_tabs.activeBrowserTab, _tabs._tabController]),
+																	animation: _tabListChanges,
 																		builder: (context, _) => Selector<Settings, bool>(
 																			selector: (context, settings) => settings.usingHomeBoard,
-																			builder: (context, _, __) => _buildTabList(Axis.horizontal, _showTabPopup)
+																			builder: (context, _, __) => _buildTabList(Axis.horizontal, _visibleTabPopup)
 																		)
 																	)
 																),
-																_buildNewTabIcon(axis: Axis.horizontal)
+																TapRegion(
+																	groupId: tabListTapRegionGroup,
+																	child: _buildNewTabIcon(axis: Axis.horizontal)
+																)
 															]
 														)
 													)
@@ -2932,6 +3178,7 @@ class _ChanHomePageState extends State<ChanHomePage> {
 		super.dispose();
 		_tabs.removeListener(_tabsListener);
 		_tabs.dispose();
+		_visibleTabPopup.removeListener(_setAdditionalSafeAreaInsets);
 		ScrollTracker.instance.slowScrollDirection.removeListener(_onSlowScrollDirectionChange);
 	}
 }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:chan/pages/selectable_post.dart';
 import 'package:chan/services/android.dart';
 import 'package:chan/services/delete_post.dart';
@@ -12,6 +14,7 @@ import 'package:chan/services/reverse_image_search.dart';
 import 'package:chan/services/share.dart';
 import 'package:chan/services/translation.dart';
 import 'package:chan/services/util.dart';
+import 'package:chan/sites/imageboard_site.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/cheating_paragraph.dart';
 import 'package:chan/widgets/cupertino_inkwell.dart';
@@ -470,6 +473,14 @@ class PostRow extends StatelessWidget {
 			// Otherwise show reply count
 			_ => true
 		});
+		int replyCountForPlaceholder = replyIds.length;
+		if (replyIds.isEmpty && post.isThread && post.boardKey == parentZone.boardKey) {
+			final thread = parentZone.findThread(post.threadId);
+			if (thread != null && thread.posts_.length < thread.replyCount) {
+				// Guesstimate, just need to be in same order of magnitude
+				replyCountForPlaceholder = math.min(thread.replyCount, 7 + (0.3 * thread.replyCount).round());
+			}
+		}
 		final replyCountColor = highlightReplyCount ? theme.secondaryColor.shiftHue(90) : theme.secondaryColor;
 		openReplies() {
 			if (replyIds.isNotEmpty) {
@@ -548,8 +559,8 @@ class PostRow extends StatelessWidget {
 									padding: const EdgeInsets.only(left: 8, right: 8, top: 8, bottom: 16),
 									child: overrideReplyCount!
 								)
-							) : ((settings.cloverStyleRepliesButton || replyIds.isEmpty) ? null :
-								SizedBox(width: (replyIds.length.numberOfDigitsLinear * 8 * settings.textScale) + 32, height: 44)
+							) : ((settings.cloverStyleRepliesButton || replyCountForPlaceholder == 0) ? null :
+								SizedBox(width: (replyCountForPlaceholder.numberOfDigitsLinear * 8 * settings.textScale) + 32, height: 44)
 							)) : null,
 							overflow: TextOverflow.fade
 						)
@@ -683,7 +694,7 @@ class PostRow extends StatelessWidget {
 																			forceAbsoluteTime: forceAbsoluteTime,
 																			propagatedOnThumbnailTap: baseOptions?.propagateOnThumbnailTap == true ? onThumbnailTap : null,
 																			interactive: allowTappingLinks,
-																			highlightPattern: baseOptions?.highlightPattern
+																			highlightPatterns: baseOptions?.highlightPatterns ?? []
 																		),
 																		if (mouseSettings.supportMouse) ...replyIds.map((id) => PostQuoteLinkSpan(
 																			board: latestPost.board,
@@ -1301,7 +1312,10 @@ class PostRow extends StatelessWidget {
 						post: latestPost.identifier
 					)
 				),
-				if (receipt != null) ...[
+				if (receipt != null || switch (site.loginSystem) {
+					final loginSystem? => loginSystem.admin && loginSystem.getSavedLoginFields() != null,
+					null => false
+				}) ...[
 					if (!latestPost.attachmentDeleted && latestPost.attachments.isNotEmpty) ContextMenuAction(
 						child: Text('Delete ${latestPost.attachments.tryFirst?.type.noun}${latestPost.attachments.length > 1 ? 's' : ''}'),
 						trailingIcon: CupertinoIcons.delete,
@@ -1310,7 +1324,7 @@ class PostRow extends StatelessWidget {
 							context: context,
 							imageboard: context.read<Imageboard>(),
 							thread: latestPost.threadIdentifier,
-							receipt: receipt,
+							params: receipt ?? PostDeletionParams(id: latestPost.id, password: ''),
 							imageOnly: true
 						)
 					),
@@ -1322,7 +1336,7 @@ class PostRow extends StatelessWidget {
 							context: context,
 							imageboard: context.read<Imageboard>(),
 							thread: latestPost.threadIdentifier,
-							receipt: receipt,
+							params: receipt ?? PostDeletionParams(id: latestPost.id, password: ''),
 							imageOnly: false
 						)
 					)

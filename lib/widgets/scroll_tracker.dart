@@ -1,16 +1,42 @@
-import 'dart:ui';
-
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/util.dart';
 import 'package:chan/util.dart';
 import 'package:chan/widgets/injecting_navigator.dart';
 import 'package:chan/widgets/util.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 class ScrollTracker {
 	final isScrolling = ValueNotifier<bool>(false);
 	final slowScrollDirection = ValueNotifier<VerticalDirection?>(null);
+	final _tabPopupHideRequests = Set<Object>.identity();
+	final _tabPopupHidden = ValueNotifier(false);
+	ValueListenable<bool> get tabPopupHidden => _tabPopupHidden;
+
+	void hideTabPopup(Object sentinel) {
+		if (_tabPopupHideRequests.add(sentinel) && _tabPopupHideRequests.length == 1) {
+			_updateTabPopupVisibility();
+		}
+	}
+
+	void showTabPopup(Object sentinel) {
+		if (_tabPopupHideRequests.remove(sentinel) && _tabPopupHideRequests.isEmpty) {
+			_updateTabPopupVisibility();
+		}
+	}
+
+	void _updateTabPopupVisibility() {
+		// Pickers can request or release a hide while widgets are being built.
+		if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+			SchedulerBinding.instance.addPostFrameCallback((_) {
+				_tabPopupHidden.value = _tabPopupHideRequests.isNotEmpty;
+			});
+		} else {
+			_tabPopupHidden.value = _tabPopupHideRequests.isNotEmpty;
+		}
+	}
+
 	VerticalDirection _lastNonNullDirection = VerticalDirection.up;
 	VerticalDirection get lastNonNullDirection {
 		return slowScrollDirection.value ?? _lastNonNullDirection;
@@ -142,6 +168,7 @@ class ScrollTracker {
 	void dispose() {
 		isScrolling.dispose();
 		slowScrollDirection.dispose();
+		_tabPopupHidden.dispose();
 	}
 }
 
@@ -194,6 +221,18 @@ class _AncestorScrollBuilderState extends State<AncestorScrollBuilder> {
 }
 
 class ScrollTrackerNavigatorObserver extends NavigatorObserver {
+	static bool _hapticsSuppressed = false;
+
+	static void withoutHaptics(VoidCallback navigate) {
+		final wasSuppressed = _hapticsSuppressed;
+		_hapticsSuppressed = true;
+		try {
+			navigate();
+		} finally {
+			_hapticsSuppressed = wasSuppressed;
+		}
+	}
+
 	static bool _isWeakIsh(Route route) {
 		return route is TransparentRoute || route is PopupRoute;
 	}
@@ -201,7 +240,7 @@ class ScrollTrackerNavigatorObserver extends NavigatorObserver {
 	@override
 	void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
 		// Initial routes are also pushed when a navigator is created.
-		if (previousRoute != null && route.settings.name != PrimaryScrollControllerInjectingNavigatorState.kInitialAboveRoot && route is! HapticRouteMixin) {
+		if (!_hapticsSuppressed && previousRoute != null && route.settings.name != PrimaryScrollControllerInjectingNavigatorState.kInitialAboveRoot && route is! HapticRouteMixin) {
 			lightHapticFeedback();
 		}
 		if (_isWeakIsh(route)) {
@@ -214,7 +253,7 @@ class ScrollTrackerNavigatorObserver extends NavigatorObserver {
 
 	@override
 	void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-		lightHapticFeedback();
+		if (!_hapticsSuppressed) lightHapticFeedback();
 		if (_isWeakIsh(route)) {
 			ScrollTracker.instance.weakNavigatorDidPop();
 		}

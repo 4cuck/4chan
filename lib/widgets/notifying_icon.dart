@@ -11,6 +11,9 @@ class StationaryNotifyingIcon extends StatelessWidget {
 	final double topOffset;
 	final bool sideBySide;
 	final double sideBySideRightPadding;
+	final bool constrainBadge;
+	final bool showBadge;
+	final Duration badgeAnimationDuration;
 
 	const StationaryNotifyingIcon({
 		required this.icon,
@@ -19,6 +22,9 @@ class StationaryNotifyingIcon extends StatelessWidget {
 		this.topOffset = 0,
 		this.sideBySide = false,
 		this.sideBySideRightPadding = 0,
+		this.constrainBadge = false,
+		this.showBadge = true,
+		this.badgeAnimationDuration = Duration.zero,
 		Key? key
 	}) : super(key: key);
 
@@ -83,6 +89,7 @@ class StationaryNotifyingIcon extends StatelessWidget {
 							minWidth: 16
 						),
 						height: 16,
+						padding: const EdgeInsets.all(1),
 						alignment: Alignment.center,
 						child: AutoSizeText(
 							primary.toString(),
@@ -102,6 +109,7 @@ class StationaryNotifyingIcon extends StatelessWidget {
 							minWidth: 16
 						),
 						height: 16,
+						padding: const EdgeInsets.all(1),
 						alignment: Alignment.center,
 						child: AutoSizeText(
 							secondary.toString(),
@@ -127,15 +135,29 @@ class StationaryNotifyingIcon extends StatelessWidget {
 				]
 			);
 		}
+		final badge = constrainBadge ? FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: child) : child;
 		return Stack(
 			clipBehavior: Clip.none,
 			children: [
-				icon,
+				if (constrainBadge) Align(alignment: Alignment.center, child: icon)
+				else icon,
 				if (primary > 0 || secondary > 0) Positioned(
-					right: -10,
+					left: constrainBadge ? 0 : null,
+					right: constrainBadge ? 0 : -10,
 					top: -10 + topOffset,
 					child: IgnorePointer(
-						child: child
+						child: badgeAnimationDuration == Duration.zero ? (showBadge ? badge : const SizedBox.shrink()) : AnimatedOpacity(
+							opacity: showBadge ? 1 : 0,
+							duration: badgeAnimationDuration,
+							curve: Curves.easeInOut,
+							child: AnimatedScale(
+								scale: showBadge ? 1 : 0,
+								duration: badgeAnimationDuration,
+								curve: Curves.easeInOut,
+								alignment: Alignment.bottomCenter,
+								child: badge
+							)
+						)
 					)
 				)
 			]
@@ -150,6 +172,9 @@ class NotifyingIcon extends StatelessWidget {
 	final double topOffset;
 	final bool sideBySide;
 	final double sideBySideRightPadding;
+	final bool constrainBadge;
+	final bool showBadge;
+	final Duration badgeAnimationDuration;
 	const NotifyingIcon({
 		required this.icon,
 		this.primaryCount,
@@ -157,6 +182,9 @@ class NotifyingIcon extends StatelessWidget {
 		this.topOffset = 0,
 		this.sideBySideRightPadding = 0,
 		this.sideBySide = false,
+		this.constrainBadge = false,
+		this.showBadge = true,
+		this.badgeAnimationDuration = Duration.zero,
 		Key? key
 	}) : super(key: key);
 
@@ -169,6 +197,9 @@ class NotifyingIcon extends StatelessWidget {
 			builder: (BuildContext context, int secondary, Widget? child) => StationaryNotifyingIcon(
 				icon: icon,
 				primary: 0,
+				constrainBadge: constrainBadge,
+				showBadge: showBadge,
+				badgeAnimationDuration: badgeAnimationDuration,
 				secondary: secondary,
 				topOffset: topOffset,
 				sideBySide: sideBySide,
@@ -179,6 +210,9 @@ class NotifyingIcon extends StatelessWidget {
 			builder: (BuildContext context, int primary, Widget? child) => (secondaryCount == null) ? StationaryNotifyingIcon(
 				icon: icon,
 				primary: primary,
+				constrainBadge: constrainBadge,
+				showBadge: showBadge,
+				badgeAnimationDuration: badgeAnimationDuration,
 				sideBySide: sideBySide,
 				sideBySideRightPadding: sideBySideRightPadding
 			) : ValueListenableBuilder(
@@ -186,6 +220,9 @@ class NotifyingIcon extends StatelessWidget {
 				builder: (BuildContext context, int secondary, Widget? child) => StationaryNotifyingIcon(
 					icon: icon,
 					primary: primary,
+					constrainBadge: constrainBadge,
+					showBadge: showBadge,
+					badgeAnimationDuration: badgeAnimationDuration,
 					secondary: secondary,
 					topOffset: topOffset,
 					sideBySide: sideBySide,

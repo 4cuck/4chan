@@ -134,15 +134,17 @@ class PersistentThreadStateFields {
     fieldName: '_deprecatedThread',
     merger: NullableMerger(AdaptedMerger(ThreadAdapter.kTypeId)),
   );
-  static bool getUseArchive(PersistentThreadState x) => x.useArchive;
-  static void setUseArchive(PersistentThreadState x, bool v) =>
-      x.useArchive = v;
-  static const int kUseArchive = 5;
-  static const useArchive = HiveFieldAdapter<PersistentThreadState, bool>(
-    getter: getUseArchive,
-    setter: setUseArchive,
-    fieldNumber: kUseArchive,
-    fieldName: 'useArchive',
+  static bool getDeprecatedUseArchive(PersistentThreadState x) =>
+      x.deprecatedUseArchive;
+  static void setDeprecatedUseArchive(PersistentThreadState x, bool v) =>
+      x.deprecatedUseArchive = v;
+  static const int kDeprecatedUseArchive = 5;
+  static const deprecatedUseArchive =
+      HiveFieldAdapter<PersistentThreadState, bool>(
+    getter: getDeprecatedUseArchive,
+    setter: setDeprecatedUseArchive,
+    fieldNumber: kDeprecatedUseArchive,
+    fieldName: 'deprecatedUseArchive',
     merger: PrimitiveMerger(),
   );
   static List<int> getPostsMarkedAsYou(PersistentThreadState x) =>
@@ -506,7 +508,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
     6: PersistentThreadStateFields.savedTime,
     3: PersistentThreadStateFields.receipts,
     4: PersistentThreadStateFields._deprecatedThread,
-    5: PersistentThreadStateFields.useArchive,
+    5: PersistentThreadStateFields.deprecatedUseArchive,
     7: PersistentThreadStateFields.postsMarkedAsYou,
     8: PersistentThreadStateFields.hiddenPostIds,
     9: PersistentThreadStateFields.deprecatedDraftReply,
@@ -581,7 +583,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       ..savedTime = fields[6] as DateTime?
       ..receipts = (fields[3] as List).cast<PostReceipt>()
       .._deprecatedThread = fields[4] as Thread?
-      ..useArchive = fields[5] as bool
+      ..deprecatedUseArchive = fields[5] as bool
       ..postsMarkedAsYou = (fields[7] as List).cast<int>()
       ..hiddenPostIds = (fields[8] as List).cast<int>()
       ..deprecatedDraftReply = fields[9] as String?
@@ -620,7 +622,7 @@ class PersistentThreadStateAdapter extends TypeAdapter<PersistentThreadState> {
       ..writeByte(4)
       ..write(obj._deprecatedThread)
       ..writeByte(5)
-      ..write(obj.useArchive)
+      ..write(obj.deprecatedUseArchive)
       ..writeByte(7)
       ..write(obj.postsMarkedAsYou)
       ..writeByte(8)
@@ -1187,6 +1189,17 @@ class PersistentBrowserTabFields {
     fieldName: 'draft',
     merger: NullableMerger(AdaptedMerger(DraftPostAdapter.kTypeId)),
   );
+  static String? getOpenerTabId(PersistentBrowserTab x) => x.openerTabId;
+  static void setOpenerTabId(PersistentBrowserTab x, String? v) =>
+      x.openerTabId = v;
+  static const int kOpenerTabId = 12;
+  static const openerTabId = HiveFieldAdapter<PersistentBrowserTab, String?>(
+    getter: getOpenerTabId,
+    setter: setOpenerTabId,
+    fieldNumber: kOpenerTabId,
+    fieldName: 'openerTabId',
+    merger: PrimitiveMerger(),
+  );
 }
 
 class PersistentBrowserTabAdapter extends TypeAdapter<PersistentBrowserTab> {
@@ -1211,13 +1224,14 @@ class PersistentBrowserTabAdapter extends TypeAdapter<PersistentBrowserTab> {
     8: PersistentBrowserTabFields.catalogVariant,
     9: PersistentBrowserTabFields.incognito,
     10: PersistentBrowserTabFields.id,
-    11: PersistentBrowserTabFields.draft
+    11: PersistentBrowserTabFields.draft,
+    12: PersistentBrowserTabFields.openerTabId
   };
 
   @override
   PersistentBrowserTab read(BinaryReader reader) {
     final numOfFields = reader.readByte();
-    final List<dynamic> fields = List.filled(12, null);
+    final List<dynamic> fields = List.filled(13, null);
     fields[9] = false;
     fields[10] = '';
     for (int i = 0; i < numOfFields; i++) {
@@ -1241,13 +1255,14 @@ class PersistentBrowserTabAdapter extends TypeAdapter<PersistentBrowserTab> {
       incognito: fields[9] as bool,
       id: fields[10] as String,
       draft: fields[11] as DraftPost?,
+      openerTabId: fields[12] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, PersistentBrowserTab obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.board)
       ..writeByte(1)
@@ -1271,7 +1286,9 @@ class PersistentBrowserTabAdapter extends TypeAdapter<PersistentBrowserTab> {
       ..writeByte(10)
       ..write(obj.id)
       ..writeByte(11)
-      ..write(obj.draft);
+      ..write(obj.draft)
+      ..writeByte(12)
+      ..write(obj.openerTabId);
   }
 
   @override

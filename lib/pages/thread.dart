@@ -6,7 +6,6 @@ import 'dart:ui' as ui;
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:chan/main.dart';
 import 'package:chan/models/attachment.dart';
-import 'package:chan/models/board.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/pages/master_detail.dart';
 import 'package:chan/pages/overscroll_modal.dart';
@@ -20,6 +19,7 @@ import 'package:chan/services/imageboard.dart';
 import 'package:chan/services/notifications.dart';
 import 'package:chan/services/outbox.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/pick_archive.dart';
 import 'package:chan/services/posts_image.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/services/share.dart';
@@ -37,6 +37,7 @@ import 'package:chan/util.dart';
 import 'package:chan/widgets/adaptive.dart';
 import 'package:chan/widgets/attachment_thumbnail.dart';
 import 'package:chan/widgets/attachment_viewer.dart';
+import 'package:chan/widgets/default_gesture_detector.dart';
 import 'package:chan/widgets/imageboard_icon.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
 import 'package:chan/widgets/notifying_icon.dart';
@@ -653,7 +654,7 @@ class ThreadPageState extends State<ThreadPage> {
         final items = _listController.items.toList();
         final i0Clamped = i0.clamp(0, items.length - 1);
 				final seenIds = items.sublist(i0Clamped, i1.clamp(i0Clamped, items.length - 1) + 1)
-														 .where((p) => !_listController.isItemHidden(p).isHidden && p.representsUnloadedPages.isEmpty)
+														 .where((p) => p.isSyntheticParentOfId == null && !_listController.isItemHidden(p).isHidden && p.representsUnloadedPages.isEmpty)
 														 .expand((p) => [p.item.id, ...p.representsKnownStubChildren]);
         final lengthBefore = persistentState.unseenPostIds.data.length;
         persistentState.unseenPostIds.data.removeAll(seenIds);
@@ -5715,7 +5716,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                     .tryLastWhere((entry) {
                                       return entry.key < firstVisibleIndex &&
 															(widget.persistentState.unseenPostIds.data.contains(entry.value.item.id) || entry.value.representsKnownStubChildren.any(widget.persistentState.unseenPostIds.data.contains)) &&
-															!widget.listController.isItemHidden(entry.value).isDuplicate;
+															entry.value.isSyntheticParentOfId == null && !widget.listController.isItemHidden(entry.value).isDuplicate;
 													})?.key ?? -1;
                             if (targetIndex != -1) {
                               widget.resetLayoutIndexes();

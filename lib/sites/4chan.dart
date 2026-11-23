@@ -1038,13 +1038,13 @@ class Site4Chan extends ImageboardSite with Http304CachingThreadMixin, Http304Ca
 	}
 
 	@override
-	Future<void> deletePost(ThreadIdentifier thread, PostReceipt receipt, CaptchaSolution captchaSolution, CancelToken cancelToken, {required bool imageOnly}) async {
+	Future<void> deletePost(ThreadIdentifier thread, PostDeletionParams params, CaptchaSolution captchaSolution, CancelToken cancelToken, {required bool imageOnly}) async {
 		final response = await client.postUri(
 			Uri.https(sysUrl, '/${thread.board}/imgboard.php'),
 			data: FormData.fromMap({
-				receipt.id.toString(): 'delete',
+				params.id.toString(): 'delete',
 				'mode': 'usrdel',
-				'pwd': receipt.password,
+				'pwd': params.password,
 				if (imageOnly) 'onlyimgdel': 'on'
 			}),
 			options: Options(
@@ -1695,4 +1695,7 @@ class Site4ChanPassLoginSystem extends ImageboardSiteLoginSystem {
 
 	@override
 	bool get hidden => false;
+
+	@override
+	bool get admin => false;
 }

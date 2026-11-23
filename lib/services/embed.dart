@@ -242,12 +242,12 @@ Future<EmbedData?> loadEmbedData(String url, {
 			on ThreadNotFoundException {
 				// Maybe dead?
 			}
-			thread ??= await target.$1.site.getThreadFromArchive(target.$2.threadIdentifier!, priority: RequestPriority.lowest, archiveName: target.$3);
+			thread ??= await target.$1.site.getThreadFromArchive(target.$2.threadIdentifier!, isArchived: true, priority: RequestPriority.lowest, archiveName: target.$3);
 			final post = thread.posts_.tryFirstWhere((p) => p.id == target.$2.postId) ?? thread.posts_.first;
 			if (post.id == post.threadId) {
 				return EmbedData(
 					title: thread.title,
-					provider: target.$1.site.name,
+					provider: '${target.$1.site.formatBoardName(thread.board)} - ${target.$1.site.name}',
 					author: target.$1.site.formatUsername(post.name),
 					thumbnailUrl: post.attachments.tryFirst?.thumbnailUrl ?? thread.attachments.tryFirst?.thumbnailUrl,
 					imageboardTarget: (target.$1.key, target.$2, target.$3)
@@ -260,7 +260,7 @@ Future<EmbedData?> loadEmbedData(String url, {
 			}
 			return EmbedData(
 				title: 'Reply to "$title"',
-				provider: '${target.$1.site.name} (${target.$1.site.formatBoardName(thread.board)})',
+				provider: '${target.$1.site.formatBoardName(thread.board)} - ${target.$1.site.name}',
 				author: target.$1.site.formatUsername(post.name),
 				thumbnailUrl: post.attachments.tryFirst?.thumbnailUrl ?? thread.attachments.tryFirst?.thumbnailUrl,
 				imageboardTarget: (target.$1.key, target.$2, target.$3)

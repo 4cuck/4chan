@@ -27,6 +27,7 @@ import 'package:chan/widgets/css_colors.dart';
 import 'package:chan/widgets/cupertino_inkwell.dart';
 import 'package:chan/widgets/html_rich_text.dart';
 import 'package:chan/widgets/imageboard_scope.dart';
+import 'package:chan/widgets/pop_without_animation.dart';
 import 'package:chan/widgets/timed_rebuilder.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
@@ -206,7 +207,11 @@ void showToast({
 			bottom: 114 + padding.bottom,
 			left: 24 + padding.left,
 			right: 24 + padding.right,
-			child: child
+			child: TapRegion(
+				groupId: tabListTapRegionGroup,
+				behavior: HitTestBehavior.translucent,
+				child: child
+			)
 		),
 		child: Container(
 			padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -453,7 +458,7 @@ String formatCount(int count) {
 	return count.toString();
 }
 
-class TransparentRoute<T> extends PageRoute<T> {
+class TransparentRoute<T> extends PageRoute<T> with PopWithoutAnimation<T> {
 	final bool? showAnimations;
 	final bool? showAnimationsForward;
 	TransparentRoute({
@@ -484,7 +489,7 @@ class TransparentRoute<T> extends PageRoute<T> {
 	Duration get transitionDuration => (showAnimationsForward ?? showAnimations ?? Persistence.settings.showAnimations) ? const Duration(milliseconds: 150) : Duration.zero;
 
 	@override
-	Duration get reverseTransitionDuration => (showAnimations ?? Persistence.settings.showAnimations) ? const Duration(milliseconds: 150) : Duration.zero;
+	Duration get normalReverseTransitionDuration => (showAnimations ?? Persistence.settings.showAnimations) ? const Duration(milliseconds: 150) : Duration.zero;
 
 	@override
   Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) {
@@ -507,7 +512,7 @@ class TransparentRoute<T> extends PageRoute<T> {
 	}
 }
 
-class TrulyTransparentRoute<T> extends PageRoute<T> {
+class TrulyTransparentRoute<T> extends PageRoute<T> with PopWithoutAnimation<T> {
 	TrulyTransparentRoute({
 		required this.builder,
 		RouteSettings? settings,
@@ -615,7 +620,7 @@ Future<void> openImageboardTarget(BuildContext context, (Imageboard, BoardThread
 			) : ThreadPage(
 				thread: imageboardTarget.$2.threadIdentifier!,
 				initialPostId: imageboardTarget.$2.postId,
-				initiallyUseArchive: imageboardTarget.$3,
+				initiallyHintArchive: imageboardTarget.$3,
 				boardSemanticId: -1
 			)
 		)

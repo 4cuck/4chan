@@ -2003,7 +2003,7 @@ class SiteReddit extends ImageboardSite {
 	bool get hasPagedCatalog => true;
 
 	@override
-	Future<Thread> getThreadFromArchive(ThreadIdentifier thread, {Future<void> Function(Thread)? customValidator, required RequestPriority priority, CancelToken? cancelToken, String? archiveName}) => getThread(thread, priority: priority, cancelToken: cancelToken);
+	Future<Thread> getThreadFromArchive(ThreadIdentifier thread, {required bool? isArchived, Future<void> Function(Thread)? customValidator, required RequestPriority priority, CancelToken? cancelToken, String? archiveName}) => getThread(thread, priority: priority, cancelToken: cancelToken);
 
 	@override
 	List<CatalogVariantGroup> get catalogVariantGroups => const [
@@ -2071,6 +2071,12 @@ class SiteReddit extends ImageboardSite {
 	
 	@override
 	String formatBoardSearchLink(String name, String query) => '/r/$name/$query';
+
+	@override
+	String formatUsername(String name) => '/u/$name';
+
+	@override
+	String formatUsernameShort(String name) => name;
 
 	@override
 	int placeOrphanPost(List<Post> posts, Post post) {

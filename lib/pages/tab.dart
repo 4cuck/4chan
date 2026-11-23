@@ -1,9 +1,13 @@
 import 'package:chan/main.dart';
+import 'package:chan/models/board.dart';
 import 'package:chan/models/thread.dart';
 import 'package:chan/pages/board.dart';
+import 'package:chan/pages/board_switcher.dart';
 import 'package:chan/pages/master_detail.dart';
 import 'package:chan/pages/thread.dart';
 import 'package:chan/services/persistence.dart';
+import 'package:chan/services/imageboard.dart';
+import 'package:chan/services/apple.dart';
 import 'package:chan/services/screen_size_hacks.dart';
 import 'package:chan/services/settings.dart';
 import 'package:chan/widgets/adaptive.dart';
@@ -25,19 +29,27 @@ class ImageboardTab extends StatelessWidget {
 		return AnimatedBuilder(
 			animation: tab,
 			builder: (context, child) {
+				final drawerMode = Settings.androidDrawerSetting.watch(context);
+				final sidebarWidth = navigationSidebarWidthOf(context);
+				final sidebarOnRight = !drawerMode && context.watch<DuoLayout?>()?.side == AxisDirection.right;
+				final loaderOffset = sidebarWidth > 0
+					? Offset((sidebarOnRight ? 1 : -1) * sidebarWidth / 2, 0)
+					: (drawerMode ? Offset.zero : const Offset(0, 25));
 				return MultiProvider(
 					providers: [
 						ChangeNotifierProvider.value(value: tab),
 						Provider.value(
 							value: OpenInNewTabZone(
 								hashCode: identityHashCode(tab),
-								onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId}) {
+								onWantOpenThreadInNewTab: (imageboardKey, thread, {bool incognito = false, bool activate = true, int? initialPostId, String? initiallyHintArchive}) {
 									context.read<ChanTabs>().addNewTab(
 										withImageboardKey: imageboardKey,
 										atPosition: Persistence.tabs.indexOf(tab) + 1,
+										openerTabId: tab.id,
 										withBoard: thread.board,
 										withThreadId: thread.id,
 										withInitialPostId: initialPostId,
+										initiallyHintArchive: initiallyHintArchive,
 										activate: activate,
 										incognito: incognito
 									);
@@ -48,7 +60,7 @@ class ImageboardTab extends StatelessWidget {
 					child: tab.imageboardKey == null ? child : ImageboardScope(
 						imageboardKey: tab.imageboardKey!,
 						overridePersistence: tab.incognitoPersistence,
-						loaderOffset: Settings.androidDrawerSetting.watch(context) ? Offset.zero : (isScreenWide(context) ? const Offset(-42.5, 0) : const Offset(0, 25)),
+						loaderOffset: loaderOffset,
 						child: child!
 					)
 				);
@@ -57,6 +69,40 @@ class ImageboardTab extends StatelessWidget {
 				id: 'tab_$key',
 				multiMasterDetailPageKey: tab.masterDetailKey,
 				initialValue: tab.thread,
+				buildInitialMasterAboveRoot: () {
+					if (tab.board != null) return null;
+					return (
+						(context) => BoardSwitcherPage(initialImageboardKey: tab.imageboardKey),
+						(result) {
+							if (!context.mounted) return;
+							if (result case ImageboardScoped<ImageboardBoard> board) {
+								// This tab was opened from "new tab" button, we can clear the relationship now
+								tab.openerTabId = null;
+								final page = tab.boardPageKey.currentState;
+								if (page != null) {
+									page.swapBoard(board);
+								} else {
+									// The initial picker can cover the root before BoardPage is built.
+									tab.board = board.item.name;
+									tab.imageboardKey = board.imageboard.key;
+									tab.initialSearch = null;
+									tab.didUpdate();
+									Future.delayed(const Duration(seconds: 1), Persistence.saveTabs);
+								}
+							} else {
+								final index = Persistence.tabs.indexOf(tab);
+								if (index != -1 && Persistence.tabs.length > 1) {
+									context.read<ChanTabs>().closeBrowseTab(index);
+								}
+							}
+						},
+						(builder, settings) => TransparentRoute(
+							builder: builder,
+							settings: settings,
+							showAnimationsForward: false
+						)
+					);
+				},
 				onValueChanged: (thread) {
 					tab.thread = thread;
 					if (thread != null) {
@@ -73,6 +119,7 @@ class ImageboardTab extends StatelessWidget {
 						key: tab.boardPageKey,
 						tab: tab,
 						initialBoard: boardName == null ? null : tab.imageboard?.persistence.getBoard(boardName),
+						autoSelectBoard: false,
 						isThreadSelected: selectedThread,
 						onThreadSelected: threadSetter,
 						onBoardChanged: (board) {

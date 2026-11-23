@@ -69,7 +69,7 @@ class PostSpanRenderOptions {
 	final PointerEnterEventListener? onEnter;
 	final PointerExitEventListener? onExit;
 	final bool shrinkWrap;
-	final RegExp? highlightPattern;
+	final List<(Pattern, Color)> highlightPatterns;
 	final bool imageShareMode;
 	final bool revealYourPosts;
 	final bool hiddenWithinSpoiler;
@@ -90,7 +90,7 @@ class PostSpanRenderOptions {
 		this.onEnter,
 		this.onExit,
 		this.shrinkWrap = false,
-		this.highlightPattern,
+		this.highlightPatterns = const [],
 		this.imageShareMode = false,
 		this.revealYourPosts = true,
 		this.hiddenWithinSpoiler = false,
@@ -130,7 +130,7 @@ class PostSpanRenderOptions {
 		showRawSource: showRawSource,
 		onEnter: onEnter ?? this.onEnter,
 		onExit: onExit ?? this.onExit,
-		highlightPattern: highlightPattern,
+		highlightPatterns: highlightPatterns,
 		imageShareMode: imageShareMode,
 		revealYourPosts: revealYourPosts,
 		hiddenWithinSpoiler: hiddenWithinSpoiler ?? this.hiddenWithinSpoiler,
@@ -736,29 +736,65 @@ class PostTextSpan extends PostTerminalSpan {
 	InlineSpan build(context, post, zone, settings, theme, options) {
 		final children = <InlineSpan>[];
 		final str = settings.filterProfanity(text);
-		final highlightPattern = options.highlightPattern;
-		if (highlightPattern != null) {
-			int lastEnd = 0;
-			for (final match in highlightPattern.allMatches(str)) {
-				if (match.start != lastEnd) {
-					children.add(TextSpan(
-						text: str.substring(lastEnd, match.start),
-						recognizer: options.recognizer
-					));
+		if (options.highlightPatterns.isNotEmpty) {
+			final ranges = <(TextRange, Color)>[];
+			for (final pattern in options.highlightPatterns) {
+				for (final match in pattern.$1.allMatches(str)) {
+					ranges.add((TextRange(start: match.start, end: match.end), pattern.$2));
 				}
-				children.add(TextSpan(
-					text: match.group(0)!,
-					style: const TextStyle(
-						color: Colors.black,
-						backgroundColor: Colors.yellow
-					),
-					recognizer: options.recognizer
-				));
-				lastEnd = match.end;
 			}
-			if (lastEnd < str.length) {
+			mergeSort(ranges, compare: (a, b) {
+				return a.$1.start.compareTo(b.$1.start);
+			});
+			int start = 0;
+			final stack = <(TextRange, Color)>[];
+			TextStyle? mergeStack() {
+				if (stack.isEmpty) {
+					return null;
+				}
+				if (stack.length == 1) {
+					return TextStyle(
+						color: Colors.black,
+						backgroundColor: stack.first.$2
+					);
+				}
+				double r = 0, g = 0, b = 0;
+				for (final entry in stack) {
+					r += entry.$2.r;
+					g += entry.$2.g;
+					b += entry.$2.b;
+				}
+				return TextStyle(
+					color: Colors.black,
+					backgroundColor: Color.from(
+						alpha: 1,
+						red: r / stack.length,
+						green: g / stack.length,
+						blue: b / stack.length
+					)
+				);
+			}
+			for (int i = 0; i < text.length; i++) {
+				if (ranges.tryFirst?.$1.start == i || stack.any((r) => r.$1.end == i)) {
+					if (start != i) {
+						// Cut off previous stack
+						children.add(TextSpan(
+							text: TextRange(start: start, end: i).textInside(text),
+							style: mergeStack(),
+							recognizer: options.recognizer
+						));
+						start = i;
+					}
+					stack.addAll(ranges.where((r) => r.$1.start == i));
+					ranges.removeWhere((r) => r.$1.start == i);
+					stack.removeWhere((r) => r.$1.end == i);
+				}
+			}
+			if (start < text.length) {
+				// Add final range
 				children.add(TextSpan(
-					text: str.substring(lastEnd),
+					text: TextRange(start: start, end: text.length).textInside(text),
+					style: mergeStack(),
 					recognizer: options.recognizer
 				));
 			}
@@ -1055,6 +1091,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 	BoardKey get boardKey => ImageboardBoard.getKey(board);
 	final int? threadId;
 	final int postId;
+	final String? archiveName;
 	final Key? key;
 
 	static const kTypeId = 11;
@@ -1062,6 +1099,9 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 	void dump(BytesBuilder builder, {bool writeTypeId = true}) {
 		if (key != null) {
 			throw PostSpanDumpException('Encoding PostQuoteLinkSpan.key is not supported: $key');
+		}
+		if (archiveName != null) {
+			throw PostSpanDumpException('Encoding PostQuoteLinkSpan.archiveName is not supported: $archiveName');
 		}
 		if (writeTypeId) builder.addByte(kTypeId);
 		builder.addString(board);
@@ -1082,12 +1122,14 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 		required String board,
 		required int this.threadId,
 		required this.postId,
+		this.archiveName,
 		this.key
 	}) : board = intern(board);
 
 	PostQuoteLinkSpan.dead({
 		required String board,
 		required this.postId,
+		this.archiveName,
 		this.key
 	}) : board = intern(board), threadId = null;
 
@@ -1109,6 +1151,9 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 		else if (options.showCrossThreadLabel) {
 			text += ' (Cross-thread)';
 		}
+		if (archiveName != null) {
+			text += ' (${archiveName?.nonEmptyOrNull ?? 'Archived'})';
+		}
 		final Color color;
 		if (isOldThread) {
 			color = theme.secondaryColor.shiftHue(-20);
@@ -1122,7 +1167,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 				final imageboardKey = context.read<Imageboard>().key;
 				if (newTabZone != null && ImageboardRegistry.instance.getImageboard(imageboardKey) != null) {
 					// Checking ImageboardRegistry to rule-out dev board
-					newTabZone.onWantOpenThreadInNewTab(imageboardKey, ThreadIdentifier(board, actualThreadId), initialPostId: postId);
+					newTabZone.onWantOpenThreadInNewTab(imageboardKey, ThreadIdentifier(board, actualThreadId), initialPostId: postId, initiallyHintArchive: archiveName);
 					return;
 				}
 			}
@@ -1134,7 +1179,8 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 					child: ThreadPage(
 						thread: ThreadIdentifier(board, actualThreadId),
 						initialPostId: postId,
-						initiallyUseArchive: threadId == null ? '' : null,
+						initiallyForceArchive: threadId == null ? '' : null,
+						initiallyHintArchive: archiveName,
 						boardSemanticId: -1
 					)
 				)
@@ -1179,7 +1225,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 		String text = '>>$postId';
 		final linkedPost = zone.findPost(postId);
 		if (linkedPost != null && !zone.imageboard.site.explicitIds) {
-			text = '@${zone.imageboard.site.formatUsername(linkedPost.name)}';
+			text = '>>${zone.imageboard.site.formatUsername(linkedPost.name)}';
 		}
 		Color color = theme.secondaryColor;
 		if (postId == threadId) {
@@ -1415,7 +1461,7 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 	void _estimateHeight(_HeightEstimator estimator) {
 		int characters = 2 + postId.numberOfDigits;
 		if ((estimator.zone, estimator.zone?.findPost(postId)) case (final zone?, final post?) when boardKey == zone.boardKey && !zone.imageboard.site.explicitIds) {
-			characters = 1 + zone.imageboard.site.formatUsername(post.name).length;
+			characters = 2 + zone.imageboard.site.formatUsername(post.name).length;
 		}
 		if (threadId == null) {
 			// Treated like normal text
@@ -1425,9 +1471,19 @@ class PostQuoteLinkSpan extends PostTerminalSpan {
 			if (threadId == postId) {
 				characters += 5; // ' (OP)'
 			}
-			if (threadId != estimator.zone?.primaryThreadId) {
+			final isDifferentBoard = board.toLowerCase() != estimator.post.board.toLowerCase();
+			if (isDifferentBoard || threadId != estimator.zone?.primaryThreadId) {
 				// Treated like normal text
+				if (isDifferentBoard) {
+					estimator.addCharacters(2 + (estimator.zone?.imageboard.site.formatBoardNameWithoutTrailingSlash(board).length ?? board.length));
+				}
 				estimator.addCharacters(characters + 15); // ' (Cross-thread)'
+				if (archiveName == '') {
+					estimator.addCharacters(11); // ' (Archived)'
+				}
+				else if (archiveName?.length case final length?) {
+					estimator.addCharacters(3 + length); // ' ($archiveName)'
+				}
 			}
 			else {
 				// Doesn't line break
@@ -1957,6 +2013,7 @@ class PostLinkSpan extends PostTerminalSpan {
 								board: imageboardTarget.$2.board,
 								threadId: thread.id,
 								postId: imageboardTarget.$2.postId ?? thread.id,
+								archiveName: imageboardTarget.$3,
 								key: ObjectKey(this)
 							).build(context, post, zone, settings, theme, options);
 						}
@@ -2006,7 +2063,7 @@ class PostLinkSpan extends PostTerminalSpan {
 									children: [
 										Row(
 											children: [
-												left,
+												Flexible(child: left),
 												if (right != null) ...[
 													const Spacer(),
 													right,
@@ -3001,7 +3058,7 @@ class PostUserLinkSpan extends PostTerminalSpan {
 	@override
 	build(context, post, zone, settings, theme, options) {
 		return TextSpan(
-			text: '/u/${zone.imageboard.site.formatUsername(username)}',
+			text: zone.imageboard.site.formatUsername(username),
 			style: options.baseTextStyle.copyWith(
 				color: options.overrideTextColor ?? theme.secondaryColor,
 				decorationColor: options.overrideTextColor ?? theme.secondaryColor,
@@ -3098,6 +3155,9 @@ class PostCssSpan extends PostSpanWithChild {
 			else if (key == 'font-family') {
 				style = style.copyWith(fontFamily: value.string);
 			}
+			else if (key == 'font-size') {
+				style = style.copyWith(fontSize: value.pixels);
+			}
 			else if (key == 'text-shadow') {
 				final shadows = value.shadows;
 				if (shadows == null) {
@@ -3112,7 +3172,7 @@ class PostCssSpan extends PostSpanWithChild {
 			else if (key == '-webkit-text-fill-color' && value.string == 'transparent') {
 				foundTextFillColorTransparent = true;
 			}
-			else if (key == 'animation' || key == 'padding' || key == 'border-radius') {
+			else if (key == 'animation' || key == 'padding' || key == 'border-radius' || key == 'text-align' || key.startsWith('margin')) {
 				// Ignore
 			}
 			else {
@@ -4069,7 +4129,7 @@ TextSpan buildPostInfoRow({
 	bool showPostNumber = true,
 	bool forceAbsoluteTime = false,
 	ValueChanged<TaggedAttachment>? propagatedOnThumbnailTap,
-	RegExp? highlightPattern
+	List<(Pattern, Color)> highlightPatterns = const []
 }) {
 	final site = zone.imageboard.site;
 	final thread = zone.findThread(post.threadId);
@@ -4126,7 +4186,7 @@ TextSpan buildPostInfoRow({
 			'${(zone.translatedTitle(post.threadId)?.data ?? thread?.title)}\n',
 		).build(context, post, zone, settings, theme, PostSpanRenderOptions(
 			baseTextStyle: TextStyle(fontWeight: FontWeight.w600, fontVariations: CommonFontVariations.w600, color: theme.titleColor, fontSize: 17),
-			highlightPattern: highlightPattern
+			highlightPatterns: highlightPatterns
 		)),
 		for (final field in settings.postDisplayFieldOrder)
 			if (thread != null && showPostNumber && field == PostDisplayField.postNumber && settings.showPostNumberOnPosts && site.explicitIds) TextSpan(
@@ -4149,12 +4209,12 @@ TextSpan buildPostInfoRow({
 			]
 			else if (field == PostDisplayField.name) ...[
 				if (settings.showNameOnPosts && !(settings.hideDefaultNamesOnPosts && post.name == site.defaultUsername && post.trip == null)) TextSpan(
-					text: settings.filterProfanity(site.formatUsername(post.name)) + ((isYourPost && post.trip == null) ? ' (You)' : '') + (thisPostIsPostedByOP ? ' (OP)' : ''),
+					text: settings.filterProfanity(site.formatUsernameShort(post.name)) + ((isYourPost && post.trip == null) ? ' (You)' : '') + (thisPostIsPostedByOP ? ' (OP)' : ''),
 					style: TextStyle(fontWeight: FontWeight.w600, fontVariations: CommonFontVariations.w600, color: isYourPost ? theme.secondaryColor : (thisPostIsPostedByOP ? theme.secondaryColor.shiftHue(20).shiftSaturation(-0.3) : null)),
 					recognizer: (interactive && (post.name != zone.imageboard.site.defaultUsername || post.trip != null)) ? (TapGestureRecognizer(debugOwner: post)..onTap = () {
 						final postIdsToShow = zone.findThread(post.threadId)?.posts.where((p) => p.name == post.name && p.trip == post.trip).map((p) => p.id).toList() ?? [];
 						if (postIdsToShow.isEmpty) {
-							alertError(context, 'Could not find any posts with name "${site.formatUsername(post.name)}". This is likely a problem with Chance...', null);
+							alertError(context, 'Could not find any posts with name "${site.formatUsernameShort(post.name)}". This is likely a problem with Chance...', null);
 						}
 						else {
 							WeakNavigator.push(context, PostsPage(
