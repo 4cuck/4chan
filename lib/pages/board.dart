@@ -429,6 +429,7 @@ class BoardPage extends StatefulWidget {
   final PersistentBrowserTab? tab;
   final ImageboardBoard? initialBoard;
   final bool allowChangingBoard;
+  final bool autoSelectBoard;
   final ValueChanged<ImageboardScoped<ImageboardBoard>>? onBoardChanged;
   final ValueChanged<ThreadIdentifier>? onThreadSelected;
   final bool Function(BuildContext, ThreadIdentifier)? isThreadSelected;
@@ -438,6 +439,7 @@ class BoardPage extends StatefulWidget {
     required this.initialBoard,
     this.tab,
     this.allowChangingBoard = true,
+    this.autoSelectBoard = true,
     this.onBoardChanged,
     this.onThreadSelected,
     this.isThreadSelected,
@@ -482,7 +484,7 @@ class BoardPageState extends State<BoardPage> {
     _listController = RefreshableListController();
     _variant = widget.tab?.catalogVariant;
     board = widget.initialBoard;
-    if (board == null) {
+    if (board == null && widget.autoSelectBoard) {
       SchedulerBinding.instance.addPostFrameCallback((_) => _selectBoard());
     }
     ThreadIdentifier? selectedThread;
@@ -501,7 +503,7 @@ class BoardPageState extends State<BoardPage> {
             try {
               await _listController.animateTo(
                 (t) => t.identifier == selectedThread,
-                alignment: 1.0,
+                alignment: 0.5,
               );
             } on ItemNotFoundException {
               // Ignore, the thread must not be in catalog
@@ -521,6 +523,7 @@ class BoardPageState extends State<BoardPage> {
           TransparentRoute(
             builder: (ctx) => BoardSwitcherPage(
               initialImageboardKey: context.read<Imageboard?>()?.key,
+              initialBoardName: board?.name,
             ),
           ),
         );
@@ -1507,7 +1510,7 @@ class BoardPageState extends State<BoardPage> {
               );
             },
             baseOptions: PostSpanRenderOptions(
-              highlightPattern: options.queryPattern,
+              highlightPatterns: options.highlightPatterns,
             ),
           ),
           onTap: () => _onThreadSelected(thread.identifier),

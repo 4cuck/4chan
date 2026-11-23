@@ -2204,31 +2204,12 @@ class _ChanHomePageState extends State<ChanHomePage> {
 							else Padding(padding: iconPadding, child: icon),
 							if (label != null) ...[
 								const SizedBox(height: 4),
-								Row(
-										mainAxisSize: MainAxisSize.min,
-										mainAxisAlignment: MainAxisAlignment.center,
-										children: [
-											if (preLabelInjection != null) ...[
-												preLabelInjection,
-												const SizedBox(width: 4)
-											],
-											const Text('', style: TextStyle(fontSize: 15)),
-											Flexible(
-												child: AutoSizeText(
-													label,
-													style: const TextStyle(fontSize: 15),
-													maxLines: 1,
-												stepGranularity: 0.1,
-													overflow: TextOverflow.ellipsis,
-													textAlign: TextAlign.center,
-													minFontSize: switch (axis) {
-														Axis.vertical => 11,
-														Axis.horizontal => 12
-													},
-												)
-											)
-										]
-									)
+								if (axis == Axis.vertical) SidebarTabLabel(
+									// The button already supplies 8px horizontal padding.
+									contentPadding: EdgeInsets.only(left: max(0, iconPadding.left - 8), right: max(0, iconPadding.right - 8)),
+									child: labelRow!
+								)
+								else labelRow!
 							]
 						]
 					)
@@ -3275,19 +3256,23 @@ class ChanceCupertinoTabBar extends CupertinoTabBar {
 					onRightSwipe();
 				}
 			},
-			child: Settings.hideBarsWhenScrollingDownSetting.watch(context) ? AncestorScrollBuilder(
-				builder: (context, direction, _) => AnimatedOpacity(
-					opacity: direction == VerticalDirection.up ? 1.0 : 0.0,
-					duration: const Duration(milliseconds: 350),
-					curve: Curves.ease,
-					child: IgnorePointer(
-						ignoring: direction == VerticalDirection.down,
-						child: SafeArea(
-							top: false,
-							bottom: false,
-						child: super.build(context)
-					)
-				)
+			child: Settings.hideBarsWhenScrollingDownSetting.watch(context) ? ValueListenableBuilder(
+				valueListenable: ScrollTracker.instance.tabPopupHidden,
+				builder: (context, hidden, child) => AncestorScrollBuilder(
+					builder: (context, direction, _) {
+						final show = !hidden && direction == VerticalDirection.up;
+						return AnimatedOpacity(
+							opacity: show ? 1.0 : 0.0,
+							duration: const Duration(milliseconds: 350),
+							curve: Curves.ease,
+							child: IgnorePointer(ignoring: !show, child: child)
+						);
+					}
+				),
+				child: SafeArea(
+					top: false,
+					bottom: false,
+					child: super.build(context)
 				)
 			) : SafeArea(
 				top: false,

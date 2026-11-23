@@ -120,7 +120,6 @@ class FloatingTabControlsState extends State<FloatingTabControls> {
 		Widget buildActionGroup(Iterable<TabMenuAction> actions, bool visible) => IgnorePointer(
 			ignoring: !visible,
 			child: AnimatedCrossFade(
-				clipBehavior: visible ? Clip.none : Clip.hardEdge,
 				layoutBuilder: (topChild, topKey, bottomChild, bottomKey) => Stack(
 					clipBehavior: Clip.none,
 					children: [

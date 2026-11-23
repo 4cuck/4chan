@@ -3055,13 +3055,6 @@ class RefreshableListState<T extends Object> extends State<RefreshableList<T>> w
 		}
 		for (int batch = 0; batch < itemsByBatch.length; batch++) {
 			final items = itemsByBatch[batch];
-			if (batch < boundaries.length && displayedOrder.isNotEmpty) {
-				// Reconstruct protected content in its displayed order before
-				// deciding which ancestors can safely receive a trailing reply.
-			const infiniteIndex = 1 << 50;
-				mergeSort(items, compare: (a, b) =>
-					(displayedOrder[a.id] ?? infiniteIndex).compareTo(displayedOrder[b.id] ?? infiniteIndex));
-		}
 			items.forEach(visitLinear);
 			if (adapter.newRepliesAreLinear) {
 				// Resolve missing-parent roots before the next batch checks the tail.

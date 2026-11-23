@@ -262,6 +262,7 @@ class Persistence extends ChangeNotifier {
   static const savedAttachmentsDir = 'saved_attachments';
   static const fontsDir = 'ttf';
   static late final DateTime appLaunchTime;
+  static DateTime lastAppUseTime = DateTime(2000);
   static (String?, ThreadIdentifier?)? _threadIdToBumpInHistory;
 
   static Future<Box<T>> _openBoxWithBackup<T>(
@@ -812,6 +813,15 @@ class Persistence extends ChangeNotifier {
         _sharedThreadStateStream.add(state);
       }
     });
+    lastAppUseTime = sharedThreadStateBox.values.fold(
+      appLaunchTime.subtract(const Duration(seconds: 1)),
+      (d, s) {
+        if (s.lastOpenedTime.isBefore(d)) {
+          return s.lastOpenedTime;
+        }
+        return d;
+      },
+    );
     _startBoxBackupTimer(sharedThreadStateBox, sharedThreadStatesBoxName);
     _startBoxBackupTimer(sharedBoardsBox, sharedBoardsBoxName);
     if (sharedBoardsBox.isEmpty) {
@@ -1263,7 +1273,6 @@ class Persistence extends ChangeNotifier {
             newTs.id,
             ts._deprecatedThread,
           );
-          newTs.useArchive = ts.useArchive;
           newTs.postsMarkedAsYou = ts.postsMarkedAsYou;
           newTs.hiddenPostIds = ts.hiddenPostIds;
           newTs.deprecatedDraftReply = ts.deprecatedDraftReply;
@@ -1681,7 +1690,7 @@ class Persistence extends ChangeNotifier {
   }
 
   Future<void> storeBoards(List<ImageboardBoard> newBoards) async {
-    final deadline = DateTime.now().subtract(const Duration(days: 3));
+    final deadline = lastAppUseTime.subtract(const Duration(days: 14));
     for (final k in sharedBoardsBox.keys) {
       if (k is! String || !k.startsWith('$imageboardKey/')) {
         continue;
@@ -2000,7 +2009,7 @@ class PersistentThreadState extends EasyListenable
   @HiveField(4)
   Thread? _deprecatedThread;
   @HiveField(5)
-  bool useArchive = false;
+  bool deprecatedUseArchive = false;
   @HiveField(
     7,
     defaultValue: <int>[],
@@ -2371,7 +2380,7 @@ class PersistentThreadState extends EasyListenable
 
   @override
   String toString() =>
-      'PersistentThreadState(key: $boxKey, lastSeenPostId: $lastSeenPostId, receipts: $receipts, lastOpenedTime: $lastOpenedTime, savedTime: $savedTime, useArchive: $useArchive, showInHistory: $showInHistory)';
+      'PersistentThreadState(key: $boxKey, lastSeenPostId: $lastSeenPostId, receipts: $receipts, lastOpenedTime: $lastOpenedTime, savedTime: $savedTime, showInHistory: $showInHistory)';
 
   @override
   @HiveField(19, defaultValue: '')
@@ -2549,9 +2558,11 @@ class PersistentThreadState extends EasyListenable
 }
 
 @HiveType(typeId: 4)
-class PostReceipt {
+class PostReceipt implements PostDeletionParams {
+  @override
   @HiveField(0)
   final String password;
+  @override
   @HiveField(1)
   final int id;
   @HiveField(2, defaultValue: '')
@@ -2720,7 +2731,9 @@ class PersistentBrowserTab extends EasyListenable {
   // Do not persist
   final Map<ThreadIdentifier, int> initialPostId = {};
   // Do not persist
-  final Map<ThreadIdentifier, String> initiallyUseArchive = {};
+  final Map<ThreadIdentifier, String> initiallyHintArchive = {};
+  // Do not persist
+  final Map<ThreadIdentifier, String> initiallyForceArchive = {};
   // Do not persist
   final tabKey = GlobalKey(debugLabel: 'PersistentBrowserTab.tabKey');
   // Do not persist
@@ -2758,6 +2771,8 @@ class PersistentBrowserTab extends EasyListenable {
   String id;
   @HiveField(11)
   DraftPost? draft;
+  @HiveField(12, defaultValue: null)
+  String? openerTabId;
 
   PersistentBrowserTab({
     this.board,
@@ -2772,6 +2787,7 @@ class PersistentBrowserTab extends EasyListenable {
     this.incognito = false,
     String id = '',
     this.draft,
+    this.openerTabId,
   }) : id = id.isEmpty ? const Uuid().v4() : id;
 
   IncognitoPersistence? incognitoPersistence;

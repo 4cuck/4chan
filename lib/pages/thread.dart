@@ -143,7 +143,7 @@ extension _DisableUpdates on PersistentThreadState {
 enum _AttachmentCachingStatus {
   uncached,
   cached,
-  willNotAutoCacheDueToRateLimiting,
+  willNotAutoCache,
   uncacheable;
 
   bool get isCached => this == cached;
@@ -152,7 +152,8 @@ enum _AttachmentCachingStatus {
 class ThreadPage extends StatefulWidget {
   final ThreadIdentifier thread;
   final int? initialPostId;
-  final String? initiallyUseArchive;
+  final String? initiallyForceArchive;
+  final String? initiallyHintArchive;
   final int boardSemanticId;
   final String? initialSearch;
   final ValueChanged<ThreadIdentifier>? onWantChangeThread;
@@ -160,7 +161,8 @@ class ThreadPage extends StatefulWidget {
   const ThreadPage({
     required this.thread,
     this.initialPostId,
-    this.initiallyUseArchive,
+    this.initiallyForceArchive,
+    this.initiallyHintArchive,
     required this.boardSemanticId,
     this.initialSearch,
     this.onWantChangeThread,
@@ -240,6 +242,8 @@ class ThreadPageState extends State<ThreadPage> {
   late final StreamSubscription<(Attachment, Object)> _cacheSubscription;
   (Object, StackTrace)? _ensureAllTranslatedError;
   final Set<int> _hotPostIds = {};
+  // null: live; empty: any archive; otherwise: preferred archive.
+  String? _archiveToLoad;
 
   static const _kHighlightZero = 0.0;
   static const _kHighlightPartial = 0.35;
@@ -374,11 +378,14 @@ class ThreadPageState extends State<ThreadPage> {
       persistentState.useTree ??
       context.read<Persistence>().browserState.useTree ??
       context.read<ImageboardSite>().useTree;
-  String? get archiveName {
+  String? get archiveNameForUrl {
     if (persistentState.thread?.identifier == widget.thread) {
       return persistentState.thread?.archiveName;
     }
-    return widget.initiallyUseArchive;
+    return _archiveToLoad ??
+        widget.initiallyHintArchive ??
+        context.read<PersistentBrowserTab?>()?.initiallyHintArchive[widget
+            .thread];
   }
 
   /// Returns whether a load was needed
@@ -641,10 +648,12 @@ class ThreadPageState extends State<ThreadPage> {
       if (firstIndex != -1) {
         _firstSeenIndex = min(firstIndex, _firstSeenIndex ?? firstIndex);
         final firstItem = _listController.getItem(firstIndex);
-        if (persistentState.firstVisiblePostId != firstItem.item.id) {
+        final firstVisibleId =
+            firstItem.isSyntheticParentOfId ?? firstItem.item.id;
+        if (persistentState.firstVisiblePostId != firstVisibleId) {
           runWhenIdle(const Duration(milliseconds: 500), persistentState.save);
         }
-        persistentState.firstVisiblePostId = firstItem.item.id;
+        persistentState.firstVisiblePostId = firstVisibleId;
         persistentState.firstVisiblePostAlignment = _listController
             .getItemAlignment(firstIndex);
       }
@@ -660,6 +669,7 @@ class ThreadPageState extends State<ThreadPage> {
         persistentState.unseenPostIds.data.removeAll(seenIds);
         if (lengthBefore != persistentState.unseenPostIds.data.length) {
           persistentState.didUpdate();
+          _indicatorKey.currentState?._updateCounts();
           runWhenIdle(const Duration(milliseconds: 250), persistentState.save);
         }
       }
@@ -669,11 +679,16 @@ class ThreadPageState extends State<ThreadPage> {
     }
   }
 
-  Future<void> _checkAttachmentCache(Attachment attachment) async {
+  Future<void> _checkAttachmentCache((Post, Attachment) item) async {
+    final (post, attachment) = item;
     if (_cached[attachment] == _AttachmentCachingStatus.cached) return;
     if (attachment.type == AttachmentType.pdf ||
         attachment.type == AttachmentType.url) {
       _cached[attachment] = _AttachmentCachingStatus.uncacheable;
+      return;
+    }
+    if (post.isDeleted) {
+      _cached[attachment] = _AttachmentCachingStatus.willNotAutoCache;
       return;
     }
     _cached[attachment] =
@@ -689,7 +704,7 @@ class ThreadPageState extends State<ThreadPage> {
   Future<void> _updateCached({required bool onscreenOnly}) async {
     final attachments =
         (onscreenOnly ? _listController.visibleItems : _listController.items)
-            .expand((p) => p.item.attachments)
+            .expand((p) => p.item.attachments.map((a) => (p.item, a)))
             .toSet();
     await Future.wait(attachments.map(_checkAttachmentCache));
   }
@@ -726,7 +741,7 @@ class ThreadPageState extends State<ThreadPage> {
         // Shouldn't preload as it will probably ban us from the server for too many requests
         newlyRateLimited++;
         _cached[attachment] =
-            _AttachmentCachingStatus.willNotAutoCacheDueToRateLimiting;
+            _AttachmentCachingStatus.willNotAutoCache;
         continue;
       }
       final controller = AttachmentViewerController(
@@ -752,7 +767,7 @@ class ThreadPageState extends State<ThreadPage> {
     final count = automatic
         ? newlyRateLimited
         : _cached.values.countOf(
-            _AttachmentCachingStatus.willNotAutoCacheDueToRateLimiting,
+            _AttachmentCachingStatus.willNotAutoCache,
           );
     if (mounted && count > 0) {
       showToast(
@@ -765,11 +780,11 @@ class ThreadPageState extends State<ThreadPage> {
   }
 
   void _onAttachmentCache((Attachment, Object) obj) {
-    if (persistentState.thread?.posts_.any(
-          (p) => p.attachments.contains(obj.$1),
-        ) ??
-        false) {
-      _checkAttachmentCache(obj.$1);
+    final post = persistentState.thread?.posts_.tryFirstWhere(
+      (p) => p.attachments.contains(obj.$1),
+    );
+    if (post != null) {
+      _checkAttachmentCache((post, obj.$1));
     }
   }
 
@@ -816,17 +831,19 @@ class ThreadPageState extends State<ThreadPage> {
     if (persistentState.thread case final thread?) {
       Future.microtask(() => _maybeInitialAutoTranslate(thread));
     } else {
-      persistentState.ensureThreadLoaded().then((thread) {
+      final stateToLoad = persistentState;
+      stateToLoad.ensureThreadLoaded().then((thread) {
+        if (!mounted || persistentState != stateToLoad) return;
+        _archiveToLoad ??= thread?.archiveName;
         _onThreadStateListenableUpdate();
         _maybeInitialAutoTranslate(thread);
       });
     }
-    persistentState.useArchive |= widget.initiallyUseArchive != null;
-    persistentState.useArchive |=
-        context
-            .read<PersistentBrowserTab?>()
-            ?.initiallyUseArchive[widget.thread] !=
-        null;
+    _archiveToLoad =
+        widget.initiallyForceArchive ??
+        context.read<PersistentBrowserTab?>()?.initiallyForceArchive[widget
+            .thread] ??
+        persistentState.thread?.archiveName;
     persistentState.save();
     _maybeUpdateWatch();
     persistentState.thread?.preinit();
@@ -966,16 +983,18 @@ class ThreadPageState extends State<ThreadPage> {
         widget.thread,
         updateOpenedTime: true,
       );
-      persistentState.ensureThreadLoaded().then((thread) {
+      final stateToLoad = persistentState;
+      stateToLoad.ensureThreadLoaded().then((thread) {
+        if (!mounted || persistentState != stateToLoad) return;
+        _archiveToLoad ??= thread?.archiveName;
         _onThreadStateListenableUpdate();
         _maybeInitialAutoTranslate(thread);
       });
-      persistentState.useArchive |= widget.initiallyUseArchive != null;
-      persistentState.useArchive |=
-          context
-              .read<PersistentBrowserTab?>()
-              ?.initiallyUseArchive[widget.thread] !=
-          null;
+      _archiveToLoad =
+          widget.initiallyForceArchive ??
+          context.read<PersistentBrowserTab?>()?.initiallyForceArchive[widget
+              .thread] ??
+          persistentState.thread?.archiveName;
       final oldZone = zone;
       Future.delayed(
         const Duration(milliseconds: 100),
@@ -1027,19 +1046,25 @@ class ThreadPageState extends State<ThreadPage> {
         );
       }
       setState(() {});
-    } else if (widget.initialPostId != oldWidget.initialPostId &&
-        widget.initialPostId != null) {
-      _ensurePostLoaded(widget.initialPostId!).then((_) async {
-        setState(() {});
-        await WidgetsBinding.instance.endOfFrame;
-        await _listController.animateTo(
-          (post) => post.id == widget.initialPostId!,
-          orElseLast: (post) => post.id <= widget.initialPostId!,
-          alignment: 0.0,
-          duration: const Duration(milliseconds: 500),
-        );
-        await _glowPost(widget.initialPostId!);
-      });
+    } else {
+      if (widget.initialPostId != oldWidget.initialPostId &&
+          widget.initialPostId != null) {
+        _ensurePostLoaded(widget.initialPostId!).then((_) async {
+          setState(() {});
+          await WidgetsBinding.instance.endOfFrame;
+          await _listController.animateTo(
+            (post) => post.id == widget.initialPostId!,
+            orElseLast: (post) => post.id <= widget.initialPostId!,
+            alignment: 0.0,
+            duration: const Duration(milliseconds: 500),
+          );
+          await _glowPost(widget.initialPostId!);
+        });
+      }
+      if (widget.initiallyForceArchive != oldWidget.initiallyForceArchive &&
+          widget.initiallyForceArchive != null) {
+        loadFromArchive(widget.initiallyForceArchive);
+      }
     }
     _searching |= widget.initialSearch?.isNotEmpty ?? false;
   }
@@ -1053,7 +1078,7 @@ class ThreadPageState extends State<ThreadPage> {
           ? context.read<ImageboardSite>().getWebUrl(
               board: widget.thread.board,
               threadId: widget.thread.id,
-              archiveName: archiveName,
+              archiveName: archiveNameForUrl,
             )
           : null,
     );
@@ -1252,9 +1277,11 @@ class ThreadPageState extends State<ThreadPage> {
       persistentState.thread?.isArchived = false;
       persistentState.didMutateThread();
     }
-    persistentState.useArchive = false;
-    await persistentState.save();
-    setState(() {});
+    await loadFromArchive(null);
+  }
+
+  Future<void> loadFromArchive(String? archiveToLoad) async {
+    setState(() => _archiveToLoad = archiveToLoad);
     await _listController.blockAndUpdate();
   }
 
@@ -1527,18 +1554,18 @@ class ThreadPageState extends State<ThreadPage> {
     final bool firstLoad = oldThread == null;
     // The thread might switch in this interval
     _checkForeground();
-    final Thread newThread;
-    if (tmpPersistentState.useArchive) {
+    final initiallyHintArchive =
+        widget.initiallyHintArchive ??
+        context.read<PersistentBrowserTab?>()?.initiallyHintArchive[widget
+            .thread];
+    Thread newThread;
+    if (_archiveToLoad case final requestedArchiveName?) {
       newThread = await site.getThreadFromArchive(
         widget.thread,
         priority: _priority,
         cancelToken: cancelToken,
-        archiveName:
-            tmpPersistentState.thread?.archiveName ??
-            widget.initiallyUseArchive ??
-            context
-                .read<PersistentBrowserTab?>()
-                ?.initiallyUseArchive[widget.thread],
+        archiveName: requestedArchiveName,
+        isArchived: null,
       );
     } else {
       try {
@@ -1587,8 +1614,18 @@ class ThreadPageState extends State<ThreadPage> {
           tmpPersistentState.thread?.isDeleted = true;
           _listController.state?.forceRebuildId++;
           setState(() {});
+          rethrow;
         }
-        rethrow;
+        if (initiallyHintArchive == null) {
+          rethrow;
+        }
+        newThread = await site.getThreadFromArchive(
+          widget.thread,
+          priority: _priority,
+          cancelToken: cancelToken,
+          archiveName: initiallyHintArchive,
+          isArchived: true,
+        );
       }
     }
 		if (!mounted) throw StateError('Thread page disposed');
@@ -2268,7 +2305,7 @@ class ThreadPageState extends State<ThreadPage> {
                           text: site.getWebUrl(
                             board: widget.thread.board,
                             threadId: widget.thread.id,
-                            archiveName: archiveName,
+                            archiveName: archiveNameForUrl,
                           ),
                           type: "text",
                           sharePositionOrigin: _shareButtonKey
@@ -2868,8 +2905,7 @@ class ThreadPageState extends State<ThreadPage> {
                                     ThreadNotFoundException: (
                                       'Try archive',
                                       () async {
-                                        persistentState.useArchive = true;
-                                        await persistentState.save();
+                                        _archiveToLoad = '';
                                       },
                                     ),
                                 },
@@ -3035,7 +3071,7 @@ class ThreadPageState extends State<ThreadPage> {
                                           ? _hotPostIds.contains(post.id)
                                           : false,
                                       baseOptions: PostSpanRenderOptions(
-                                        highlightPattern: options.queryPattern,
+                                        highlightPatterns: options.highlightPatterns,
                                       ),
                                       highlight: _shouldHighlightPost(post.id),
                                       onTap: options.queryPattern != null
@@ -3062,12 +3098,13 @@ class ThreadPageState extends State<ThreadPage> {
                                       required Post? value,
                                       required Set<int> collapsedChildIds,
                                       required bool loading,
-                                      required double? peekContentHeight,
-																	required List<int>? stubChildIds,
-																	required bool alreadyDim
+                                      required bool showBody,
+                                      required List<int>? stubChildIds,
+                                      required bool dim,
+                                      required bool showChildCount,
                                     }) {
                                       if ((value?.id ?? 0).isNegative) {
-                                        return Row(
+                                        final summary = Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
                                           children: [
@@ -3089,6 +3126,9 @@ class ThreadPageState extends State<ThreadPage> {
                                             ),
                                           ],
                                         );
+                                        return dim
+                                            ? Opacity(opacity: 0.5, child: summary)
+                                            : summary;
                                       }
                                       final newCount = collapsedChildIds
                                           .where(
@@ -3111,21 +3151,21 @@ class ThreadPageState extends State<ThreadPage> {
                                           value.isDeleted &&
                                           value.text.isEmpty &&
                                           value.attachments.isEmpty;
-                                      if (peekContentHeight != null &&
-                                          value != null) {
+                                      if (showBody && value != null) {
                                         final style = TextStyle(
                                           color: theme.secondaryColor,
                                           fontWeight: FontWeight.bold,
                                           fontVariations:
                                               CommonFontVariations.bold,
                                         );
-                                        final post = Builder(
+                                        return Builder(
                                           builder: (context) => PostRow(
                                             post: value,
-                                            dim:
-                                                !alreadyDim &&
-                                                (isDeletedStub ||
-                                                    peekContentHeight.isFinite),
+                                            onTap: context
+                                                .read<DefaultOnTapCallback?>()
+                                                ?.onTap,
+                                            showReplyCount: showChildCount,
+                                            dim: isDeletedStub || dim,
                                             highlight: _shouldHighlightPost(
                                               value.id,
                                             ),
@@ -3167,26 +3207,25 @@ class ThreadPageState extends State<ThreadPage> {
                                             ),
                                           ),
                                         );
-                                        return IgnorePointer(
-                                          ignoring: peekContentHeight.isFinite,
-                                          child: ConstrainedBox(
-                                            constraints: BoxConstraints(
-                                              maxHeight: peekContentHeight,
-                                            ),
-                                            child: post,
-                                          ),
-                                        );
                                       }
                                       const style = TextStyle(fontSize: 16);
-                                      return IgnorePointer(
+                                      final summary = IgnorePointer(
                                         child: Container(
                                           width: double.infinity,
                                           padding: const EdgeInsets.all(8),
-																			// A loading row can briefly outlive the stubs it represents.
-																			color: switch (([
-																				if (value != null) value.id,
-																				...(stubChildIds ?? <int>[]).where((id) => zone.findPost(id)?.isStub != false)
-																			]).fold(0.0, (t, i) => max(t, _shouldHighlightPost(i)))) {
+                                          // A loading row can briefly outlive the stubs it represents.
+                                          color: switch (([
+                                            if (value != null) value.id,
+                                            ...(stubChildIds ?? <int>[]).where(
+                                              (id) =>
+                                                  zone.findPost(id)?.isStub !=
+                                                  false,
+                                            ),
+                                          ]).fold(
+                                            0.0,
+                                            (t, i) =>
+                                                max(t, _shouldHighlightPost(i)),
+                                          )) {
                                             0.0 => null,
                                             double x =>
                                               theme.primaryColorWithBrightness(
@@ -3197,18 +3236,22 @@ class ThreadPageState extends State<ThreadPage> {
                                             children: [
                                               if (value != null)
                                                 Expanded(
-                                                  child: Text.rich(
-                                                    buildPostInfoRow(
-                                                      post: value,
-                                                      isYourPost:
-                                                          persistentState.youIds
-                                                              .contains(
-                                                                value.id,
-                                                              ),
-                                                      settings: settings,
-                                                      theme: theme,
-                                                      context: context,
-                                                      zone: zone,
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          right: 8,
+                                                        ),
+                                                    child: Text.rich(
+                                                      buildPostInfoRow(
+                                                        post: value,
+                                                        isYourPost: persistentState
+                                                            .youIds
+                                                            .contains(value.id),
+                                                        settings: settings,
+                                                        theme: theme,
+                                                        context: context,
+                                                        zone: zone,
+                                                      ),
                                                     ),
                                                   ),
                                                 )
@@ -3231,16 +3274,23 @@ class ThreadPageState extends State<ThreadPage> {
                                                   '${collapsedChildIds.length}${collapsedChildIds.contains(-1) ? '+' : ''} ',
                                                   style: style,
                                                 ),
-																					if (value != null)
-																						if (unseenCount > 0) Text(
-                                                  '($unseenCount unseen) ',
-                                                  style: style,
-                                                )
-                                              else if (newCount > 0)
-                                                Text(
-                                                  '($newCount new) ',
-                                                  style: style,
-                                                ),
+                                              if (value != null)
+                                                if (unseenCount > 0)
+                                                  Text(
+                                                    collapsedChildIds.length ==
+                                                            unseenCount
+                                                        ? ' unseen '
+                                                        : '($unseenCount unseen) ',
+                                                    style: style,
+                                                  )
+                                                else if (newCount > 0)
+                                                  Text(
+                                                    collapsedChildIds.length ==
+                                                            newCount
+                                                        ? ' new '
+                                                        : '($newCount new) ',
+                                                    style: style,
+                                                  ),
                                               const Icon(
                                                 CupertinoIcons.chevron_down,
                                                 size: 18,
@@ -3250,6 +3300,9 @@ class ThreadPageState extends State<ThreadPage> {
                                           ),
                                         ),
                                       );
+                                      return dim
+                                          ? Opacity(opacity: 0.5, child: summary)
+                                          : summary;
                                     },
                                 filterHint: 'Search in thread',
                                 injectBelowScrollbar:
@@ -3392,6 +3445,8 @@ class ThreadPageState extends State<ThreadPage> {
                                         setState(() {
                                           _ensureAllTranslatedError = null;
                                         }),
+                                    archiveToLoad: _archiveToLoad,
+                                    loadFromArchive: loadFromArchive,
                                   ),
                                 ),
                               ),
@@ -3566,6 +3621,8 @@ class _ThreadPositionIndicator extends StatefulWidget {
   ensureAllTranslated;
   final (Object, StackTrace)? ensureAllTranslatedError;
   final VoidCallback resetEnsureAllTranslatedError;
+  final String? archiveToLoad;
+  final ValueChanged<String?> loadFromArchive;
 
   const _ThreadPositionIndicator({
     required this.persistentState,
@@ -3594,6 +3651,8 @@ class _ThreadPositionIndicator extends StatefulWidget {
     required this.ensureAllTranslated,
     required this.ensureAllTranslatedError,
     required this.resetEnsureAllTranslatedError,
+    required this.archiveToLoad,
+    required this.loadFromArchive,
     this.developerModeButtons = const [],
     Key? key,
   }) : super(key: key);
@@ -3698,7 +3757,8 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
     }
     // TODO: Determine if this needs to be / can be memoized
     for (int i = 0; i < items.length - 1; i++) {
-      if (widget.listController.isItemHidden(items[i]).isDuplicate) {
+      if (items[i].isSyntheticParentOfId != null ||
+          widget.listController.isItemHidden(items[i]).isDuplicate) {
         continue;
       }
       if (i > lastVisibleIndex) {
@@ -4118,7 +4178,6 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
     final postSortingMethod = widget.persistentState.effectivePostSortingMethod;
     final poll = widget.thread?.poll;
     final site = context.watch<ImageboardSite>();
-    final persistence = context.watch<Persistence>();
     return Stack(
       alignment: widget.reversed ? Alignment.bottomLeft : Alignment.bottomRight,
       children: [
@@ -4293,99 +4352,22 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                   applyTextScaling: true,
                                 ),
                                 () async {
-                                  final archives = await modalLoad(
+                                  final archiveName = await pickArchive(
                                     context,
-                                    'Scanning archives...',
-                                    (controller) async {
-                                      return (await Future.wait(
-                                        site.archives.map((s) async {
-                                          if (persistence
-                                              .browserState
-                                              .disabledArchiveNames
-                                              .contains(s.name)) {
-                                            return (s, <ImageboardBoard>[]);
-                                          }
-                                          return (
-                                            s,
-                                            await s.getBoards(
-                                              priority:
-                                                  RequestPriority.interactive,
-                                            ),
-                                          );
-                                        }),
-                                      )).tryMap((e) {
-                                        if (e.$2.any(
-                                          (b) =>
-                                              b.boardKey ==
-                                              widget.persistentState.boardKey,
-                                        )) {
-                                          return e.$1;
-                                        }
-                                        return null;
-                                      }).toList();
-                                    },
+                                    context.read<Imageboard>(),
+                                    [widget.persistentState.boardKey.s],
                                   );
-                                  if (!context.mounted) {
-                                    return;
-                                  }
-                                  if (archives.isEmpty) {
-                                    showToast(
-                                      context: context,
-                                      message: 'Board not archived',
-                                      icon: CupertinoIcons
-                                          .exclamationmark_triangle,
-                                    );
-                                    return;
-                                  }
-                                  final archive =
-                                      await showAdaptiveDialog<
-                                        ImageboardSiteArchive
-                                      >(
-                                        context: context,
-                                        barrierDismissible: true,
-                                        builder: (context) =>
-                                            AdaptiveAlertDialog(
-                                              title: const Text(
-                                                'Select archive',
-                                              ),
-                                              actions: [
-                                                for (final a in archives)
-                                                  AdaptiveDialogAction(
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          context,
-                                                          a,
-                                                        ),
-                                                    child: Text(a.name),
-                                                  ),
-                                                AdaptiveDialogAction(
-                                                  onPressed: () =>
-                                                      Navigator.pop(context),
-                                                  child: const Text('Cancel'),
-                                                ),
-                                              ],
-                                            ),
-                                      );
-                                  if (archive != null) {
-                                    // Dreadful hack
-                                    widget.persistentState.thread?.archiveName =
-                                        archive.name;
-                                    widget.persistentState.useArchive = true;
-                                    widget.persistentState.save();
-                                    setState(() {});
-                                    widget.listController.blockAndUpdate();
+                                  if (archiveName != null) {
+                                    widget.loadFromArchive(archiveName);
                                   }
                                 },
                               ),
-                            if (widget.persistentState.useArchive)
+                            if (widget.archiveToLoad != null)
                               (
                                 'Live',
                                 const ImageboardIcon(applyTextScaling: true),
                                 () {
-                                  widget.persistentState.useArchive = false;
-                                  widget.persistentState.save();
-                                  setState(() {});
-                                  widget.listController.blockAndUpdate();
+                                  widget.loadFromArchive(null);
                                 },
                               )
                             else
@@ -4397,10 +4379,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                                   applyTextScaling: true,
                                 ),
                                 () async {
-                                  widget.persistentState.useArchive = true;
-                                  widget.persistentState.save();
-                                  setState(() {});
-                                  widget.listController.blockAndUpdate();
+                                  widget.loadFromArchive('');
                                 },
                               ),
                           ],
@@ -5057,7 +5036,7 @@ class _ThreadPositionIndicatorState extends State<_ThreadPositionIndicator>
                     if (!widget.blocked &&
                         (widget.persistentState.thread?.archiveName != null ||
                             (widget.persistentState.thread?.isArchived ??
-                                widget.persistentState.useArchive)))
+                                widget.archiveToLoad != null)))
                       AnimatedBuilder(
                         animation: widget.listController.scrollController ??
                             const AlwaysStoppedAnimation(null),

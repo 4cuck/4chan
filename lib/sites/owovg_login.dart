@@ -15,6 +15,9 @@ class SiteOwoVgGoldLoginSystem extends ImageboardSiteLoginSystem {
 	SiteOwoVgGoldLoginSystem(this.parent);
 
 	@override
+	bool get admin => false;
+
+	@override
 	List<ImageboardSiteLoginField> getLoginFields() {
 		return const [
 			ImageboardSiteLoginField(

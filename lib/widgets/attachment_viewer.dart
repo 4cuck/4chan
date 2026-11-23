@@ -663,6 +663,7 @@ class AttachmentViewerController extends ChangeNotifier {
       final redirectUrls = <String, Uri>{};
       final archivedThread = await site.getThreadFromArchive(
         ThreadIdentifier(attachment.board, attachment.threadId!),
+        isArchived: true,
         customValidator: (thread) async {
           final newAttachment =
               thread.posts

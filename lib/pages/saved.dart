@@ -676,6 +676,7 @@ class _SavedPageState extends State<SavedPage> {
             } on ThreadNotFoundException {
               thread = await imageboard.site.getThreadFromArchive(
                 threadIdentifier,
+                isArchived: true,
                 priority: RequestPriority.interactive,
                 customValidator: (t) async {
                   if (_findMatchingAttachment(t, attachment) == null) {
@@ -704,7 +705,7 @@ class _SavedPageState extends State<SavedPage> {
               child: ThreadPage(
                 thread: thread.identifier,
                 initialPostId: postId,
-                initiallyUseArchive: thread.archiveName,
+                initiallyHintArchive: thread.archiveName,
                 boardSemanticId: -1,
               ),
             ),
@@ -1205,7 +1206,7 @@ class _SavedPageState extends State<SavedPage> {
                             forceShowInHistory: true,
                             hideThumbnails: options.hideThumbnails,
                             baseOptions: PostSpanRenderOptions(
-                              highlightPattern: options.queryPattern,
+                              highlightPatterns: options.highlightPatterns,
                             ),
                             dimReadThreads: watch.item.$1.zombie,
                             invertCountersIfUnread: true,
@@ -1516,7 +1517,7 @@ class _SavedPageState extends State<SavedPage> {
                             forceShowInHistory: true,
                             hideThumbnails: options.hideThumbnails,
                             baseOptions: PostSpanRenderOptions(
-                              highlightPattern: options.queryPattern,
+                              highlightPatterns: options.highlightPatterns,
                             ),
                             onThumbnailLoadError: (error, stackTrace) {
                               state.imageboard?.threadWatcher.fixBrokenThread(
@@ -1721,7 +1722,7 @@ class _SavedPageState extends State<SavedPage> {
                     showYourPostBorder: false,
                     hideThumbnails: options.hideThumbnails,
                     baseOptions: PostSpanRenderOptions(
-                      highlightPattern: options.queryPattern,
+                      highlightPatterns: options.highlightPatterns,
                     ),
                     onThumbnailLoadError: (e, st) async {
                       await item.imageboard.threadWatcher.fixBrokenThread(
@@ -1950,7 +1951,7 @@ class _SavedPageState extends State<SavedPage> {
                       showSiteIcon: true,
                       hideThumbnails: options.hideThumbnails,
                       baseOptions: PostSpanRenderOptions(
-                        highlightPattern: options.queryPattern,
+                        highlightPatterns: options.highlightPatterns,
                       ),
                       onThumbnailLoadError: (e, st) async {
                         final firstThread =
@@ -2725,6 +2726,7 @@ class MissingThreadsControls extends StatelessWidget {
             try {
               newThread = await thread.imageboard.site.getThreadFromArchive(
                 thread.item,
+                isArchived: true,
                 priority: RequestPriority.interactive,
               );
             } catch (e) {
@@ -2814,6 +2816,7 @@ class MissingAttachmentsControls extends StatelessWidget {
             final archivedThread = await attachment.imageboard.site
                 .getThreadFromArchive(
                   threadIdentifier,
+                  isArchived: true,
                   priority: RequestPriority.interactive,
                   customValidator: (thread) async {
                     final found = _findMatchingAttachment(
